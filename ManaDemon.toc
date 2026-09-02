@@ -1,0 +1,21 @@
+## Interface: 20506
+## Title: ManaDemon
+## Notes: Mana dynamics, time-to-OOM prediction and healing rank analysis for TBC healers
+## Author: NeRgY
+## Version: 0.2.0
+## SavedVariables: ManaDemonDB
+## OptionalDeps: ElvUI
+
+Core.lua
+Data\SpellData.lua
+Engine\RegenModel.lua
+Engine\SpendTracker.lua
+Engine\TTO.lua
+Engine\RankMath.lua
+UI\Widget.lua
+UI\Dashboard.lua
+UI\MinimapButton.lua
+UI\Advisor.lua
+UI\Summary.lua
+Integrations\ElvUIDatatext.lua
+Verify.lua
