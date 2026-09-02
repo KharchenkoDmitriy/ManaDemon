@@ -30,6 +30,12 @@ drink reminders).
 `/md` dashboard · `/md unlock` / `lock` / `reset` widget · `/md mute` · `/md drink` ·
 `/md rest` · `/md window N` · `/md verify` · `/md fsrtest` · `/md help`
 
+## Building
+
+`make release` asks which checkout to build (main or a git worktree) and writes
+`dist/<name>/ManaDemon/` plus a zip at the repo top level; `make release SRC=main` skips the
+prompt; `make install WOW_ADDONS="/path/to/Interface/AddOns"` also copies it into the game.
+
 ## First install
 
 The widget appears unlocked for 60 seconds — drag it where you want it, then `/md lock`.

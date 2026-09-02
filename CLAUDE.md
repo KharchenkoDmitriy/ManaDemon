@@ -33,7 +33,7 @@ Load order is defined by `ManaDemon.toc` and matters — later files assume earl
 | `UI/Summary.lua` | Fight tracking, combat-log overheal, history ring |
 | `Integrations/ElvUIDatatext.lua` | `DT:RegisterDatatext` glue; only active when ElvUI is installed (`## OptionalDeps: ElvUI`) |
 | `Verify.lua` | `/md verify` (static data vs live client, input snapshot) and `/md fsrtest` (FSR anchor logging) |
-| `release.sh` | Builds `dist/ManaDemon/` + versioned zip from the `.toc`'s own file list (dev files excluded by construction); optional arg/`WOW_ADDONS` env installs into the game's AddOns folder. `dist/` is gitignored |
+| `release.sh` / `Makefile` | `make release` builds from the main checkout or any git worktree (interactive menu, or `SRC=<name>`) into the **top-level** `dist/<name>/ManaDemon/` + versioned zip, from the `.toc`'s own file list (dev files excluded by construction). `make install WOW_ADDONS=<AddOns dir>` also copies it into the game. `dist/` is gitignored |
 
 Every file starts with `local _, MD = ...` to pull the shared addon table. `MD.db` is account-wide settings, `MD.cdb` is per-character.
 

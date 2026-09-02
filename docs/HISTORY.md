@@ -113,3 +113,11 @@ syntax-checked (python3 + luaparser). Release rebuilt as v0.3.0.
 
 **Still pending:** in-game `/md verify` + `/md fsrtest` output; `K_SIGMA=1.0` and
 `CV_STABLE=0.35` in `Engine/TTO.lua` are first guesses to tune from real fights.
+
+**Addendum (same day) — Makefile.** Author asked for `make release` that prompts for the
+source (main checkout or a worktree) and stacks output in the top-level `dist/` grouped
+per source. `release.sh` gained `--src NAME|DIR`, `--out`, `--install`, `--list`, `--menu`
+(repo root found via `git rev-parse --git-common-dir`, sources via `git worktree list`);
+output is `dist/<name>/ManaDemon/` + zip, `<name>` = `main` or the worktree folder. The
+`Makefile` wraps it (`release`, `install`, `list`, `clean`; `.RECIPEPREFIX = >`). Tested
+from the worktree: menu, `SRC=main`, `SRC=feedback-round-3`, unknown source errors out.
