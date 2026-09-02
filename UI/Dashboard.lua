@@ -59,17 +59,37 @@ local function ReleaseRows()
     wipe(usedRows)
 end
 
+-- ElvUI look: stock button textures stripped, flat 0.1-grey backdrop with a
+-- 1px black border, centred text; active tab = lighter backdrop + gold text.
+local FLAT = "Interface\\Buttons\\WHITE8x8"
+local FLAT_BACKDROP = { bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 }
+local TAB_BG, TAB_BG_HOVER, TAB_BG_ACTIVE = 0.1, 0.18, 0.22
+
 local function TabButton(parent, label, width, onClick)
-    local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
     btn:SetSize(width, 22)
-    btn:SetText(label)
+    btn:SetBackdrop(FLAT_BACKDROP)
+    btn:SetBackdropColor(TAB_BG, TAB_BG, TAB_BG, 1)
+    btn:SetBackdropBorderColor(0, 0, 0, 1)
+    btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    btn.text:SetPoint("CENTER")
+    btn.text:SetText(label)
     btn.label = label
     btn:SetScript("OnClick", onClick)
+    btn:SetScript("OnEnter", function(self)
+        if not self.active then self:SetBackdropColor(TAB_BG_HOVER, TAB_BG_HOVER, TAB_BG_HOVER, 1) end
+    end)
+    btn:SetScript("OnLeave", function(self)
+        if not self.active then self:SetBackdropColor(TAB_BG, TAB_BG, TAB_BG, 1) end
+    end)
     return btn
 end
 
 local function SetTabActive(btn, active)
-    btn:SetText(active and ("|cffffcc00" .. btn.label .. "|r") or btn.label)
+    btn.active = active
+    local bg = active and TAB_BG_ACTIVE or TAB_BG
+    btn:SetBackdropColor(bg, bg, bg, 1)
+    btn.text:SetText(active and ("|cffffcc00" .. btn.label .. "|r") or btn.label)
 end
 
 --------------------------------------------------------------------------------
@@ -159,7 +179,7 @@ Refresh = function()
         else
             c = "|cffffffff"
         end
-        row.cells.rank:SetText(c .. "R" .. r.rank .. (r.suggested and " *" or "") .. "|r")
+        row.cells.rank:SetText(c .. (r.rankLabel or ("R" .. r.rank)) .. (r.suggested and " *" or "") .. "|r")
         row.cells.level:SetText(c .. r.level .. "|r")
         row.cells.cost:SetText(c .. Fmt(r.cost) .. "|r")
         row.cells.heal:SetText(c .. Fmt(r.heal) .. "|r")
@@ -169,6 +189,8 @@ Refresh = function()
         local note
         if not r.known then
             note = "|cff555555not learned|r"
+        elseif r.virtual then
+            note = "|cff888888rolling stack (6 ticks, no bloom)|r"
         elseif r.suggested and r.isMax then
             note = "|cffffcc00efficient + max rank|r"
         elseif r.suggested then
@@ -239,18 +261,19 @@ local function BuildSettingsPane()
             if MD.UpdateMinimapButton then MD:UpdateMinimapButton() end
         end)
 
-    local resetBtn = CreateFrame("Button", nil, settingsPane, "UIPanelButtonTemplate")
-    resetBtn:SetSize(170, 22)
-    resetBtn:SetPoint("TOPLEFT", settingsPane, "TOPLEFT", 12, -134)
-    resetBtn:SetText("Reset widget position")
-    resetBtn:SetScript("OnClick", function()
+    AddCheckbox("ManaDemonCBRest", "Show 'rest' next to the OOM clock (time to full if you stop casting)", -126,
+        function() return MD.db.showRest end,
+        function(v) MD.db.showRest = v end)
+
+    local resetBtn = TabButton(settingsPane, "Reset widget position", 170, function()
         MD.db.pos = { "CENTER", "CENTER", 0, -140 }
         MD:ApplyWidgetPosition()
         MD:Print("widget position reset.")
     end)
+    resetBtn:SetPoint("TOPLEFT", settingsPane, "TOPLEFT", 12, -164)
 
     local slider = CreateFrame("Slider", "ManaDemonSliderHalfLife", settingsPane, "OptionsSliderTemplate")
-    slider:SetPoint("TOPLEFT", settingsPane, "TOPLEFT", 14, -190)
+    slider:SetPoint("TOPLEFT", settingsPane, "TOPLEFT", 14, -220)
     slider:SetWidth(220)
     slider:SetMinMaxValues(5, 60)
     slider:SetValueStep(1)
@@ -269,7 +292,7 @@ local function BuildSettingsPane()
     end)
 
     local hint = settingsPane:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    hint:SetPoint("TOPLEFT", settingsPane, "TOPLEFT", 12, -240)
+    hint:SetPoint("TOPLEFT", settingsPane, "TOPLEFT", 12, -270)
     hint:SetJustifyH("LEFT")
     hint:SetWidth(WIDTH - 80)
     hint:SetText("|cff888888Shorter half-life reacts faster to your casting, longer is steadier.\n" ..
@@ -284,12 +307,10 @@ local function CreateDashboard()
     frame = CreateFrame("Frame", "ManaDemonDashboard", UIParent, "BackdropTemplate")
     frame:SetSize(WIDTH, HEIGHT)
     frame:SetPoint("CENTER")
-    frame:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile = true, tileSize = 32, edgeSize = 32,
-        insets = { left = 11, right = 11, top = 11, bottom = 11 },
-    })
+    -- ElvUI-style flat panel: near-opaque dark backdrop, 1px black border.
+    frame:SetBackdrop(FLAT_BACKDROP)
+    frame:SetBackdropColor(0.06, 0.06, 0.06, 0.95)
+    frame:SetBackdropBorderColor(0, 0, 0, 1)
     frame:SetMovable(true)
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
@@ -303,8 +324,8 @@ local function CreateDashboard()
     title:SetPoint("TOP", frame, "TOP", 0, -14)
     title:SetText("|cff9966ffManaDemon|r")
 
-    local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -6)
+    local close = TabButton(frame, "x", 22, function() frame:Hide() end)
+    close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
 
     -- class tab row: the player's class (only Druid has rank data) + Settings
     local classLabel = MD.player.isDruid and "Druid"

@@ -78,7 +78,7 @@ MD:On("PLAYER_REGEN_ENABLED", function()
         parts[#parts + 1] = "|cffff4444OOM at " .. FmtClock(f.oomAt) .. "|r"
     end
 
-    local summary = table.concat(parts, " | ") -- ASCII only; default WoW fonts lack many glyphs
+    local summary = table.concat(parts, " || ") -- ASCII only; default WoW fonts lack many glyphs
     MD:Print(summary)
 
     MD.fightHistory[#MD.fightHistory + 1] = {

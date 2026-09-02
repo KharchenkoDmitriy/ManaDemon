@@ -6,7 +6,7 @@ Guidance for Claude Code when working in this repository.
 
 **ManaDemon** is a World of Warcraft addon for **TBC Anniversary realms** (TBC Classic client, `## Interface: 20506`, Lua 5.1). It helps healers manage mana:
 
-1. **Time-to-OOM (TTO)** — a live projection of when mana hits zero, shown as a one-line readout (`OOM 1:24 ↓`) in a floating widget and/or an ElvUI datatext. Class-generic.
+1. **Time-to-OOM (TTO)** — a live projection of when mana hits zero, shown as a one-line clock (`OOM 1:20 v  rest 2:10`; `FULL 0:45` when regen wins) in a floating widget and/or an ElvUI datatext (plus a second "current mp5" datatext). Class-generic. Rendered strings are **ASCII only** (WoW fonts have no arrow/infinity glyphs) and never contain a bare `|`.
 2. **Rank dashboard** (`/md`) — per-rank mana efficiency (HPM), heal amount and HPS for the druid healing spells, with the player's current +healing, talents and TBC downranking penalties applied. **Druid-only in v1.**
 3. **Advisor** — push alerts at decision moments: Innervate/mana-potion timing (fire when the deficit first exceeds the restored amount), gear-change "efficient rank shifted, rebind?" toast, and an out-of-combat drink reminder.
 4. **End-of-combat summary** — one chat line per fight (net mp5, overheal %, spirit-regen-realized %, max-rank cast %, OOM moment). Last 5 fights kept in memory only.
@@ -23,9 +23,9 @@ Load order is defined by `ManaDemon.toc` and matters — later files assume earl
 |---|---|
 | `Core.lua` | Namespace, SavedVariables (`ManaDemonDB`), event dispatcher (`MD:On`), internal pub/sub (`MD:RegisterCallback`/`MD:Fire`), master 0.5s ticker (`MD:OnTick`), profile + talent scan, slash commands |
 | `Data/SpellData.lua` | **Static** druid spell table (spellID → rank/level/cost/cast/heal) + cost modifiers (Moonglow, Tranquil Spirit, Tree of Life) + known-rank index. The 2.5.x client does not reliably expose per-rank costs; this table is the source of truth |
-| `Engine/RegenModel.lua` | Five-second-rule state machine + regen rates straight from `GetManaRegen()` (no algebra — see DECISIONS) |
-| `Engine/SpendTracker.lua` | EWMA spend-rate estimator from `UNIT_SPELLCAST_SUCCEEDED`, 5s-bucket window stats, pull-time seed from fight history |
-| `Engine/TTO.lua` | TTO computation, trend arrow, shared display string (`MD:GetDisplayString`) used by both UI surfaces |
+| `Engine/RegenModel.lua` | Five-second-rule state machine + regen rates straight from `GetManaRegen()` (no algebra — see DECISIONS); `RM:Effective()` weights the two rates by the measured FSR duty cycle for projections; out-of-combat observed mana-gain rate (drinking) |
+| `Engine/SpendTracker.lua` | EWMA spend-rate estimator + its one-sigma spread (`ST:Estimate()` → rate, sigma, casts) from `UNIT_SPELLCAST_SUCCEEDED`, pull-time seed from fight history |
+| `Engine/TTO.lua` | Raw state (`MD:GetManaState()`: mode oom/hold/full/warmup/ooc, tto/ttf/bound/rest) computed once per tick, plus the render-only display layer (sigma-derived digit precision, value/mode latch, arrow from the shown value) behind `MD:GetDisplayString` |
 | `Engine/RankMath.lua` | Coefficients, downrank/sub-20 penalties, talent multipliers, crit weighting, Pareto filter, suggested rank |
 | `UI/Widget.lua` | Floating one-liner + 5SR underline; **all** show/hide goes through `MD:UpdateVisibility()` |
 | `UI/Dashboard.lua` | `/md` rank dashboard frame |

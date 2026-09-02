@@ -1,7 +1,9 @@
--- Floating one-line widget: "OOM 1:24 ↓" plus a 2px five-second-rule underline
--- that fills over 5s after each mana spend (full = spirit regen running).
--- All show/hide decisions live in MD:UpdateVisibility() — nothing else may
--- call Show/Hide on this frame.
+-- Floating one-line widget: "OOM 1:20 v  rest 2:10" plus a 2px five-second-
+-- rule underline that fills over 5s after each mana spend (full = spirit
+-- regen running). Text is LEFT-anchored so the "OOM" label never slides when
+-- the digit count or the rest segment changes; the underline follows the
+-- text width. All show/hide decisions live in MD:UpdateVisibility() —
+-- nothing else may call Show/Hide on this frame.
 local _, MD = ...
 
 local widget, text, underline
@@ -11,7 +13,7 @@ local flashedThisFight = false
 
 local function CreateWidget()
     widget = CreateFrame("Frame", "ManaDemonWidget", UIParent)
-    widget:SetSize(110, 22)
+    widget:SetSize(190, 22)
     widget:SetFrameStrata("MEDIUM")
     widget:SetMovable(true)
     widget:SetClampedToScreen(true)
@@ -20,12 +22,11 @@ local function CreateWidget()
 
     text = widget:CreateFontString(nil, "OVERLAY")
     text:SetFont(STANDARD_TEXT_FONT, 14, "OUTLINE")
-    text:SetPoint("CENTER", widget, "CENTER", 0, 2)
+    text:SetPoint("LEFT", widget, "LEFT", 6, 2)
 
     underline = CreateFrame("StatusBar", nil, widget)
-    underline:SetHeight(2)
-    underline:SetPoint("BOTTOMLEFT", widget, "BOTTOMLEFT", 8, 0)
-    underline:SetPoint("BOTTOMRIGHT", widget, "BOTTOMRIGHT", -8, 0)
+    underline:SetSize(60, 2)
+    underline:SetPoint("BOTTOMLEFT", widget, "BOTTOMLEFT", 6, 0)
     underline:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
     underline:SetMinMaxValues(0, 5)
 
@@ -53,22 +54,39 @@ local function CreateWidget()
     widget:Hide()
     MD:ApplyWidgetPosition()
 
-    -- Rendering only; the model is event/tick driven elsewhere.
-    local acc = 0
+    -- Rendering only; the model is event/tick driven elsewhere. The text is
+    -- rebuilt 4x/s (the latch in TTO.lua means it can only change every 1s
+    -- anyway); the underline keeps a 10 Hz refresh so it fills smoothly.
+    local acc, textAcc = 0, 1
     widget:SetScript("OnUpdate", function(_, elapsed)
         acc = acc + elapsed
         if acc < 0.1 then return end
+        textAcc = textAcc + acc
         acc = 0
 
         if not MD.db.locked or GetTime() < forceUntil then
-            text:SetText("|cff9966ffManaDemon|r — drag me")
+            text:SetText("|cff9966ffManaDemon|r - drag me")
+            underline:SetWidth(math.max(60, text:GetStringWidth()))
             underline:SetValue(5)
             underline:SetStatusBarColor(0.6, 0.4, 1)
             return
         end
 
-        local str = MD:GetDisplayString()
-        text:SetText(str ~= "" and str or "OOM |cff999999--|r")
+        if textAcc >= 0.25 then
+            textAcc = 0
+            local str = MD:GetDisplayString()
+            text:SetText(str ~= "" and str or "|cff999999OOM ...|r")
+            underline:SetWidth(math.max(60, text:GetStringWidth()))
+
+            -- one attention event per fight: first time TTO crosses below 30s
+            if not flashedThisFight then
+                local s = MD:GetManaState()
+                if s and s.mode == "oom" and s.tto and s.tto < 30 and s.stable then
+                    flashedThisFight = true
+                    widget.pulse:Play()
+                end
+            end
+        end
 
         local remaining = MD.Regen:FSRRemaining()
         underline:SetValue(5 - remaining)
@@ -76,15 +94,6 @@ local function CreateWidget()
             underline:SetStatusBarColor(1, 0.67, 0.2)   -- in FSR: amber, filling
         else
             underline:SetStatusBarColor(0.2, 1, 0.4)    -- spirit regen running
-        end
-
-        -- one attention event per fight: first time TTO crosses below 30s
-        if not flashedThisFight then
-            local s = MD:GetManaState()
-            if s and s.tto and s.tto < 30 and s.stable then
-                flashedThisFight = true
-                widget.pulse:Play()
-            end
         end
     end)
 end

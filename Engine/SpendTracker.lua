@@ -64,27 +64,49 @@ function ST:Reset()
 end
 
 --------------------------------------------------------------------------------
--- Rate: sum of exp-decayed cast costs times lambda = expected mana/sec.
+-- Estimate: rate = lambda * sum(w_i * c_i) — expected mana/sec — plus its
+-- one-sigma spread, sigma = lambda * sqrt(sum(w_i^2 * c_i^2)), the weighted
+-- compound-Poisson standard deviation of that estimate. For n equal-cost casts
+-- sigma/rate = 1/sqrt(n) exactly, so the pessimistic edge (rate + K*sigma in
+-- TTO.lua) is in real standard-deviation units and is continuous in the data
+-- (the old max(EWMA, p75-of-buckets) kinked whenever the argmax switched).
+-- n = priced casts in the last 30s; the warm-up gate uses it because sigma
+-- means nothing below ~3 casts. Real casting is autocorrelated, so sigma
+-- slightly understates the truth — K and the CV threshold are first guesses.
 --------------------------------------------------------------------------------
-function ST:Rate()
+function ST:Estimate()
     local now = GetTime()
     local lambda = math.log(2) / (MD.db and MD.db.halfLife or 15)
-    local sum = 0
+    local sum, sumSq, n = 0, 0, 0
     for i = 1, #events do
-        sum = sum + events[i][2] * math.exp(-lambda * (now - events[i][1]))
+        local age, c = now - events[i][1], events[i][2]
+        local w = math.exp(-lambda * age)
+        sum = sum + w * c
+        sumSq = sumSq + w * w * c * c
+        if age < 30 then n = n + 1 end
     end
     local rate = sum * lambda
+    local sigma = math.sqrt(sumSq) * lambda
     if seed then
         local seedLambda = math.log(2) / SEED_HALFLIFE
         rate = math.max(rate, seed.rate * math.exp(-seedLambda * (now - seed.t)))
     end
+    return rate, sigma, n
+end
+
+function ST:Rate()
+    local rate = ST:Estimate()
     return rate
+end
+
+-- True while the pull-time seed still carries weight (~3 half-lives).
+function ST:Seeded()
+    return seed ~= nil and (GetTime() - seed.t) < 3 * SEED_HALFLIFE
 end
 
 --------------------------------------------------------------------------------
 -- Window stats: last 30s in six 5s buckets → median / p25 / p75 bucket rates.
--- The p75 (pessimistic) edge drives the displayed TTO; the IQR drives the
--- stability flag (the "~" in the readout).
+-- No longer feeds the TTO (sigma does); kept for the tooltip/dashboard.
 --------------------------------------------------------------------------------
 function ST:WindowStats()
     local now = GetTime()

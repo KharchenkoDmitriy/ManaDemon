@@ -104,14 +104,36 @@ function RankMath:Compute()
                         known = SD.knownSet[id] or false,
                         isMax = SD.maxRank[family] == id,
                     }
+
+                    -- Rolling Lifebloom stacks: each refresh cast is paid for
+                    -- with 6 ticks at the stack's multiplier (one tick is lost
+                    -- to the refresh) and never a bloom (the stack is renewed
+                    -- before it expires). Informational rows: excluded from
+                    -- Pareto / suggestion because they are a different activity
+                    -- from a single application.
+                    if info.type == "lifebloom" then
+                        local tick = (s.hotTotal + bonus * SD.lifebloomHotCoef * pen * empRejuv) * goN / 7
+                        for stacks = 2, 3 do
+                            local h = tick * 6 * stacks
+                            rows[#rows + 1] = {
+                                id = id, rank = s.rank, level = s.level,
+                                rankLabel = "x" .. stacks, virtual = true,
+                                cost = cost, cast = castTime, heal = h,
+                                hpm = cost > 0 and h / cost or 0,
+                                hps = h / castTime,
+                                known = SD.knownSet[id] or false,
+                                isMax = false,
+                            }
+                        end
+                    end
                 end
             end
 
-            -- Pareto dominance on (HPM, HPS) — among KNOWN ranks only.
+            -- Pareto dominance on (HPM, HPS) — among KNOWN, real ranks only.
             for i = 1, #rows do
-                if rows[i].known then
+                if rows[i].known and not rows[i].virtual then
                     for j = 1, #rows do
-                        if i ~= j and rows[j].known
+                        if i ~= j and rows[j].known and not rows[j].virtual
                             and rows[j].hpm >= rows[i].hpm and rows[j].hps >= rows[i].hps
                             and (rows[j].hpm > rows[i].hpm or rows[j].hps > rows[i].hps) then
                             rows[i].dominated = true
@@ -131,7 +153,7 @@ function RankMath:Compute()
             local suggested
             for i = 1, #rows do
                 local r = rows[i]
-                if r.known and not r.dominated and maxRow and r.heal >= 0.4 * maxRow.heal then
+                if r.known and not r.virtual and not r.dominated and maxRow and r.heal >= 0.4 * maxRow.heal then
                     if not suggested or r.hpm > suggested.hpm then
                         suggested = r
                     end

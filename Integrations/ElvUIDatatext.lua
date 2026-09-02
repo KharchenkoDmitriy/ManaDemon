@@ -1,6 +1,11 @@
--- ElvUI datatext: same display string as the floating widget, themed with the
--- user's ElvUI value colour. Loads only when ElvUI is present (the .toc lists
--- ElvUI in OptionalDeps so it always loads first when installed).
+-- ElvUI datatexts, themed with the user's ElvUI value colour. Loads only when
+-- ElvUI is present (the .toc lists ElvUI in OptionalDeps so it always loads
+-- first when installed). Two datatexts:
+--   "ManaDemon"       — the OOM readout, same display string as the widget
+--   "ManaDemon Regen" — CURRENT mana regen (casting regen inside the
+--                       five-second rule, full regen outside); ElvUI's stock
+--                       regen datatext only ever shows the out-of-casting value
+-- Both share the tooltip and click behaviour.
 local _, MD = ...
 
 if not ElvUI then return end
@@ -11,14 +16,13 @@ if not DT then return end
 
 local hex = nil -- "|cffxxxxxx" from ApplySettings, nil until themed
 
-local function OnUpdate(panel, elapsed)
-    -- ElvUI fires the first OnUpdate with elapsed = 20000; clamp it.
+-- ElvUI fires the first OnUpdate with elapsed = 20000; clamp it, then throttle.
+local function Throttled(panel, elapsed)
     if elapsed > 100 then elapsed = 0.25 end
     panel.mdElapsed = (panel.mdElapsed or 0) + elapsed
-    if panel.mdElapsed < 0.25 then return end
+    if panel.mdElapsed < 0.25 then return false end
     panel.mdElapsed = 0
-    local str = MD.GetDisplayString and MD:GetDisplayString(hex) or ""
-    panel.text:SetText(str ~= "" and str or "ManaDemon")
+    return true
 end
 
 local function OnClick()
@@ -30,7 +34,7 @@ local function OnClick()
     end
 end
 
-local function OnEnter(panel)
+local function OnEnter()
     DT.tooltip:ClearLines()
     DT.tooltip:AddLine("ManaDemon")
 
@@ -38,9 +42,24 @@ local function OnEnter(panel)
     if s then
         local RM = MD.Regen
         local spiritPerSec, mp5Gear = RM:Components()
+        if s.tto then
+            DT.tooltip:AddDoubleLine("Time to OOM (raw)",
+                string.format("%ds +- %ds", s.tto, s.sigmaT or 0), 1, 1, 1, 1, 1, 1)
+        elseif s.ttf then
+            DT.tooltip:AddDoubleLine("Time to full (raw)", string.format("%ds", s.ttf), 1, 1, 1, 1, 1, 1)
+        elseif s.mode == "hold" then
+            DT.tooltip:AddDoubleLine("Net rate within noise",
+                s.bound and string.format("OOM no sooner than %ds", s.bound) or "sustainable", 1, 1, 1, 1, 1, 1)
+        end
+        if s.inCombat and s.rest then
+            DT.tooltip:AddDoubleLine("Full if you stop casting", string.format("%ds", s.rest), 1, 1, 1, 1, 1, 1)
+        end
         DT.tooltip:AddDoubleLine("Net rate (pessimistic)",
-            string.format("%+d mana/s", -(s.pessimistic - s.regen)), 1, 1, 1, 1, 1, 1)
-        DT.tooltip:AddDoubleLine("Spending", string.format("%d mana/s", s.spend), 1, 1, 1, 1, 1, 1)
+            string.format("%+d mana/s", -s.net), 1, 1, 1, 1, 1, 1)
+        DT.tooltip:AddDoubleLine("Spending",
+            string.format("%d +- %d mana/s (%d casts, CV %.2f)", s.spend, s.sigma, s.casts, s.cv), 1, 1, 1, 1, 1, 1)
+        DT.tooltip:AddDoubleLine("Regen now / projected",
+            string.format("%d / %d mana/s  (5SR %d%% of time)", s.regenNow, s.regen, s.duty * 100), 1, 1, 1, 1, 1, 1)
         DT.tooltip:AddDoubleLine("Regen out of 5SR / casting",
             string.format("%d / %d mana/s", RM.base, RM.casting), 1, 1, 1, 1, 1, 1)
         DT.tooltip:AddDoubleLine("Spirit / gear mp5",
@@ -66,4 +85,31 @@ local function ApplySettings(_, valueHex)
     hex = valueHex and ("|cff" .. valueHex:gsub("|cff", "")) or nil
 end
 
-DT:RegisterDatatext("ManaDemon", nil, nil, nil, OnUpdate, OnClick, OnEnter, nil, "ManaDemon", nil, ApplySettings)
+--------------------------------------------------------------------------------
+-- OOM datatext
+--------------------------------------------------------------------------------
+local function OOMUpdate(panel, elapsed)
+    if not Throttled(panel, elapsed) then return end
+    local str = MD.GetDisplayString and MD:GetDisplayString(hex) or ""
+    panel.text:SetText(str ~= "" and str or "ManaDemon")
+end
+
+DT:RegisterDatatext("ManaDemon", nil, nil, nil, OOMUpdate, OnClick, OnEnter, nil, "ManaDemon", nil, ApplySettings)
+
+--------------------------------------------------------------------------------
+-- Current-regen datatext: "Regen: 123" (mp5), "(5SR)" while casting regen
+-- is the one in effect.
+--------------------------------------------------------------------------------
+local function RegenUpdate(panel, elapsed)
+    if not Throttled(panel, elapsed) then return end
+    local RM = MD.Regen
+    if not RM or not MD.player.usesMana then
+        panel.text:SetText("Regen: " .. (hex or "|cffffffff") .. "--|r")
+        return
+    end
+    local mp5 = math.floor(RM:Current() * 5 + 0.5)
+    local suffix = RM:InFSR() and " |cffffaa33(5SR)|r" or ""
+    panel.text:SetText("Regen: " .. (hex or "|cffffffff") .. mp5 .. "|r" .. suffix)
+end
+
+DT:RegisterDatatext("ManaDemon Regen", nil, nil, nil, RegenUpdate, OnClick, OnEnter, nil, "ManaDemon Regen", nil, ApplySettings)

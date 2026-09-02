@@ -27,6 +27,36 @@ function RM:Current()
     return RM:InFSR() and RM.casting or RM.base
 end
 
+--------------------------------------------------------------------------------
+-- Projection regen: the two GetManaRegen() rates weighted by the measured
+-- five-second-rule duty cycle (EWMA of "inside the FSR", half-life 20s).
+-- RM:Current() is a point sample of a two-state process; over a 30–200s
+-- horizon the healer will be in the FSR some FRACTION of the time, and using
+-- the instantaneous state made the TTO jump every time a casting gap crossed
+-- 5s. Both rates are still consumed raw — nothing is decomposed. Reset to 1
+-- (pessimistic) at the pull. RM:Current() keeps driving the underline.
+--------------------------------------------------------------------------------
+local duty = 0
+local DUTY_HALFLIFE = 20
+
+-- Out of combat, drink/food are periodic energize effects that GetManaRegen()
+-- does not report, so the FULL clock uses the observed mana gain rate instead
+-- (EWMA, half-life 5s — drink ticks land every 2s; needs >= 2 observed gains).
+local observedFill, fillGains, gainAcc = 0, 0, 0
+local FILL_HALFLIFE = 5
+
+function RM:Effective()
+    return duty * RM.casting + (1 - duty) * RM.base
+end
+
+function RM:Duty()
+    return duty
+end
+
+function RM:ObservedFill()
+    return fillGains >= 2 and observedFill or 0
+end
+
 function RM:Refresh()
     if not GetManaRegen then return end
     local base, casting = GetManaRegen("player")
@@ -64,6 +94,9 @@ MD:On("UNIT_POWER_UPDATE", function(unit, powerType)
     if lastMana and cur < lastMana then
         RM.fsrEnd = GetTime() + 5
         MD:Fire("MANA_SPENT", lastMana - cur)
+    elseif lastMana and cur > lastMana and not combat.active then
+        gainAcc = gainAcc + (cur - lastMana)
+        fillGains = fillGains + 1
     end
     lastMana = cur
 end)
@@ -80,19 +113,27 @@ MD:On("PLAYER_REGEN_DISABLED", function()
     combat.active = true
     combat.total = 0
     combat.inFSR = 0
+    duty = 1
+    observedFill, fillGains, gainAcc = 0, 0, 0
 end)
 
 MD:On("PLAYER_REGEN_ENABLED", function()
     combat.active = false
+    observedFill, fillGains, gainAcc = 0, 0, 0
 end)
 
 MD:OnTick(function(dt)
     RM:Refresh() -- cheap; keeps rates fresh through auras/procs mid-combat
+    local inFSR = RM:InFSR()
+    duty = duty + ((inFSR and 1 or 0) - duty) * (1 - 0.5 ^ (dt / DUTY_HALFLIFE))
     if combat.active then
         combat.total = combat.total + dt
-        if RM:InFSR() then
+        if inFSR then
             combat.inFSR = combat.inFSR + dt
         end
+    else
+        observedFill = observedFill + (gainAcc / dt - observedFill) * (1 - 0.5 ^ (dt / FILL_HALFLIFE))
+        gainAcc = 0
     end
 end)
 

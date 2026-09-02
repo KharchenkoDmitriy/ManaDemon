@@ -85,6 +85,12 @@ function MD:RunVerify()
         local base, casting = GetManaRegen("player")
         MD:Print(string.format("GetManaRegen: base %.2f/s, casting %.2f/s (x5 = %d / %d mp5)",
             base or 0, casting or 0, (base or 0) * 5, (casting or 0) * 5))
+        -- Premise check for the out-of-combat FULL clock: drink/food are
+        -- assumed NOT to be reported by GetManaRegen. Run once sitting with a
+        -- drink up and once without and compare the two base values.
+        local drinking = MD:HasBuff("Drink") or MD:HasBuff("Refreshment") or MD:HasBuff("Food & Drink")
+        MD:Print(string.format("drink buff up: %s; observed OOC fill %.2f/s (FSR duty %d%%)",
+            drinking and "yes" or "no", MD.Regen:ObservedFill(), MD.Regen:Duty() * 100))
     end
     local spirit = UnitStat("player", 5) or 0
     local intellect = UnitStat("player", 4) or 0

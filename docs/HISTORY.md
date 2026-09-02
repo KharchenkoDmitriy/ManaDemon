@@ -75,3 +75,41 @@ builds `dist/ManaDemon/` + `dist/ManaDemon-<version>.zip` from the `.toc`'s file
 optionally installs into an AddOns folder passed as arg or `WOW_ADDONS` env var.
 Tested: 14 files packaged. `dist/` gitignored. The author's WoW install path is not
 yet known (auto-detection through /mnt was too slow) — ask for it once and record it here.
+
+## 2026-09-02 — Feedback round 3 (v0.3.0): OOM+FULL clock, estimator rework, dashboard polish
+
+**Git:** the harness required an isolated worktree for edits, which needs a commit to
+branch from, so the previously uncommitted v0.2.0 state was committed as the initial
+snapshot on `master` (`f2939b4`). This round's work is on branch
+`worktree-feedback-round-3` (worktree `.claude/worktrees/feedback-round-3`, gitignored).
+Merge it into `master` to pick it up: `git merge worktree-feedback-round-3`.
+
+**Author feedback and what was done:**
+1. *Second ElvUI datatext for current mana regen* — `ManaDemon Regen`: `Regen: 123` (mp5
+   from `RM:Current()`, so casting regen inside the 5SR, `(5SR)` marker), same tooltip
+   and click handling as the OOM datatext (shared code).
+2. *OOM and FULL time at the same place* — debated (A/B + rebuttal, Fable judge; full
+   table appended to `docs/DECISIONS.md`). Shipped: one clock whose label carries the
+   sign (`OOM 1:20 v` / `FULL 0:45`), grey `rest 2:10` secondary (time to full if you
+   stop casting), `OOM >4:00 =` when net rate is within noise, `>10m` cap, warm-up
+   `OOM ...`, out of combat `FULL 1:12` / `FULL`. `/md rest` + Settings checkbox.
+3. *Estimation jumps* — root causes were the p75-of-6-buckets pessimism (re-sorts every
+   5s) and the binary FSR regen flip. Now: `rate + 1 sigma` from the EWMA loop
+   (`ST:Estimate()`), FSR-duty-weighted regen (`RM:Effective()`), digit precision from
+   sigma, value/mode latch (bad news instant, good news 2 ticks), arrow from the shown
+   value. Out of combat the FULL clock uses observed mana gain so drinking is right.
+4. *"Not learned" on ranks below a known one* — `SD:BuildKnown()` now finds the highest
+   detectable rank per family and backfills every lower rank (they are prerequisites).
+5. *Dashboard transparency* — flat near-opaque backdrop (0.06 grey, 95%).
+6. *ElvUI-style tabs* — stock button textures gone; flat 0.1-grey backdrops, 1px black
+   border, gold text + lighter backdrop on the active tab; same style for close/reset.
+   No ElvUI dependency (values taken from ElvUI's defaults: backdrop 0.1, border black).
+7. *Lifebloom x2 / x3* — virtual rows under Lifebloom: per refresh cast 6 ticks at the
+   stack multiplier, no bloom; excluded from Pareto/suggestion (informational).
+
+Also: `MD.version` now read from the .toc; `/md verify` prints drink-buff state and the
+observed OOC fill next to `GetManaRegen` (premise check for item 3). All 13 Lua files
+syntax-checked (python3 + luaparser). Release rebuilt as v0.3.0.
+
+**Still pending:** in-game `/md verify` + `/md fsrtest` output; `K_SIGMA=1.0` and
+`CV_STABLE=0.35` in `Engine/TTO.lua` are first guesses to tune from real fights.

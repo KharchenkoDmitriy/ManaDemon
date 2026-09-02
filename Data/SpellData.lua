@@ -152,19 +152,22 @@ function SD:BuildKnown()
     wipe(SD.known)
     wipe(SD.knownSet)
     wipe(SD.maxRank)
-    for id, s in pairs(SD.spells) do
-        if IsKnown(id) then
-            SD.knownSet[id] = true
-            SD.known[s.family] = SD.known[s.family] or {}
-            local list = SD.known[s.family]
-            list[#list + 1] = id
+    -- Ranks are trainer prerequisites: knowing rank N implies every rank
+    -- below it. The anniversary client's IsSpellKnown misses lower ranks,
+    -- so find the highest detectable rank per family and backfill.
+    for family, list in pairs(SD.all) do
+        local top = 0
+        for i = 1, #list do
+            if IsKnown(list[i]) then top = i end
         end
-    end
-    for family, list in pairs(SD.known) do
-        table.sort(list, function(a, b)
-            return SD.spells[a].rank < SD.spells[b].rank
-        end)
-        SD.maxRank[family] = list[#list]
+        if top > 0 then
+            SD.known[family] = {}
+            for i = 1, top do
+                SD.knownSet[list[i]] = true
+                SD.known[family][i] = list[i]
+            end
+            SD.maxRank[family] = list[top]
+        end
     end
     MD:Fire("SPELLS_REBUILT")
 end

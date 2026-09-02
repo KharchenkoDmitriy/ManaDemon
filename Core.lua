@@ -4,7 +4,10 @@
 local ADDON_NAME, MD = ...
 _G.ManaDemon = MD
 
-MD.version = "0.1.0"
+do
+    local ok, v = pcall(GetAddOnMetadata, ADDON_NAME, "Version")
+    MD.version = (ok and v) or "dev"
+end
 
 local DEFAULTS = {
     pos = { "CENTER", "CENTER", 0, -140 }, -- point, relativePoint, x, y
@@ -12,6 +15,7 @@ local DEFAULTS = {
     muted = false,
     halfLife = 15,        -- seconds; half-life of the spend-rate EWMA
     drinkReminder = true,
+    showRest = true,      -- "rest 2:10" segment: time to full if you stop casting
     firstRun = true,
     minimap = { hide = false, angle = 220 },
     char = {},
@@ -199,6 +203,7 @@ local function ShowHelp()
     MD:Print("  |cffffff00/md reset|r — reset the widget position")
     MD:Print("  |cffffff00/md mute|r — toggle alert messages")
     MD:Print("  |cffffff00/md drink|r — toggle the drink reminder")
+    MD:Print("  |cffffff00/md rest|r — toggle the 'rest' segment (time to full if you stop casting)")
     MD:Print("  |cffffff00/md window N|r — spend estimator half-life in seconds (default 15)")
     MD:Print("  |cffffff00/md verify|r — check static spell data against the live client")
     MD:Print("  |cffffff00/md fsrtest|r — log mana ticks for 15s (five-second-rule anchor test)")
@@ -231,6 +236,9 @@ SlashCmdList.MANADEMON = function(msg)
     elseif cmd == "drink" then
         MD.db.drinkReminder = not MD.db.drinkReminder
         MD:Print("drink reminder " .. (MD.db.drinkReminder and "on." or "off."))
+    elseif cmd == "rest" then
+        MD.db.showRest = not MD.db.showRest
+        MD:Print("rest segment " .. (MD.db.showRest and "on." or "off."))
     elseif cmd == "window" then
         local n = tonumber(arg)
         if n and n >= 5 and n <= 60 then
