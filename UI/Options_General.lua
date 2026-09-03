@@ -6,7 +6,7 @@ local tab = UI.CreateFrame("ManaDemonOptionsFrame_GeneralTab", MD.optionsFrame, 
 tab:SetAllPoints(MD.optionsFrame)
 tab:Hide()
 
-local lockCB, restCB, tipCB, muteCB, drinkCB, minimapCB, halfLifeSlider, treeAuraCB
+local lockCB, restCB, tipCB, muteCB, drinkCB, minimapCB, halfLifeSlider, treeAuraCB, ngCB
 
 --------------------------------------------------------------------------------
 -- OOM widget
@@ -68,7 +68,7 @@ end
 -- Model
 --------------------------------------------------------------------------------
 local function CreateModelPane()
-    local pane = UI.CreateTitledPane(tab, "Model", 205, 120)
+    local pane = UI.CreateTitledPane(tab, "Model", 205, 142)
     pane:SetPoint("TOPLEFT", tab, "TOPLEFT", 222, -5)
 
     halfLifeSlider = UI.CreateSlider("Spend half-life (s)", pane, 5, 60, 160, 1, function(value)
@@ -83,6 +83,14 @@ local function CreateModelPane()
     end, "Tree of Life aura in heal values", "Party members under your Tree of Life aura receive",
         "25% of your Spirit as extra healing. It is not part of the", "+healing stat, so the dashboard adds it while you are in form.")
     treeAuraCB:SetPoint("TOPLEFT", pane, 5, -88)
+
+    ngCB = UI.CreateCheckButton(pane, "Average in Nature's Grace", function(checked)
+        MD.db.naturesGrace = checked
+        MD:Fire("TALENTS_CHANGED")
+    end, "Nature's Grace in cast times", "A spell crit takes 0.5s off your next cast, so chain-casting",
+        "Healing Touch or Regrowth averages out faster than the tooltip says.",
+        "Marked with a grey * in the dashboard's Cast column.")
+    ngCB:SetPoint("TOPLEFT", treeAuraCB, "BOTTOMLEFT", 0, -9)
     return pane
 end
 
@@ -151,5 +159,6 @@ local function ShowTab(which)
     minimapCB:SetChecked(not MD.db.minimap.hide)
     halfLifeSlider:SetValue(MD.db.halfLife or 15)
     treeAuraCB:SetChecked(MD.db.treeAura ~= false)
+    ngCB:SetChecked(MD.db.naturesGrace ~= false)
 end
 MD:RegisterCallback("ShowOptionsTab", ShowTab)

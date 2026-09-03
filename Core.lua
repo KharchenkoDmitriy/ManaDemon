@@ -18,13 +18,14 @@ local DEFAULTS = {
     showRest = true,      -- "rest 2:10" segment: time to full if you stop casting
     widgetTooltip = true, -- hover tooltip on the widget (needs mouse input on it)
     treeAura = true,      -- count the Tree of Life aura (+25% Spirit as healing received by the party) in heal values
+    naturesGrace = true,  -- average Nature's Grace into the dashboard's cast times
     firstRun = true,
     minimap = { hide = false, angle = 220 },
     debug = {
         enabled = false,  -- MD:Debug() is a no-op unless this is on
         maxLines = 1000,  -- memory ring size (Debug Console "keep lines")
         categories = { regen = true, mana = true, spend = true, tto = true,
-                       heal = true, combat = true, chat = true, other = true },
+                       heal = true, cast = true, combat = true, chat = true, other = true },
     },
     optionsPos = false,   -- { point, relativePoint, x, y } once the options frame was moved
     char = {},
@@ -107,7 +108,7 @@ end
 -- Debug log (Cell-style): a no-op unless debug logging is enabled in the
 -- settings, otherwise one timestamped line into the in-memory ring that the
 -- Debug Console (UI/DebugConsole.lua) shows and copies. Categories: regen,
--- mana, spend, tto, heal, combat, chat, other. Extra arguments go through
+-- mana, spend, tto, heal, cast, combat, chat, other. Extra arguments go through
 -- string.format; a bad format never raises.
 function MD:Debug(category, fmt, ...)
     local db = MD.db and MD.db.debug

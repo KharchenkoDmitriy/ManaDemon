@@ -91,7 +91,8 @@ function MD.DashboardParts.CreateTable(parent, width)
             row.cells.hpm:SetText(c .. Fmt(r.hpm, 2) .. "|r")
             row.cells.hps:SetText(c .. Fmt(r.hps) .. "|r")
             row.cells.hp5:SetText(c .. (r.hp5 and Fmt(r.hp5) or "-") .. "|r")
-            row.cells.cast:SetText(c .. Fmt(r.cast, 1) .. "s|r")
+            -- the grey "*" means the cast time is a Nature's Grace average
+            row.cells.cast:SetText(c .. Fmt(r.cast, 1) .. "s|r" .. (r.ng and "|cff888888*|r" or ""))
             row.cells.casts:SetText(c .. (r.casts == math.huge and "inf" or Fmt(r.casts)) .. "|r")
 
             local note

@@ -55,6 +55,28 @@ MD:On("UNIT_SPELLCAST_SUCCEEDED", function(unit, _, spellID)
     end
 end)
 
+-- Debug "cast": the client's own cast duration for every spell the player
+-- starts, next to what the model expects. This is what settles Nature's Grace
+-- (0.5s off the next cast after a crit) and Naturalist on this client -- the
+-- spellbook tooltip shows neither. Costs nothing when the category is off.
+MD:On("UNIT_SPELLCAST_START", function(unit, _, spellID)
+    if unit ~= "player" then return end
+    local db = MD.db and MD.db.debug
+    if not (db and db.enabled and db.categories.cast) then return end
+    if not UnitCastingInfo then return end
+    local name, _, _, startMS, endMS = UnitCastingInfo("player")
+    if not startMS or not endMS then return end
+    local actual = (endMS - startMS) / 1000
+    local s = spellID and MD.SpellData.spells[spellID]
+    if s and s.cast then
+        local base = math.max(s.cast - 0.1 * MD:TalentRank("Naturalist"), 1.5)
+        MD:Debug("cast", "%s R%d: live %.2fs - model base %.2fs, after a crit %.2fs (table %.1fs)",
+            name or "?", s.rank or 0, actual, base, math.max(base - 0.5, 1.5), s.cast)
+    else
+        MD:Debug("cast", "%s (%s): live %.2fs", name or "?", tostring(spellID), actual)
+    end
+end)
+
 function ST:Reset()
     wipe(events)
     seed = nil

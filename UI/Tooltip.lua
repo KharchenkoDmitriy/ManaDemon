@@ -198,8 +198,14 @@ function Tip:Row(row)
 
     lines[#lines + 1] = {}
     lines[#lines + 1] = { l = "Mana", r = Num(c.cost) .. "  " .. (c.costSource or "?"), c = KEY }
-    lines[#lines + 1] = { l = "Cast", r = Num(row.cast, 1) .. "s" ..
+    lines[#lines + 1] = { l = "Cast", r = Num(row.cast, 1) .. "s" .. (row.ng and "*" or "") ..
         (row.cast <= 1.5 and "  GCD" or ""), c = KEY }
+    if row.ng then
+        lines[#lines + 1] = { l = string.format("  %.1fs base, %.1fs after a crit, %.1f%% crit -> %.2fs average",
+            c.castBase, math.max(c.castBase - c.naturesGrace, 1.5), (c.ngCrit or 0) * 100, c.castNG), c = SUB }
+        lines[#lines + 1] = { l = "  * Nature's Grace, chain-casting this one spell; an instant cast " ..
+            "in between eats the buff for nothing.", c = MUTED, wrap = true }
+    end
 
     lines[#lines + 1] = {}
     lines[#lines + 1] = { l = "HPM   heal per mana", r = Num(row.hpm, 2), c = KEY }

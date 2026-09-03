@@ -121,6 +121,22 @@ function RankMath:Context()
     }
     ctx.regrowthCrit = math.min(1, crit + 0.10 * MD:TalentRank("Improved Regrowth"))
 
+    -- Nature's Grace: a spell critical takes 0.5s off the NEXT cast, never
+    -- below the 1.5s GCD. Chain-casting one spell, the fraction of casts that
+    -- follow a crit is the crit chance, so the throughput-correct cast time is
+    -- the MIXTURE -- not (cast - 0.5 * crit) floored, which clips the wrong
+    -- branch when cast - 0.5 lands on the GCD. Throughput over a chain is
+    -- heal / E[T] exactly, so averaging the cast time is right for a sustained
+    -- column. HoTs never crit and sit at the GCD anyway, so it is a no-op for
+    -- them twice over. Assumed 0.5s until the "cast" debug category confirms
+    -- it on this client (docs/DESIGN-v0.5.md F1).
+    ctx.naturesGrace = (MD:TalentRank("Nature's Grace") > 0
+        and not (MD.db and MD.db.naturesGrace == false)) and 0.5 or 0
+    ctx.ExpectedCast = function(T0, p)
+        if ctx.naturesGrace <= 0 or p <= 0 then return T0 end
+        return (1 - p) * T0 + p * math.max(T0 - ctx.naturesGrace, 1.5)
+    end
+
     -- Cost source. The live client value is exact (it applies talents and form
     -- itself), so it stays the default. It is wrong the moment the dashboard
     -- simulates a form or a talent rank the player does not actually have, and
@@ -186,8 +202,13 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
 
     local heal, castTime, calc
 
+    local castBase, ngCrit
+
     if info.type == "direct" then
-        castTime = math.max(s.cast - ctx.naturalist, 1.5)
+        castBase = math.max(s.cast - ctx.naturalist, 1.5)
+        ngCrit = ctx.crit
+        castTime = ctx.ExpectedCast(castBase, ngCrit)
+        -- the coefficient uses the spell's BASE cast time, not the modified one
         local coef = math.min(math.max(s.cast, 1.5), 3.5) / 3.5
         local base = (s.healMin + s.healMax) / 2 + relicFlat
         local bonusOut = bonus * coef * pen * ctx.empTouch
@@ -214,7 +235,9 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
         end
 
     elseif info.type == "hybrid" then
-        castTime = math.max(s.cast, 1.5)
+        castBase = math.max(s.cast, 1.5)
+        ngCrit = ctx.regrowthCrit
+        castTime = ctx.ExpectedCast(castBase, ngCrit)
         local c = math.min(math.max(s.cast, 1.5), 3.5) / 3.5
         local h = s.hotDuration / 15
         local dCoef = c * c / (c + h)
@@ -280,6 +303,7 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
         casts = ctx.CastsToOOM(cost, castTime),
         known = SD.knownSet[spellID] or false,
         isMax = (not variant) and SD.maxRank[s.family] == spellID or false,
+        ng = castBase ~= nil and castTime < castBase - 0.001 or false,
     }
     if variant then
         row.variant = variant
@@ -292,7 +316,10 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
         calc.type = info.type
         calc.cost = cost
         calc.costSource = costSource
-        calc.castBase = castTime
+        calc.castBase = castBase or castTime
+    calc.castNG = castTime
+    calc.ngCrit = ngCrit
+    calc.naturesGrace = ctx.naturesGrace
         calc.sustainedInterval = T
         calc.mana = ctx.mana
         calc.castingRegen = ctx.castingRegen

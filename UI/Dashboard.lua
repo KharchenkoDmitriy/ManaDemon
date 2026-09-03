@@ -66,8 +66,9 @@ local function Refresh()
     if info then
         hintFS:SetFormattedText("|cff888888HPM = heal per mana.  HPS = heal per second of cast time (1.5s GCD for instants).  " ..
             "HP5 = healing per 5s you can sustain at zero mana, casting only as regen pays (5SR-aware, %d / %d mp5 casting / resting).  " ..
-            "To OOM = chain-casts from your current %d mana.|r",
-            info.castingRegen * 5 + 0.5, info.baseRegen * 5 + 0.5, info.mana)
+            "To OOM = chain-casts from your current %d mana.%s|r",
+            info.castingRegen * 5 + 0.5, info.baseRegen * 5 + 0.5, info.mana,
+            info.naturesGrace > 0 and "  * = Nature's Grace averaged in." or "")
     end
 
     local res = results[currentFamily]

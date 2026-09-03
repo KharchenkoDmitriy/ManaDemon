@@ -5,14 +5,15 @@
 local _, MD = ...
 local UI = MD.UI
 
-local CATEGORY_ORDER = { "regen", "mana", "spend", "tto", "heal", "combat", "chat", "other" }
+local CATEGORY_ORDER = { "regen", "mana", "spend", "tto", "heal", "cast", "combat", "chat", "other" }
 local CATEGORY_LABELS = {
     regen = "Regen", mana = "Mana", spend = "Spend", tto = "TTO", heal = "Heal",
-    combat = "Combat", chat = "Chat", other = "Other",
+    cast = "Cast", combat = "Combat", chat = "Chat", other = "Other",
 }
 local CATEGORY_COLORS = {
     regen = "|cff33ff66", mana = "|cff66aaff", spend = "|cffff9933", tto = "|cffffcc00",
-    heal = "|cff66ff99", combat = "|cffff5555", chat = "|cffaaaaaa", other = "|cffcccccc",
+    heal = "|cff66ff99", cast = "|cffcc99ff", combat = "|cffff5555", chat = "|cffaaaaaa",
+    other = "|cffcccccc",
 }
 
 local MIN_LINES, MAX_LINES, DEFAULT_LINES = 200, 20000, 1000
