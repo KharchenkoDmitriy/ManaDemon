@@ -35,18 +35,19 @@ local function Build()
     for _, c in ipairs(MD.COMMANDS) do
         local left = cmdPane:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
         left:SetPoint("TOPLEFT", cmdPane, 5, y)
-        left:SetWidth(120)
+        left:SetWidth(118)
         left:SetJustifyH("LEFT")
         left:SetTextColor(UI.accent[1], UI.accent[2], UI.accent[3])
         left:SetText(c[1])
         local right = cmdPane:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-        right:SetPoint("TOPLEFT", cmdPane, 130, y)
+        right:SetPoint("TOPLEFT", cmdPane, 128, y)
         right:SetWidth(280)
         right:SetJustifyH("LEFT")
         right:SetTextColor(0.85, 0.85, 0.85)
         right:SetText(c[2])
-        y = y - 14
+        y = y - math.max(left:GetStringHeight(), right:GetStringHeight()) - 3
     end
+    cmdPane:SetHeight(-y + 4)
 
     local verifyPane = UI.CreateTitledPane(tab, "Before trusting the numbers", 412, 70)
     verifyPane:SetPoint("TOPLEFT", cmdPane, "BOTTOMLEFT", 0, -10)
@@ -59,6 +60,12 @@ local function Build()
         "2. /md regentest - idle 30s: is Dreamstate in GetManaRegen?  " ..
         "3. /md fsrtest - cast once, watch the tick sizes.  " ..
         "Copy everything from the Debug Console (General > Misc).")
+    verifyPane:SetHeight(24 + how:GetStringHeight() + 6)
+
+    -- total height: everything above plus margins
+    local total = 10 + title:GetStringHeight() + 6 + blurb:GetStringHeight() + 10
+        + cmdPane:GetHeight() + 10 + verifyPane:GetHeight() + 12
+    MD.optionsTabHeight.about = math.ceil(total)
 end
 
 local function ShowTab(which)
@@ -67,6 +74,7 @@ local function ShowTab(which)
         return
     end
     Build()
+    MD.optionsFrame:SetHeight(MD.optionsTabHeight.about)
     tab:Show()
 end
 MD:RegisterCallback("ShowOptionsTab", ShowTab)

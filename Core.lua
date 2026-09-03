@@ -22,7 +22,7 @@ local DEFAULTS = {
     debug = {
         enabled = false,  -- MD:Debug() is a no-op unless this is on
         categories = { regen = true, mana = true, spend = true, tto = true,
-                       combat = true, chat = true, other = true },
+                       heal = true, combat = true, chat = true, other = true },
     },
     optionsPos = false,   -- { point, relativePoint, x, y } once the options frame was moved
     char = {},
@@ -105,7 +105,7 @@ end
 -- Debug log (Cell-style): a no-op unless debug logging is enabled in the
 -- settings, otherwise one timestamped line into the in-memory ring that the
 -- Debug Console (UI/DebugConsole.lua) shows and copies. Categories: regen,
--- mana, spend, tto, combat, chat, other. Extra arguments go through
+-- mana, spend, tto, heal, combat, chat, other. Extra arguments go through
 -- string.format; a bad format never raises.
 function MD:Debug(category, fmt, ...)
     local db = MD.db and MD.db.debug

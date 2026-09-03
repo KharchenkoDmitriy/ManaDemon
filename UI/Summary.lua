@@ -21,6 +21,22 @@ MD:On("COMBAT_LOG_EVENT_UNFILTERED", function()
     end
 end)
 
+-- Debug "heal" category: every heal and HoT tick the player lands, from the
+-- combat log (amount includes overheal; overheal reported separately). This
+-- is how heal formulas get verified in-game (Tree aura, Lifebloom bloom).
+MD:On("COMBAT_LOG_EVENT_UNFILTERED", function()
+    if not (MD.db and MD.db.debug and MD.db.debug.enabled and MD.db.debug.categories.heal) then return end
+    local _, subevent, _, sourceGUID, _, _, _, _, destName, _, _,
+        spellID, spellName, _, amount, overheal, _, critical = CombatLogGetCurrentEventInfo()
+    if sourceGUID ~= MD.player.guid then return end
+    if subevent == "SPELL_HEAL" or subevent == "SPELL_PERIODIC_HEAL" then
+        MD:Debug("heal", "%s (%d)%s on %s: %d%s%s%s", spellName or "?", spellID or 0,
+            subevent == "SPELL_PERIODIC_HEAL" and " tick" or "", destName or "?", amount or 0,
+            (overheal or 0) > 0 and string.format(" (%d overheal)", overheal) or "",
+            critical and " CRIT" or "", MD:InTreeForm() and " [tree]" or "")
+    end
+end)
+
 MD:On("PLAYER_REGEN_DISABLED", function()
     fight = {
         start = GetTime(),

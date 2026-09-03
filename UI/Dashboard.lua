@@ -93,7 +93,7 @@ local function Refresh()
     local info = MD.RankMath.info
     if info then
         for key, box in pairs(simBoxes) do
-            box.label:SetText(string.format(box.fmt, info.live[key]))
+            box.ph:SetText(string.format(box.fmt, info.live[key]))
         end
         if info.simulated then
             statsFS:SetText("|cffff9933SIMULATION|r  " .. statsFS:GetText())
@@ -221,14 +221,18 @@ local function CreateDashboard()
     simTitle:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -42)
     simTitle:SetTextColor(UI.accent[1], UI.accent[2], UI.accent[3])
     simTitle:SetText("Simulate:")
-    local function AddSimBox(key, labelFmt, anchor)
+    -- Box shows the live value as a grey placeholder while empty.
+    local function AddSimBox(key, labelText, phFmt, anchor)
         local label = frame:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
         label:SetPoint("LEFT", anchor, "RIGHT", 10, 0)
         label:SetTextColor(0.7, 0.7, 0.7)
-        label:SetText(string.format(labelFmt, 0))
-        local eb = UI.CreateEditBox(frame, 54, 16, false, false, false, UI.FONT_SMALL)
+        label:SetText(labelText)
+        local eb = UI.CreateEditBox(frame, 56, 16, false, false, false, UI.FONT_SMALL)
         eb:SetPoint("LEFT", label, "RIGHT", 4, 0)
         eb:SetTextInsets(3, 3, 0, 0)
+        local ph = frame:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+        ph:SetPoint("LEFT", eb, "LEFT", 4, 0)
+        ph:SetTextColor(0.45, 0.45, 0.45)
         local function Apply(self)
             local text = strtrim(self:GetText() or "")
             if text == "" then
@@ -241,26 +245,28 @@ local function CreateDashboard()
                     self:SetText(MD.sim[key] and tostring(MD.sim[key]) or "")
                 end
             end
+            ph:SetShown(strtrim(self:GetText() or "") == "")
             self:HighlightText(0, 0)
             Refresh()
         end
         eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
         eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        eb:SetScript("OnEditFocusGained", function() ph:Hide() end)
         eb:SetScript("OnEditFocusLost", Apply)
-        simBoxes[key] = { eb = eb, label = label, fmt = labelFmt }
+        simBoxes[key] = { eb = eb, ph = ph, fmt = phFmt }
         return eb
     end
-    local last = AddSimBox("heal", "+heal (%d)", simTitle)
-    last = AddSimBox("crit", "crit%% (%.1f)", last)
-    last = AddSimBox("casting", "casting mp5 (%d)", last)
-    last = AddSimBox("base", "resting mp5 (%d)", last)
-    last = AddSimBox("mana", "mana (%d)", last)
+    local last = AddSimBox("heal", "+heal", "%d", simTitle)
+    last = AddSimBox("crit", "crit%", "%.1f", last)
+    last = AddSimBox("casting", "casting mp5", "%d", last)
+    last = AddSimBox("base", "resting mp5", "%d", last)
+    last = AddSimBox("mana", "mana", "%d", last)
     local clearBtn = UI.CreateButton(frame, "Clear", "red-hover", { 50, 16 }, false, false, UI.FONT_SMALL, nil,
         "Clear simulation", "Back to your live stats.")
     clearBtn:SetPoint("LEFT", last, "RIGHT", 10, 0)
     clearBtn:SetScript("OnClick", function()
         wipe(MD.sim)
-        for _, box in pairs(simBoxes) do box.eb:SetText("") end
+        for _, box in pairs(simBoxes) do box.eb:SetText(""); box.ph:Show() end
         Refresh()
     end)
 

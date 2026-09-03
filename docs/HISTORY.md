@@ -288,3 +288,15 @@ branch. Wrote `docs/PLAN.md` (Phase 1 druid: close verification items → model 
 `docs/TESTING.md` (smoke test of the new UI, `/md verify`, Tree aura test, Lifebloom bloom
 test, one logged real fight for the clock constants, spamtest, Simulate). Author agreed
 with all suggestions; next session starts with whatever the tests return, then PLAN §1b.
+
+## 2026-09-03 (late) — Smoke-test fixes, heal log (v0.4.7)
+
+Author's smoke test: Simulate row overflowed the dashboard (live values were in the labels)
+→ values are now grey placeholders inside the boxes, labels short. About tab rows overlapped
+(fixed 14px rows, wrapped text) → rows sized by their text, frame height measured
+(`MD.optionsTabHeight`). `/md verify` in Tree form showed the client ROUNDS modified costs
+(Swiftmend 216.8 → 217; static fallback floored) and discounts **Tranquility** in form too →
+both fixed in `SD:StaticCost`. Tooltips show base heal only (932 in/out of form), so the aura
+and bloom tests need real heal amounts → new **heal** debug category logs every SPELL_HEAL /
+SPELL_PERIODIC_HEAL the player lands (amount, overheal, crit, `[tree]`); console widened to
+580. `docs/TESTING.md` §3/§4 rewritten around the heal log. Tests 1, 2, 6, 7 passed.

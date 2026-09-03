@@ -78,7 +78,7 @@ Date: 2026-09-01.
 - `GetManaRegen()` unit (assumed mana **per second**; ElvUI's TBC datatext ×5 agrees) and
   its combat staleness behavior.
 - FSR anchor: cast start vs. mana deduction vs. cast completion → `/md fsrtest`.
-- Whether talent-modified costs floor or round (assumed floor).
+- ~~Whether talent-modified costs floor or round~~ — **round** (Swiftmend 216.8 → 217, 2026-09-03). Tree of Life also discounts Tranquility.
 - Lifebloom coefficients and whether Empowered Rejuvenation touches the bloom
   (assumed **not** — applied to tick portion only, conservative).
 - `GetSpellPowerCost` presence on the anniversary client (harness reports either way).

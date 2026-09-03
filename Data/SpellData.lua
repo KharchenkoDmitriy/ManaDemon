@@ -116,10 +116,11 @@ function SD:LiveCost(spellID)
     return nil
 end
 
--- TBC rounds talent-modified costs down (assumed; the live value decides).
--- NOTE: the client SUMS same-type percent modifiers (Moonglow + Tree of Life
--- = -29%, not x0.91 x0.8); this fallback multiplies them and can be ~2% high
--- when two apply. Only matters when GetSpellPowerCost is unavailable.
+-- The client ROUNDS talent-modified costs to the nearest integer (verified
+-- 2026-09-03: Swiftmend 271 x 0.8 = 216.8 -> live 217). NOTE: the client SUMS
+-- same-type percent modifiers (Moonglow + Tree of Life = -29%, not
+-- x0.91 x0.8); this fallback multiplies them and can be ~2% high when two
+-- apply. Only matters when GetSpellPowerCost is unavailable.
 function SD:StaticCost(spellID)
     local s = SD.spells[spellID]
     if not s or s.cost == nil then return nil end
@@ -134,13 +135,15 @@ function SD:StaticCost(spellID)
         if fam == "HealingTouch" or fam == "Tranquility" then
             cost = cost * (1 - 0.02 * MD:TalentRank("Tranquil Spirit"))
         end
-        -- Tree of Life: -20% on the HoTs castable in form.
+        -- Tree of Life: -20% on the form's HoTs, Swiftmend AND Tranquility
+        -- (verified 2026-09-03: the client discounts Tranquility in form even
+        -- though it cannot be cast there).
         if MD:InTreeForm() and (fam == "Rejuvenation" or fam == "Regrowth"
-                or fam == "Lifebloom" or fam == "Swiftmend") then
+                or fam == "Lifebloom" or fam == "Swiftmend" or fam == "Tranquility") then
             cost = cost * 0.8
         end
     end
-    return math.floor(cost)
+    return math.floor(cost + 0.5)
 end
 
 -- Returns cost, "api" | "table"; nil when neither source knows the spell.

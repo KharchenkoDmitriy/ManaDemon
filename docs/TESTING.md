@@ -1,4 +1,4 @@
-# ManaDemon — what to test now (v0.4.6)
+# ManaDemon — what to test now (v0.4.7)
 
 Everything below is done on the druid, in-game, with the Debug Console open
 (`/md options` → General → Misc → Debug Console → tick **Enable Debug Logging**).
@@ -23,27 +23,24 @@ Install: `make install WOW_ADDONS="/path/to/_anniversary_/Interface/AddOns"` (or
 - `/md verify` — expect **0 COST mismatches** now (Innervate is skipped). Any CAST line
   other than Naturalist is a bug. Paste the output.
 
-## 3. Tree of Life aura on heals (10 min) — decides an open model item
-Goal: does a heal on a party member (yourself counts) gain 25% of your Spirit as if it
-were +healing?
-1. Out of form, at full health you cannot see ticks — take some damage first (fall, or
-   let a mob hit you and leave combat), or read the **spellbook tooltip** of
-   Rejuvenation R12 in and out of form: TBC tooltips include your +healing.
-2. Note: your Spirit (character sheet), your +healing, Rejuv tooltip total out of form.
-3. Shift to Tree of Life, read the same tooltip. Expected if the aura counts:
-   `+ 0.25 × Spirit × 0.8 × (1 + 0.04 × EmpRejuv) × (1 + 0.02 × GoN) × (1 + 0.05 × ImpRejuv)`
-   (for R12 at 64 the downrank penalty is 1). If the tooltip does NOT change, cast it on
-   yourself and compare tick sizes in the combat log / debug log instead — the tooltip
-   may only show caster-side bonuses.
-4. Paste the four numbers (Spirit, +healing, tooltip out, tooltip/tick in).
+## 3. Tree of Life aura on heals (5 min) — decides an open model item
+Tooltips on this client show BASE values only (932 in and out of form), so use the
+**Heal** log category (v0.4.7+): every heal / HoT tick you land is logged with amount,
+overheal and `[tree]` when in form. Being at full health is fine (overheal is still
+reported with the full amount).
+1. Out of form: cast Rejuvenation R12 on yourself, wait for 2 ticks.
+2. Shift to Tree of Life, cast it again on yourself, wait for 2 ticks.
+3. Copy. Expected tick out of form = `(932 + 450 × 0.8 × 1.20) × 1.10 × 1.15 / 4`; in form,
+   if the aura counts, +healing becomes 450 + 0.25 × Spirit for the same formula. The
+   dashboard's Heal/cast (1725 vs 1810) already shows the two predictions — the log says
+   which one is real.
 
-## 4. Empowered Rejuvenation on the Lifebloom bloom (5 min)
-1. Cast **one** Lifebloom on yourself out of combat and let it expire (7s).
-2. From the combat log take one tick and the bloom.
-3. Expected tick = `(273 + bonus × 0.5187 × 1.20) × GoN / 7`; bloom without EmpRejuv =
-   `(600 + bonus × 0.3422) × GoN`, with = `(600 + bonus × 0.3422 × 1.20) × GoN`, where
-   bonus = +healing (+ 25% Spirit if §3 says the aura counts and you are in form). Paste
-   tick, bloom, +healing, form.
+## 4. Empowered Rejuvenation on the Lifebloom bloom (3 min)
+1. Cast **one** Lifebloom on yourself out of combat (out of form is simplest), let it
+   expire (7s). The log shows 7 ticks and one non-tick "Lifebloom" line = the bloom.
+2. Expected tick = `(273 + 450 × 0.5187 × 1.20) × 1.10 / 7`; bloom without EmpRejuv =
+   `(600 + 450 × 0.3422) × 1.10`, with = `(600 + 450 × 0.3422 × 1.20) × 1.10`.
+3. Copy the lines.
 
 ## 5. One real fight with logging on (the clock's constants)
 - Any dungeon boss or a long trash pull (≥ 90s) where you actually heal.

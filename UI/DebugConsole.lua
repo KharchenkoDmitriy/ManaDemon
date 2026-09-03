@@ -5,14 +5,14 @@
 local _, MD = ...
 local UI = MD.UI
 
-local CATEGORY_ORDER = { "regen", "mana", "spend", "tto", "combat", "chat", "other" }
+local CATEGORY_ORDER = { "regen", "mana", "spend", "tto", "heal", "combat", "chat", "other" }
 local CATEGORY_LABELS = {
-    regen = "Regen", mana = "Mana", spend = "Spend", tto = "TTO",
+    regen = "Regen", mana = "Mana", spend = "Spend", tto = "TTO", heal = "Heal",
     combat = "Combat", chat = "Chat", other = "Other",
 }
 local CATEGORY_COLORS = {
     regen = "|cff33ff66", mana = "|cff66aaff", spend = "|cffff9933", tto = "|cffffcc00",
-    combat = "|cffff5555", chat = "|cffaaaaaa", other = "|cffcccccc",
+    heal = "|cff66ff99", combat = "|cffff5555", chat = "|cffaaaaaa", other = "|cffcccccc",
 }
 
 local MAX_LOG_LINES = 1000   -- kept in memory (Copy exports all of them)
@@ -123,7 +123,7 @@ end
 -- Console window
 --------------------------------------------------------------------------------
 local function CreateDebugConsoleFrame()
-    consoleFrame = UI.CreateMovableFrame("ManaDemon Debug Console", "ManaDemonDebugConsole", 520, 480, "DIALOG", 1, true)
+    consoleFrame = UI.CreateMovableFrame("ManaDemon Debug Console", "ManaDemonDebugConsole", 580, 480, "DIALOG", 1, true)
     consoleFrame:SetToplevel(true)
     tinsert(UISpecialFrames, "ManaDemonDebugConsole")
 
