@@ -1,15 +1,22 @@
--- Regen model. Per the design debate: for the live TTO the two GetManaRegen()
--- returns are used DIRECTLY (base = out of the five-second rule, casting =
--- inside it) — no algebra on top, so talent effects like Intensity are never
--- double-counted. The spirit/mp5 decomposition below is display-only.
+-- Regen model. The two GetManaRegen() returns (base = out of the five-second
+-- rule, casting = inside it) are used DIRECTLY for everything the client
+-- reports — no algebra on top, so Intensity / Living Spirit / gear mp5 are
+-- never double-counted. Verified in-game 2026-09-03 (/md regentest, see
+-- docs/HISTORY.md): observed regen ticks match GetManaRegen within ~1%,
+-- EXCEPT Dreamstate, which the client leaves out of both values. That one
+-- talent (4/7/10% of Intellect per 5s, in and out of the 5SR) is added here
+-- as RM.unreported; RM.apiBase / RM.apiCasting keep the raw client numbers
+-- for the verify harness and the display decomposition.
 local _, MD = ...
 
 local RM = {}
 MD.Regen = RM
 
-RM.fsrEnd = 0          -- GetTime() when the five-second rule expires
-RM.base = 0            -- mana/sec outside the FSR
-RM.casting = 0         -- mana/sec inside the FSR
+RM.fsrEnd = 0                     -- GetTime() when the five-second rule expires
+RM.apiBase, RM.apiCasting = 0, 0  -- raw GetManaRegen("player")
+RM.unreported = 0                 -- regen the client does not report (Dreamstate)
+RM.base = 0                       -- mana/sec outside the FSR (api + unreported)
+RM.casting = 0                    -- mana/sec inside the FSR (api + unreported)
 
 -- per-combat FSR accounting
 local combat = { active = false, total = 0, inFSR = 0 }
@@ -28,22 +35,15 @@ function RM:Current()
 end
 
 --------------------------------------------------------------------------------
--- Projection regen: the two GetManaRegen() rates weighted by the measured
--- five-second-rule duty cycle (EWMA of "inside the FSR", half-life 20s).
--- RM:Current() is a point sample of a two-state process; over a 30–200s
--- horizon the healer will be in the FSR some FRACTION of the time, and using
--- the instantaneous state made the TTO jump every time a casting gap crossed
--- 5s. Both rates are still consumed raw — nothing is decomposed. Reset to 1
+-- Projection regen: the two rates weighted by the measured five-second-rule
+-- duty cycle (EWMA of "inside the FSR", half-life 20s). RM:Current() is a
+-- point sample of a two-state process; over a 30–200s horizon the healer
+-- will be in the FSR some FRACTION of the time, and using the instantaneous
+-- state made the TTO jump every time a casting gap crossed 5s. Reset to 1
 -- (pessimistic) at the pull. RM:Current() keeps driving the underline.
 --------------------------------------------------------------------------------
 local duty = 0
 local DUTY_HALFLIFE = 20
-
--- Out of combat, drink/food are periodic energize effects that GetManaRegen()
--- does not report, so the FULL clock uses the observed mana gain rate instead
--- (EWMA, half-life 5s — drink ticks land every 2s; needs >= 2 observed gains).
-local observedFill, fillGains, gainAcc = 0, 0, 0
-local FILL_HALFLIFE = 5
 
 function RM:Effective()
     return duty * RM.casting + (1 - duty) * RM.base
@@ -53,31 +53,86 @@ function RM:Duty()
     return duty
 end
 
+--------------------------------------------------------------------------------
+-- Out of combat, drink/food are periodic energize effects GetManaRegen does
+-- not report, so the FULL clock uses the observed mana gain rate. Regen
+-- lands in discrete ticks (every 2s), so the rate is estimated per GAIN
+-- EVENT — gain / interval since the previous gain — smoothed over ~3 events.
+-- (A per-tick EWMA of that spiky signal oscillated +-10% and kept the
+-- display latch from ever settling: "FULL 2:05" stuck at a true 94s.)
+--------------------------------------------------------------------------------
+local observedFill, fillGains, lastGainT = 0, 0, nil
+local FILL_ALPHA = 0.4
+local FILL_TIMEOUT = 6   -- no gain for this long -> estimate is stale
+
 function RM:ObservedFill()
-    return fillGains >= 2 and observedFill or 0
+    if fillGains < 2 or not lastGainT or GetTime() - lastGainT > FILL_TIMEOUT then return 0 end
+    return observedFill
+end
+
+local function ResetFill()
+    observedFill, fillGains, lastGainT = 0, 0, nil
+end
+
+--------------------------------------------------------------------------------
+-- Regen the client does not report. Dreamstate: measured 2026-09-03 at
+-- 342 Int / rank 3 — observed ticks ran ~35 mp5 above GetManaRegen with the
+-- talent and matched it without (docs/HISTORY.md). Adding this on a client
+-- that DID report it would double count, which is why it was measured first.
+--------------------------------------------------------------------------------
+local DREAMSTATE_PCT = { 0.04, 0.07, 0.10 }
+
+function RM:Unreported()
+    local r = MD:TalentRank("Dreamstate")
+    if r == 0 then return 0 end
+    return (DREAMSTATE_PCT[r] or 0) * (UnitStat("player", 4) or 0) / 5
 end
 
 function RM:Refresh()
     if not GetManaRegen then return end
     local base, casting = GetManaRegen("player")
-    -- GetManaRegen returns mana per 1 second on Classic clients (ElvUI's
-    -- ManaRegen datatext multiplies by 5 for mp5 display). VERIFY via /md verify.
-    RM.base = base or 0
-    RM.casting = casting or 0
+    -- GetManaRegen returns mana per 1 second on this client (verified: +122
+    -- per 2s tick against base 60.16/s).
+    base, casting = base or 0, casting or 0
+    local extra = RM:Unreported()
+    if math.abs(base - RM.apiBase) > 0.005 or math.abs(casting - RM.apiCasting) > 0.005
+        or math.abs(extra - RM.unreported) > 0.005 then
+        MD:Debug("regen", "GetManaRegen base %.2f/s casting %.2f/s (mp5 %d / %d)%s",
+            base, casting, base * 5 + 0.5, casting * 5 + 0.5,
+            extra > 0 and string.format(" + Dreamstate %.2f/s (%d mp5, not in the API)", extra, extra * 5 + 0.5) or "")
+    end
+    RM.apiBase, RM.apiCasting, RM.unreported = base, casting, extra
+    RM.base = base + extra
+    RM.casting = casting + extra
 end
 
 --------------------------------------------------------------------------------
--- Display-only decomposition (dashboard/tooltip): estimate the spirit-based
--- share so mp5-from-gear can be shown separately. Never feeds the TTO.
+-- Display-only decomposition (dashboard/tooltip): spirit share vs flat mp5
+-- (gear/buffs), derived from the client's own two numbers and the in-FSR
+-- talent fraction f:  base = S + G,  casting = f*S + G  =>  S = (base -
+-- casting) / (1 - f). No level constant involved (the level-70 0.009327
+-- formula read 2x low at level 64 on this client). Never feeds the TTO.
+-- Returns spiritPerSec, mp5Gear, inFSRFraction, unreportedPerSec.
 --------------------------------------------------------------------------------
+local IN_FSR_TALENT = {
+    DRUID  = { "Intensity", 0.10 },
+    PRIEST = { "Meditation", 0.05 },
+    MAGE   = { "Arcane Meditation", 0.05 },
+}
+
+function RM:InFSRFraction()
+    local t = IN_FSR_TALENT[MD.player.class]
+    return t and (t[2] * MD:TalentRank(t[1])) or 0
+end
+
 function RM:Components()
-    local spirit = UnitStat("player", 5) or 0
-    local intellect = UnitStat("player", 4) or 0
-    -- Level-70 base_regen constant; regen per 2s tick = spi*sqrt(int)*0.009327.
-    local spiritPerSec = spirit * math.sqrt(intellect) * 0.009327 / 2
-    local mp5Gear = math.max(0, (RM.base - spiritPerSec)) * 5
-    local intensityFrac = 0.1 * MD:TalentRank("Intensity") -- 10%/rank, 3 ranks
-    return spiritPerSec, mp5Gear, intensityFrac
+    local f = RM:InFSRFraction()
+    local spiritPerSec = 0
+    if f < 1 then
+        spiritPerSec = math.max(0, (RM.apiBase - RM.apiCasting) / (1 - f))
+    end
+    local mp5Gear = math.max(0, RM.apiBase - spiritPerSec) * 5
+    return spiritPerSec, mp5Gear, f, RM.unreported
 end
 
 --------------------------------------------------------------------------------
@@ -87,16 +142,34 @@ end
 -- accept as false FSR triggers.
 --------------------------------------------------------------------------------
 local lastMana
+local wasInFSR = false
 
 MD:On("UNIT_POWER_UPDATE", function(unit, powerType)
     if unit ~= "player" or powerType ~= "MANA" then return end
     local cur = UnitPower("player", 0)
     if lastMana and cur < lastMana then
+        if not RM:InFSR() then
+            MD:Debug("regen", "5SR start (casting regen %.2f/s)", RM.casting)
+            wasInFSR = true
+        end
         RM.fsrEnd = GetTime() + 5
         MD:Fire("MANA_SPENT", lastMana - cur)
     elseif lastMana and cur > lastMana and not combat.active then
-        gainAcc = gainAcc + (cur - lastMana)
+        local now = GetTime()
+        if lastGainT then
+            local r = (cur - lastMana) / math.max(now - lastGainT, 0.5)
+            if fillGains < 2 then
+                observedFill = r
+            else
+                observedFill = observedFill + (r - observedFill) * FILL_ALPHA
+            end
+        end
         fillGains = fillGains + 1
+        lastGainT = now
+    end
+    if lastMana and cur ~= lastMana then
+        MD:Debug("mana", "%+d -> %d/%d%s", cur - lastMana, cur, UnitPowerMax("player", 0),
+            RM:InFSR() and " (5SR)" or "")
     end
     lastMana = cur
 end)
@@ -105,6 +178,7 @@ MD:RegisterCallback("MD_READY", function()
     lastMana = UnitPower("player", 0)
     RM:Refresh()
 end)
+MD:RegisterCallback("TALENTS_CHANGED", function() RM:Refresh() end)
 
 --------------------------------------------------------------------------------
 -- Per-combat FSR uptime → "spirit regen realized" for the fight summary.
@@ -114,17 +188,23 @@ MD:On("PLAYER_REGEN_DISABLED", function()
     combat.total = 0
     combat.inFSR = 0
     duty = 1
-    observedFill, fillGains, gainAcc = 0, 0, 0
+    ResetFill()
 end)
 
 MD:On("PLAYER_REGEN_ENABLED", function()
     combat.active = false
-    observedFill, fillGains, gainAcc = 0, 0, 0
+    ResetFill()
 end)
+
+local oocLogAcc = 0
 
 MD:OnTick(function(dt)
     RM:Refresh() -- cheap; keeps rates fresh through auras/procs mid-combat
     local inFSR = RM:InFSR()
+    if wasInFSR and not inFSR then
+        MD:Debug("regen", "5SR end (spirit regen resumed, %.2f/s)", RM.base)
+    end
+    wasInFSR = inFSR
     duty = duty + ((inFSR and 1 or 0) - duty) * (1 - 0.5 ^ (dt / DUTY_HALFLIFE))
     if combat.active then
         combat.total = combat.total + dt
@@ -132,8 +212,17 @@ MD:OnTick(function(dt)
             combat.inFSR = combat.inFSR + dt
         end
     else
-        observedFill = observedFill + (gainAcc / dt - observedFill) * (1 - 0.5 ^ (dt / FILL_HALFLIFE))
-        gainAcc = 0
+        -- Premise check for the OOC clock: observed gain rate vs the model.
+        oocLogAcc = oocLogAcc + dt
+        if oocLogAcc >= 10 then
+            oocLogAcc = 0
+            local fill = RM:ObservedFill()
+            if fill > 0 and UnitPower("player", 0) < UnitPowerMax("player", 0) then
+                MD:Debug("regen", "OOC fill observed %.2f/s vs model %.2f/s (API %.2f, %s, duty %d%%)",
+                    fill, RM:Current(), inFSR and RM.apiCasting or RM.apiBase,
+                    inFSR and "5SR" or "out of 5SR", duty * 100)
+            end
+        end
     end
 end)
 

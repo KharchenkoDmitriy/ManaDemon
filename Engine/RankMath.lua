@@ -34,16 +34,86 @@ local function Penalty(spellLevel, playerLevel)
     return downrank * sub20
 end
 
--- Returns family -> { label, tol, rows = {...}, suggestedID, callout }.
--- Row: { id, rank, cost, cast, heal, hpm, hps, dominated, suggested, isMax }
+-- Chain-casts until the next cast is unaffordable: each cast nets
+-- (cost - regen * interval) mana, so floor((mana - cost) / net) + 1 casts.
+-- math.huge when regen covers the cost, 0 when mana < cost.
+function RankMath:CastsToOOM(cost, interval, mana, regen)
+    if cost <= 0 then return math.huge end
+    local net = cost - regen * interval
+    if net <= 0 then return math.huge end
+    if mana < cost then return 0 end
+    return math.floor((mana - cost) / net) + 1
+end
+
+-- Returns family -> { label, tol, rows = {...}, suggestedID, callout }; the
+-- inputs used (bonus, statBonus, treeAura, inTree) are left in RankMath.info.
+-- Row: { id, rank, cost, cast, heal, hpm, hps, hp5 (sustained healing per 5s
+-- at zero mana, regen-paced, 5SR-aware; nil without base regen), casts
+-- (chain-casts to OOM from current mana, math.huge when regen covers the
+-- cost), dominated, suggested, isMax }
 function RankMath:Compute()
     local SD = MD.SpellData
     local results = {}
     if not MD.player.isDruid then return results end
 
-    local bonus = BonusHealing()
-    local crit = NatureCrit()
+    -- Tree of Life aura: party members (the tree included) receive extra
+    -- healing equal to 25% of the druid's Spirit. It is a "healing received"
+    -- aura on the targets, so GetSpellBonusHealing() never shows it, but it
+    -- goes through the same coefficient/penalty path as +healing (MaNGOS-era
+    -- SpellHealingBonus: taken advertised benefit * coeff). Counted while in
+    -- form unless the setting is off; only true for targets in your party.
+    -- Simulation overrides (MD.sim, session-only, set from the dashboard's
+    -- "Simulate" strip): nil = live value. Only the rank math reads them;
+    -- the clock, widget and advisor always use real inputs.
+    local sim = MD.sim or {}
+    local liveBonus = BonusHealing()
+    local statBonus = sim.heal or liveBonus
+    local treeAura = 0
+    if MD:InTreeForm() and not (MD.db and MD.db.treeAura == false) then
+        treeAura = 0.25 * (UnitStat("player", 5) or 0)
+    end
+    local bonus = statBonus + treeAura
+    local liveCrit = NatureCrit()
+    local crit = sim.crit and (sim.crit / 100) or liveCrit
     local playerLevel = MD.player.level
+    -- Chain-cast budget: every cast nets (cost - castingRegen * interval);
+    -- from the current mana that allows floor((mana - cost) / net) + 1 casts
+    -- (interval = cast time, or the 1.5s GCD for instants). Casting regen is
+    -- the in-5SR rate (Intensity, gear mp5, Dreamstate) since spamming keeps
+    -- you inside the five-second rule the whole time.
+    local liveMana = UnitPower("player", 0) or 0
+    local liveCasting = MD.Regen and MD.Regen.casting or 0
+    local liveBase = MD.Regen and MD.Regen.base or 0
+    local mana = sim.mana or liveMana
+    local castingRegen = sim.casting and (sim.casting / 5) or liveCasting
+    local baseRegen = sim.base and (sim.base / 5) or liveBase
+    -- Sustained output at zero mana (author's "HP5"): cast only when regen has
+    -- paid for it. Each cast starts 5s of casting regen, then base regen runs
+    -- until the next cast is affordable, so the steady-state interval is
+    --   T = cost / casting            if 5s of casting regen already cover it
+    --   T = 5 + (cost - 5*casting) / base   otherwise
+    -- never shorter than the cast itself. HP5 = 5 * heal / T. Nil when base
+    -- regen is zero (cannot sustain anything).
+    local function SustainedInterval(cost, interval)
+        if cost <= 0 then return interval end
+        local T
+        if castingRegen > 0 and cost <= 5 * castingRegen then
+            T = cost / castingRegen
+        elseif baseRegen > 0 then
+            T = 5 + (cost - 5 * castingRegen) / baseRegen
+        else
+            return nil
+        end
+        return math.max(T, interval)
+    end
+    local function CastsToOOM(cost, interval)
+        return RankMath:CastsToOOM(cost, interval, mana, castingRegen)
+    end
+    RankMath.info = { bonus = bonus, statBonus = statBonus, treeAura = treeAura, inTree = MD:InTreeForm(),
+                      mana = mana, castingRegen = castingRegen, baseRegen = baseRegen, crit = crit,
+                      simulated = next(sim) ~= nil,
+                      live = { heal = liveBonus, crit = liveCrit * 100, casting = liveCasting * 5,
+                               base = liveBase * 5, mana = liveMana } }
 
     local goN = 1 + 0.02 * MD:TalentRank("Gift of Nature")
     local empTouch = 1 + 0.10 * MD:TalentRank("Empowered Touch")
@@ -101,6 +171,8 @@ function RankMath:Compute()
                         cost = cost, cast = castTime, heal = heal,
                         hpm = cost > 0 and heal / cost or 0,
                         hps = heal / castTime,
+                        hp5 = (function() local T = SustainedInterval(cost, castTime) return T and 5 * heal / T or nil end)(),
+                        casts = CastsToOOM(cost, castTime),
                         known = SD.knownSet[id] or false,
                         isMax = SD.maxRank[family] == id,
                     }
@@ -121,6 +193,8 @@ function RankMath:Compute()
                                 cost = cost, cast = castTime, heal = h,
                                 hpm = cost > 0 and h / cost or 0,
                                 hps = h / castTime,
+                                hp5 = (function() local T = SustainedInterval(cost, castTime) return T and 5 * h / T or nil end)(),
+                                casts = CastsToOOM(cost, castTime),
                                 known = SD.knownSet[id] or false,
                                 isMax = false,
                             }

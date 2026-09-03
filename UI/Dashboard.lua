@@ -1,17 +1,15 @@
--- Rank dashboard (/md). Layout: class tab row (Druid | Settings), spell
--- subtabs under it, and per-spell a table of ALL ranks (unlearned ranks
--- dimmed) with tooltip-style columns: heal per cast, mana, HPM, HPS, cast.
--- The Settings tab is the GUI for everything the slash commands can do.
+-- Rank dashboard (/md): a Cell-style movable frame (header bar with title and
+-- close), a row of spell tabs, and per spell a table of ALL ranks (unlearned
+-- ranks dimmed) with tooltip-style columns: heal per cast, mana, HPM, HPS,
+-- cast. Settings moved to the options frame (UI/OptionsFrame.lua).
 local _, MD = ...
+local UI = MD.UI
 
-local WIDTH, HEIGHT = 700, 520
-local frame, statsFS, calloutFS, recapFS
-local spellTabsRow, settingsPane, tablePane, messageFS
-
-local currentView = "spell"          -- "spell" | "settings"
+local WIDTH, HEIGHT = 760, 496
+local frame, statsFS, calloutFS, hintFS, recapFS, messageFS, tablePane
+local simBoxes = {}   -- key -> { eb, label, fmt }
 local currentFamily = "HealingTouch"
-
-local classTabs, spellTabs = {}, {}
+local spellTabs, highlightTab = {}, nil
 local rowPool, usedRows = {}, {}
 
 local COLS = {
@@ -20,9 +18,11 @@ local COLS = {
     { key = "cost",  x = 106, w = 60,  label = "Mana" },
     { key = "heal",  x = 170, w = 86,  label = "Heal/cast" },
     { key = "hpm",   x = 260, w = 64,  label = "HPM" },
-    { key = "hps",   x = 328, w = 70,  label = "HPS" },
-    { key = "cast",  x = 402, w = 56,  label = "Cast" },
-    { key = "note",  x = 462, w = 200, label = "" },
+    { key = "hps",   x = 328, w = 64,  label = "HPS" },
+    { key = "hp5",   x = 396, w = 64,  label = "HP5" },
+    { key = "cast",  x = 464, w = 50,  label = "Cast" },
+    { key = "casts", x = 518, w = 56,  label = "To OOM" },
+    { key = "note",  x = 578, w = 160, label = "" },
 }
 
 --------------------------------------------------------------------------------
@@ -59,96 +59,58 @@ local function ReleaseRows()
     wipe(usedRows)
 end
 
--- ElvUI look: stock button textures stripped, flat 0.1-grey backdrop with a
--- 1px black border, centred text; active tab = lighter backdrop + gold text.
-local FLAT = "Interface\\Buttons\\WHITE8x8"
-local FLAT_BACKDROP = { bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 }
-local TAB_BG, TAB_BG_HOVER, TAB_BG_ACTIVE = 0.1, 0.18, 0.22
-
-local function TabButton(parent, label, width, onClick)
-    local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
-    btn:SetSize(width, 22)
-    btn:SetBackdrop(FLAT_BACKDROP)
-    btn:SetBackdropColor(TAB_BG, TAB_BG, TAB_BG, 1)
-    btn:SetBackdropBorderColor(0, 0, 0, 1)
-    btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    btn.text:SetPoint("CENTER")
-    btn.text:SetText(label)
-    btn.label = label
-    btn:SetScript("OnClick", onClick)
-    btn:SetScript("OnEnter", function(self)
-        if not self.active then self:SetBackdropColor(TAB_BG_HOVER, TAB_BG_HOVER, TAB_BG_HOVER, 1) end
-    end)
-    btn:SetScript("OnLeave", function(self)
-        if not self.active then self:SetBackdropColor(TAB_BG, TAB_BG, TAB_BG, 1) end
-    end)
-    return btn
-end
-
-local function SetTabActive(btn, active)
-    btn.active = active
-    local bg = active and TAB_BG_ACTIVE or TAB_BG
-    btn:SetBackdropColor(bg, bg, bg, 1)
-    btn.text:SetText(active and ("|cffffcc00" .. btn.label .. "|r") or btn.label)
-end
-
 --------------------------------------------------------------------------------
 -- refresh
 --------------------------------------------------------------------------------
-local Refresh -- forward declaration
-
-local function SelectView(view, family)
-    currentView = view
-    if family then currentFamily = family end
-    Refresh()
-end
-
-Refresh = function()
+local function Refresh()
     if not frame or not frame:IsShown() then return end
     ReleaseRows()
+    messageFS:Hide()
 
-    -- tab highlight states
-    SetTabActive(classTabs.class, currentView == "spell")
-    SetTabActive(classTabs.settings, currentView == "settings")
-    for fam, btn in pairs(spellTabs) do
-        SetTabActive(btn, currentView == "spell" and currentFamily == fam)
-    end
-
-    local inSpellView = currentView == "spell"
-    spellTabsRow:SetShown(inSpellView and MD.player.isDruid)
-    settingsPane:SetShown(currentView == "settings")
-    tablePane:SetShown(inSpellView)
-    statsFS:SetShown(inSpellView)
-    calloutFS:SetShown(inSpellView)
-    messageFS:SetShown(false)
-
-    if currentView == "settings" then
-        -- checkbox/slider states are synced by their own OnShow handlers
-        settingsPane:Hide()
-        settingsPane:Show()
-        return
-    end
-
-    -- overall info line (the part the author liked): current regen state
+    -- overall info line: current regen state
     local RM = MD.Regen
     local bonus = 0
     if GetSpellBonusHealing then
         local ok, v = pcall(GetSpellBonusHealing)
         if ok then bonus = v or 0 end
     end
-    local spiritPerSec, mp5Gear = RM:Components()
+    local spiritPerSec, mp5Gear, _, unreported = RM:Components()
     statsFS:SetFormattedText(
-        "+%d healing   regen |cff33ff66%d|r mana/s out of 5SR, |cffffaa33%d|r casting   ~%d mp5 from spirit, ~%d mp5 gear/buffs",
-        bonus, RM.base, RM.casting, spiritPerSec * 5, mp5Gear)
+        "+%d healing   regen |cff33ff66%d|r mana/s out of 5SR, |cffffaa33%d|r casting   ~%d mp5 spirit, ~%d mp5 gear/buffs%s",
+        bonus, RM.base, RM.casting, spiritPerSec * 5, mp5Gear,
+        unreported > 0 and string.format(", +%d mp5 Dreamstate (not in the API)", unreported * 5 + 0.5) or "")
 
     if not MD.player.isDruid then
-        messageFS:SetShown(true)
-        messageFS:SetText("Rank analysis is Druid-only in v1 — the OOM widget, datatext and advisor still work for your class.")
+        messageFS:Show()
+        messageFS:SetText("Rank analysis is Druid-only in v1 - the OOM widget, datatext and advisor still work for your class.")
         calloutFS:SetText("")
         return
     end
 
+    if highlightTab then highlightTab(currentFamily) end
+
     local results = MD.RankMath:Compute()
+    local info = MD.RankMath.info
+    if info then
+        for key, box in pairs(simBoxes) do
+            box.label:SetText(string.format(box.fmt, info.live[key]))
+        end
+        if info.simulated then
+            statsFS:SetText("|cffff9933SIMULATION|r  " .. statsFS:GetText())
+        end
+    end
+    if info and info.treeAura > 0 then
+        statsFS:SetText((statsFS:GetText():gsub("^%+%d+ healing",
+            string.format("+%d healing (+%d Tree of Life aura on party targets)", info.statBonus, info.treeAura))))
+    elseif info and info.inTree then
+        statsFS:SetText((statsFS:GetText():gsub("^%+%d+ healing", "%0 (Tree aura not counted - see Settings)")))
+    end
+    if info then
+        hintFS:SetFormattedText("|cff888888HPM = heal per mana.  HPS = heal per second of cast time (1.5s GCD for instants).  " ..
+            "HP5 = healing per 5s you can sustain at zero mana, casting only as regen pays (5SR-aware, %d / %d mp5 casting / resting).  " ..
+            "To OOM = chain-casts from your current %d mana.|r",
+            info.castingRegen * 5 + 0.5, info.baseRegen * 5 + 0.5, info.mana)
+    end
     local res = results[currentFamily]
     if not res then
         calloutFS:SetText("")
@@ -185,7 +147,9 @@ Refresh = function()
         row.cells.heal:SetText(c .. Fmt(r.heal) .. "|r")
         row.cells.hpm:SetText(c .. Fmt(r.hpm, 2) .. "|r")
         row.cells.hps:SetText(c .. Fmt(r.hps) .. "|r")
+        row.cells.hp5:SetText(c .. (r.hp5 and Fmt(r.hp5) or "-") .. "|r")
         row.cells.cast:SetText(c .. Fmt(r.cast, 1) .. "s|r")
+        row.cells.casts:SetText(c .. (r.casts == math.huge and "inf" or Fmt(r.casts)) .. "|r")
         local note
         if not r.known then
             note = "|cff555555not learned|r"
@@ -217,173 +181,132 @@ Refresh = function()
 end
 
 --------------------------------------------------------------------------------
--- settings pane
---------------------------------------------------------------------------------
-local function AddCheckbox(name, label, y, get, set)
-    local cb = CreateFrame("CheckButton", name, settingsPane, "UICheckButtonTemplate")
-    cb:SetSize(26, 26)
-    cb:SetPoint("TOPLEFT", settingsPane, "TOPLEFT", 8, y)
-    local textFS = _G[name .. "Text"]
-    if textFS then
-        textFS:SetText(label)
-        textFS:SetFontObject("GameFontHighlight")
-    end
-    cb:SetScript("OnShow", function(self) self:SetChecked(get()) end)
-    cb:SetScript("OnClick", function(self) set(self:GetChecked() and true or false) end)
-    return cb
-end
-
-local function BuildSettingsPane()
-    settingsPane = CreateFrame("Frame", nil, frame)
-    settingsPane:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -70)
-    settingsPane:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 44)
-    settingsPane:Hide()
-
-    AddCheckbox("ManaDemonCBMute", "Mute alerts (advisor, toasts)", -6,
-        function() return MD.db.muted end,
-        function(v) MD.db.muted = v end)
-
-    AddCheckbox("ManaDemonCBDrink", "Drink reminder out of combat", -36,
-        function() return MD.db.drinkReminder end,
-        function(v) MD.db.drinkReminder = v end)
-
-    AddCheckbox("ManaDemonCBLock", "Lock the OOM widget (uncheck to drag it)", -66,
-        function() return MD.db.locked end,
-        function(v)
-            MD.db.locked = v
-            MD:UpdateVisibility()
-        end)
-
-    AddCheckbox("ManaDemonCBMinimap", "Show minimap button", -96,
-        function() return not MD.db.minimap.hide end,
-        function(v)
-            MD.db.minimap.hide = not v
-            if MD.UpdateMinimapButton then MD:UpdateMinimapButton() end
-        end)
-
-    AddCheckbox("ManaDemonCBRest", "Show 'rest' next to the OOM clock (time to full if you stop casting)", -126,
-        function() return MD.db.showRest end,
-        function(v) MD.db.showRest = v end)
-
-    local resetBtn = TabButton(settingsPane, "Reset widget position", 170, function()
-        MD.db.pos = { "CENTER", "CENTER", 0, -140 }
-        MD:ApplyWidgetPosition()
-        MD:Print("widget position reset.")
-    end)
-    resetBtn:SetPoint("TOPLEFT", settingsPane, "TOPLEFT", 12, -164)
-
-    local slider = CreateFrame("Slider", "ManaDemonSliderHalfLife", settingsPane, "OptionsSliderTemplate")
-    slider:SetPoint("TOPLEFT", settingsPane, "TOPLEFT", 14, -220)
-    slider:SetWidth(220)
-    slider:SetMinMaxValues(5, 60)
-    slider:SetValueStep(1)
-    slider:SetObeyStepOnDrag(true)
-    _G["ManaDemonSliderHalfLifeLow"]:SetText("5s")
-    _G["ManaDemonSliderHalfLifeHigh"]:SetText("60s")
-    local sliderLabel = _G["ManaDemonSliderHalfLifeText"]
-    slider:SetScript("OnShow", function(self)
-        self:SetValue(MD.db.halfLife)
-        sliderLabel:SetText("Spend window half-life: " .. MD.db.halfLife .. "s")
-    end)
-    slider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value + 0.5)
-        MD.db.halfLife = value
-        sliderLabel:SetText("Spend window half-life: " .. value .. "s")
-    end)
-
-    local hint = settingsPane:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    hint:SetPoint("TOPLEFT", settingsPane, "TOPLEFT", 12, -270)
-    hint:SetJustifyH("LEFT")
-    hint:SetWidth(WIDTH - 80)
-    hint:SetText("|cff888888Shorter half-life reacts faster to your casting, longer is steadier.\n" ..
-        "Everything here is also available as slash commands — /md help.\n" ..
-        "/md verify checks the spell data against your client; /md fsrtest logs mana ticks.|r")
-end
-
---------------------------------------------------------------------------------
 -- frame construction
 --------------------------------------------------------------------------------
 local function CreateDashboard()
-    frame = CreateFrame("Frame", "ManaDemonDashboard", UIParent, "BackdropTemplate")
-    frame:SetSize(WIDTH, HEIGHT)
-    frame:SetPoint("CENTER")
-    -- ElvUI-style flat panel: near-opaque dark backdrop, 1px black border.
-    frame:SetBackdrop(FLAT_BACKDROP)
-    frame:SetBackdropColor(0.06, 0.06, 0.06, 0.95)
-    frame:SetBackdropBorderColor(0, 0, 0, 1)
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-    frame:SetFrameStrata("HIGH")
-    frame:Hide()
+    frame = UI.CreateMovableFrame("ManaDemon", "ManaDemonDashboard", WIDTH, HEIGHT, "HIGH", 1, true)
+    UI.StylizeFrame(frame, { 0.1, 0.1, 0.1, 0.95 })
     tinsert(UISpecialFrames, "ManaDemonDashboard") -- ESC closes
 
-    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", frame, "TOP", 0, -14)
-    title:SetText("|cff9966ffManaDemon|r")
-
-    local close = TabButton(frame, "x", 22, function() frame:Hide() end)
-    close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
-
-    -- class tab row: the player's class (only Druid has rank data) + Settings
-    local classLabel = MD.player.isDruid and "Druid"
-        or (UnitClass("player") or "Class")
-    classTabs.class = TabButton(frame, classLabel, 90, function() SelectView("spell") end)
-    classTabs.class:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -36)
-    classTabs.settings = TabButton(frame, "Settings", 90, function() SelectView("settings") end)
-    classTabs.settings:SetPoint("LEFT", classTabs.class, "RIGHT", 6, 0)
-
-    -- spell subtab row
-    spellTabsRow = CreateFrame("Frame", nil, frame)
-    spellTabsRow:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -62)
-    spellTabsRow:SetSize(WIDTH - 32, 24)
+    -- spell tab row (druid only) + Settings on the right
     local prev
+    local buttons = {}
     for _, family in ipairs(MD.SpellData.familyOrder) do
         local info = MD.SpellData.families[family]
         if info and not info.exclude then
-            local btn = TabButton(spellTabsRow, info.label, 110, function()
-                SelectView("spell", family)
-            end)
+            local btn = UI.CreateButton(frame, info.label, "accent-hover", { 110, 20 }, false, false, UI.FONT_TITLE, UI.FONT_TITLE_DISABLE)
+            btn.id = family
             if prev then
-                btn:SetPoint("LEFT", prev, "RIGHT", 4, 0)
+                btn:SetPoint("LEFT", prev, "RIGHT", -1, 0)
             else
-                btn:SetPoint("LEFT", spellTabsRow, "LEFT", 0, 0)
+                btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -10)
             end
             spellTabs[family] = btn
+            buttons[#buttons + 1] = btn
             prev = btn
+            btn:SetShown(MD.player.isDruid)
         end
     end
+    highlightTab = UI.CreateButtonGroup(buttons, function(id)
+        currentFamily = id
+        Refresh()
+    end)
+
+    local settingsBtn = UI.CreateButton(frame, "Settings", "accent-hover", { 90, 20 }, false, false, UI.FONT_TITLE, UI.FONT_TITLE_DISABLE)
+    settingsBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -10)
+    settingsBtn:SetScript("OnClick", function() MD:ShowOptionsFrame("general") end)
+
+    -- Simulate strip: blank box = live value (shown in the label).
+    local simTitle = frame:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    simTitle:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -42)
+    simTitle:SetTextColor(UI.accent[1], UI.accent[2], UI.accent[3])
+    simTitle:SetText("Simulate:")
+    local function AddSimBox(key, labelFmt, anchor)
+        local label = frame:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+        label:SetPoint("LEFT", anchor, "RIGHT", 10, 0)
+        label:SetTextColor(0.7, 0.7, 0.7)
+        label:SetText(string.format(labelFmt, 0))
+        local eb = UI.CreateEditBox(frame, 54, 16, false, false, false, UI.FONT_SMALL)
+        eb:SetPoint("LEFT", label, "RIGHT", 4, 0)
+        eb:SetTextInsets(3, 3, 0, 0)
+        local function Apply(self)
+            local text = strtrim(self:GetText() or "")
+            if text == "" then
+                MD.sim[key] = nil
+            else
+                local v = tonumber(text)
+                if v then
+                    MD.sim[key] = v
+                else
+                    self:SetText(MD.sim[key] and tostring(MD.sim[key]) or "")
+                end
+            end
+            self:HighlightText(0, 0)
+            Refresh()
+        end
+        eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        eb:SetScript("OnEditFocusLost", Apply)
+        simBoxes[key] = { eb = eb, label = label, fmt = labelFmt }
+        return eb
+    end
+    local last = AddSimBox("heal", "+heal (%d)", simTitle)
+    last = AddSimBox("crit", "crit%% (%.1f)", last)
+    last = AddSimBox("casting", "casting mp5 (%d)", last)
+    last = AddSimBox("base", "resting mp5 (%d)", last)
+    last = AddSimBox("mana", "mana (%d)", last)
+    local clearBtn = UI.CreateButton(frame, "Clear", "red-hover", { 50, 16 }, false, false, UI.FONT_SMALL, nil,
+        "Clear simulation", "Back to your live stats.")
+    clearBtn:SetPoint("LEFT", last, "RIGHT", 10, 0)
+    clearBtn:SetScript("OnClick", function()
+        wipe(MD.sim)
+        for _, box in pairs(simBoxes) do box.eb:SetText("") end
+        Refresh()
+    end)
 
     statsFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    statsFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 22, -94)
+    statsFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -68)
     statsFS:SetJustifyH("LEFT")
-    statsFS:SetWidth(WIDTH - 44)
+    statsFS:SetWidth(WIDTH - 32)
 
     calloutFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    calloutFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 22, -112)
+    calloutFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -86)
     calloutFS:SetJustifyH("LEFT")
-    calloutFS:SetWidth(WIDTH - 44)
+    calloutFS:SetWidth(WIDTH - 32)
+
+    hintFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hintFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -102)
+    hintFS:SetJustifyH("LEFT")
+    hintFS:SetWidth(WIDTH - 32)
 
     messageFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    messageFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 22, -140)
+    messageFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -126)
     messageFS:SetJustifyH("LEFT")
-    messageFS:SetWidth(WIDTH - 44)
+    messageFS:SetWidth(WIDTH - 32)
     messageFS:Hide()
 
     tablePane = CreateFrame("Frame", nil, frame)
-    tablePane:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -132)
-    tablePane:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 44)
+    tablePane:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -120)
+    tablePane:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 40)
 
     recapFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    recapFS:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 20, 20)
+    recapFS:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 16)
     recapFS:SetJustifyH("LEFT")
-    recapFS:SetWidth(WIDTH - 40)
-
-    BuildSettingsPane()
+    recapFS:SetWidth(WIDTH - 32)
 
     frame:SetScript("OnShow", Refresh)
+
+    -- The "To OOM" column follows your current mana: re-render every 2s while
+    -- the frame is open (rendering only; the model is event-driven).
+    local acc = 0
+    MD:OnTick(function(dt)
+        if not frame:IsShown() then return end
+        acc = acc + dt
+        if acc >= 2 then
+            acc = 0
+            Refresh()
+        end
+    end)
 end
 
 function MD:ToggleDashboard()
@@ -391,16 +314,16 @@ function MD:ToggleDashboard()
     if frame:IsShown() then frame:Hide() else frame:Show() end
 end
 
+-- Kept for the minimap button's right-click.
 function MD:OpenDashboardSettings()
-    if not frame then return end
-    currentView = "settings"
-    if frame:IsShown() then Refresh() else frame:Show() end
+    MD:ShowOptionsFrame("general")
 end
 
 MD:RegisterCallback("MD_READY", CreateDashboard)
 MD:RegisterCallback("TALENTS_CHANGED", Refresh)
 MD:RegisterCallback("SPELLS_REBUILT", Refresh)
 MD:RegisterCallback("FIGHT_RECORDED", Refresh)
+MD:RegisterCallback("FORM_CHANGED", Refresh) -- Tree of Life: costs and aura change
 MD:On("PLAYER_EQUIPMENT_CHANGED", function()
     if frame and frame:IsShown() then Refresh() end
 end)

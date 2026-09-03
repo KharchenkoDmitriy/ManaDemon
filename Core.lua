@@ -1,6 +1,6 @@
 -- ManaDemon: mana dynamics, time-to-OOM prediction and healing rank analysis
 -- for TBC healers. Core: namespace, saved variables, event/tick dispatch,
--- profile & talent scanning, slash commands.
+-- profile & talent scanning, debug log entry point, slash commands.
 local ADDON_NAME, MD = ...
 _G.ManaDemon = MD
 
@@ -16,10 +16,22 @@ local DEFAULTS = {
     halfLife = 15,        -- seconds; half-life of the spend-rate EWMA
     drinkReminder = true,
     showRest = true,      -- "rest 2:10" segment: time to full if you stop casting
+    treeAura = true,      -- count the Tree of Life aura (+25% Spirit as healing received by the party) in heal values
     firstRun = true,
     minimap = { hide = false, angle = 220 },
+    debug = {
+        enabled = false,  -- MD:Debug() is a no-op unless this is on
+        categories = { regen = true, mana = true, spend = true, tto = true,
+                       combat = true, chat = true, other = true },
+    },
+    optionsPos = false,   -- { point, relativePoint, x, y } once the options frame was moved
     char = {},
 }
+MD.DEFAULTS = DEFAULTS
+
+-- What-if overrides for the rank dashboard (never saved): heal, crit (%),
+-- casting / base (mp5), mana. nil = live. See UI/Dashboard.lua "Simulate".
+MD.sim = {}
 
 --------------------------------------------------------------------------------
 -- Event dispatch
@@ -79,13 +91,33 @@ end)
 --------------------------------------------------------------------------------
 function MD:Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cff9966ffManaDemon:|r " .. tostring(msg))
+    MD:Debug("chat", tostring(msg))
 end
 
 -- Alert respects /md mute and pulses the widget if present.
 function MD:Alert(msg)
+    MD:Debug("other", "alert%s: %s", (MD.db and MD.db.muted) and " (muted)" or "", tostring(msg))
     if MD.db and MD.db.muted then return end
     MD:Print(msg)
     if MD.PulseWidget then MD:PulseWidget() end
+end
+
+-- Debug log (Cell-style): a no-op unless debug logging is enabled in the
+-- settings, otherwise one timestamped line into the in-memory ring that the
+-- Debug Console (UI/DebugConsole.lua) shows and copies. Categories: regen,
+-- mana, spend, tto, combat, chat, other. Extra arguments go through
+-- string.format; a bad format never raises.
+function MD:Debug(category, fmt, ...)
+    local db = MD.db and MD.db.debug
+    if not (db and db.enabled) then return end
+    local text
+    if select("#", ...) > 0 then
+        local ok, s = pcall(string.format, fmt, ...)
+        text = ok and s or tostring(fmt)
+    else
+        text = tostring(fmt)
+    end
+    if MD.DebugLog then MD:DebugLog(category, text) end
 end
 
 --------------------------------------------------------------------------------
@@ -124,16 +156,47 @@ function MD:HasBuff(matchName)
     return false
 end
 
+-- Tree of Life form: the shapeshift form ID when the client exposes it
+-- (FrameXML TREE_FORM = 2), the form buff by name as fallback.
 local TREE_OF_LIFE = GetSpellInfo(33891)
+local TREE_FORM_ID = _G.TREE_FORM or 2
 function MD:InTreeForm()
-    return MD.player.isDruid and MD:HasBuff(TREE_OF_LIFE)
+    if not MD.player.isDruid then return false end
+    if GetShapeshiftFormID then
+        local ok, id = pcall(GetShapeshiftFormID)
+        if ok and id ~= nil then return id == TREE_FORM_ID end
+    end
+    return MD:HasBuff(TREE_OF_LIFE)
 end
+
+-- Fired (as "FORM_CHANGED", inTree) when the shapeshift form changes.
+local lastTree = nil
+local function CheckForm()
+    if not MD.db then return end
+    local inTree = MD:InTreeForm()
+    if inTree ~= lastTree then
+        lastTree = inTree
+        MD:Debug("other", "form: %s", inTree and "Tree of Life" or "caster / other")
+        MD:Fire("FORM_CHANGED", inTree)
+    end
+end
+MD:On("UPDATE_SHAPESHIFT_FORM", CheckForm)
+MD:On("UPDATE_SHAPESHIFT_FORMS", CheckForm)
+MD:RegisterCallback("MD_READY", function() lastTree = MD:InTreeForm() end)
 
 --------------------------------------------------------------------------------
 -- Talents: scanned by NAME across all tabs so positional index shifts between
 -- client builds can't silently return the wrong talent.
 --------------------------------------------------------------------------------
 MD.talents = {}
+
+-- Talents the model reads or that the verification output should show.
+MD.RELEVANT_TALENTS = {
+    "Intensity", "Dreamstate", "Living Spirit", "Lunar Guidance",
+    "Moonglow", "Tranquil Spirit", "Gift of Nature", "Improved Rejuvenation",
+    "Empowered Rejuvenation", "Empowered Touch", "Improved Regrowth",
+    "Naturalist", "Natural Perfection", "Nature's Grace", "Tree of Life",
+}
 
 function MD:ScanTalents()
     wipe(MD.talents)
@@ -146,6 +209,7 @@ function MD:ScanTalents()
             end
         end
     end
+    MD:Debug("other", "talents scanned: %s", MD:TalentSummary())
     MD:Fire("TALENTS_CHANGED")
 end
 
@@ -153,22 +217,35 @@ function MD:TalentRank(name)
     return MD.talents[name] or 0
 end
 
+-- "Intensity 3, Moonglow 3, ..." for the relevant talents, or "none relevant".
+function MD:TalentSummary()
+    local list = {}
+    for _, t in ipairs(MD.RELEVANT_TALENTS) do
+        local r = MD:TalentRank(t)
+        if r > 0 then list[#list + 1] = t .. " " .. r end
+    end
+    return #list > 0 and table.concat(list, ", ") or "none relevant"
+end
+
 --------------------------------------------------------------------------------
 -- Init
 --------------------------------------------------------------------------------
-local function InitDB()
-    ManaDemonDB = ManaDemonDB or {}
-    for k, v in pairs(DEFAULTS) do
-        if ManaDemonDB[k] == nil then
-            if type(v) == "table" then
-                local copy = {}
-                for k2, v2 in pairs(v) do copy[k2] = v2 end
-                ManaDemonDB[k] = copy
-            else
-                ManaDemonDB[k] = v
-            end
+-- Fill missing keys recursively so nested defaults (debug.categories) are
+-- copied, never shared with the DEFAULTS table.
+local function FillDefaults(dst, src)
+    for k, v in pairs(src) do
+        if type(v) == "table" then
+            if type(dst[k]) ~= "table" then dst[k] = {} end
+            FillDefaults(dst[k], v)
+        elseif dst[k] == nil then
+            dst[k] = v
         end
     end
+end
+
+local function InitDB()
+    ManaDemonDB = ManaDemonDB or {}
+    FillDefaults(ManaDemonDB, DEFAULTS)
     MD.db = ManaDemonDB
     MD.db.char[MD.player.charKey] = MD.db.char[MD.player.charKey] or {}
     MD.cdb = MD.db.char[MD.player.charKey]
@@ -177,6 +254,13 @@ end
 MD:On("PLAYER_LOGIN", function()
     MD:DetectProfile()
     InitDB()
+    MD:Debug("other", "=== PLAYER_LOGIN === ManaDemon v%s, %s level %d, debug categories: %s",
+        MD.version, MD.player.class, MD.player.level, (function()
+            local on = {}
+            for k, v in pairs(MD.db.debug.categories) do if v then on[#on + 1] = k end end
+            table.sort(on)
+            return table.concat(on, " ")
+        end)())
     MD:ScanTalents()
     MD:Fire("MD_READY")
 
@@ -196,17 +280,28 @@ end)
 --------------------------------------------------------------------------------
 -- Slash commands
 --------------------------------------------------------------------------------
+-- Shared with the About tab.
+MD.COMMANDS = {
+    { "/md",              "toggle the rank dashboard" },
+    { "/md options",      "open the settings window" },
+    { "/md lock, unlock", "lock / unlock (drag) the OOM widget" },
+    { "/md reset",        "reset the widget position" },
+    { "/md mute",         "toggle alert messages" },
+    { "/md drink",        "toggle the drink reminder" },
+    { "/md rest",         "toggle the 'rest' segment (time to full if you stop casting)" },
+    { "/md window N",     "spend estimator half-life in seconds (5-60, default 15)" },
+    { "/md verify",       "check static spell data against the live client" },
+    { "/md fsrtest",      "log mana ticks for 15s (five-second-rule anchor test)" },
+    { "/md regentest [N]", "idle regen check: observed mana gain vs GetManaRegen (N s, default 30)" },
+    { "/md spamtest",     "arm, then chain-cast one spell to OOM: checks the dashboard's To OOM column" },
+    { "/md debug",        "toggle the debug console (enable logging there, Copy to export)" },
+}
+
 local function ShowHelp()
     MD:Print("commands:")
-    MD:Print("  |cffffff00/md|r — toggle the rank dashboard")
-    MD:Print("  |cffffff00/md lock|r / |cffffff00unlock|r — lock / unlock (drag) the widget")
-    MD:Print("  |cffffff00/md reset|r — reset the widget position")
-    MD:Print("  |cffffff00/md mute|r — toggle alert messages")
-    MD:Print("  |cffffff00/md drink|r — toggle the drink reminder")
-    MD:Print("  |cffffff00/md rest|r — toggle the 'rest' segment (time to full if you stop casting)")
-    MD:Print("  |cffffff00/md window N|r — spend estimator half-life in seconds (default 15)")
-    MD:Print("  |cffffff00/md verify|r — check static spell data against the live client")
-    MD:Print("  |cffffff00/md fsrtest|r — log mana ticks for 15s (five-second-rule anchor test)")
+    for _, c in ipairs(MD.COMMANDS) do
+        MD:Print("  |cffffff00" .. c[1] .. "|r - " .. c[2])
+    end
 end
 
 SLASH_MANADEMON1 = "/manademon"
@@ -218,6 +313,8 @@ SlashCmdList.MANADEMON = function(msg)
         if MD.ToggleDashboard then MD:ToggleDashboard() end
     elseif cmd == "help" then
         ShowHelp()
+    elseif cmd == "options" or cmd == "config" or cmd == "settings" then
+        if MD.ShowOptionsFrame then MD:ShowOptionsFrame() end
     elseif cmd == "lock" then
         MD.db.locked = true
         if MD.UpdateVisibility then MD:UpdateVisibility() end
@@ -251,6 +348,12 @@ SlashCmdList.MANADEMON = function(msg)
         if MD.RunVerify then MD:RunVerify() end
     elseif cmd == "fsrtest" then
         if MD.RunFSRTest then MD:RunFSRTest() end
+    elseif cmd == "regentest" then
+        if MD.RunRegenTest then MD:RunRegenTest(tonumber(arg)) end
+    elseif cmd == "spamtest" then
+        if MD.RunSpamTest then MD:RunSpamTest() end
+    elseif cmd == "debug" then
+        if MD.ToggleDebugConsole then MD:ToggleDebugConsole() end
     else
         ShowHelp()
     end

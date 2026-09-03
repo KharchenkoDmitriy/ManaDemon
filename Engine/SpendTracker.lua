@@ -1,7 +1,7 @@
 -- Spend tracker: exponentially-weighted event-rate estimator over successful
--- casts. Costs come from the static SpellData table first, then from
--- GetSpellPowerCost when the client provides it (this is what makes TTO work
--- for non-druids); spells with no resolvable cost are logged, never guessed.
+-- casts. Costs come from GetSpellPowerCost (live, any class — this is what
+-- makes TTO class-generic) with the static SpellData table as fallback;
+-- spells with no resolvable cost are logged, never guessed.
 local _, MD = ...
 
 local ST = {}
@@ -24,27 +24,19 @@ local function Prune(now)
     end
 end
 
+-- Returns cost, source ("api" | "table") or nil when unpriceable. Live first
+-- (the client applies talents / form itself), static table as fallback.
 local function ResolveCost(spellID)
-    local cost = MD.SpellData:GetCost(spellID)
-    if cost then return cost end
-    if GetSpellPowerCost then
-        local ok, costs = pcall(GetSpellPowerCost, spellID)
-        if ok and type(costs) == "table" then
-            for _, c in ipairs(costs) do
-                if c.type == 0 then return c.cost end -- 0 = mana
-            end
-            return 0 -- costs table without mana: free for our purposes
-        end
-    end
-    return nil
+    return MD.SpellData:GetCost(spellID)
 end
 
 MD:On("UNIT_SPELLCAST_SUCCEEDED", function(unit, _, spellID)
     if unit ~= "player" or type(spellID) ~= "number" then return end
     local now = GetTime()
-    local cost = ResolveCost(spellID)
+    local cost, source = ResolveCost(spellID)
     if cost == nil then
         ST.unknown[spellID] = true
+        MD:Debug("spend", "unpriced spell %s (%d) - ignored", GetSpellInfo(spellID) or "?", spellID)
         return
     end
     if cost > 0 then
@@ -52,9 +44,14 @@ MD:On("UNIT_SPELLCAST_SUCCEEDED", function(unit, _, spellID)
         Prune(now)
         ST.combat.casts = ST.combat.casts + 1
         ST.combat.spent = ST.combat.spent + cost
-        if MD.SpellData:IsMaxKnownRank(spellID) then
+        local isMax = MD.SpellData:IsMaxKnownRank(spellID)
+        if isMax then
             ST.combat.maxRankCasts = ST.combat.maxRankCasts + 1
         end
+        MD:Debug("spend", "%s (%d) cost %d [%s]%s", GetSpellInfo(spellID) or "?", spellID, cost, source,
+            isMax and " max rank" or "")
+    else
+        MD:Debug("spend", "%s (%d) free [%s]", GetSpellInfo(spellID) or "?", spellID, source)
     end
 end)
 
@@ -148,6 +145,7 @@ MD:On("PLAYER_REGEN_DISABLED", function()
         local m = rates[math.ceil(#rates / 2)]
         if m and m > 0 then
             seed = { rate = m, t = GetTime() }
+            MD:Debug("spend", "pull: seeded %.2f mana/s from %d recorded fight(s)", m, #rates)
         end
     end
 end)

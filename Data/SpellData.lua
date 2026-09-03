@@ -1,10 +1,12 @@
--- Static TBC druid healing spell data. The 2.5.x client does not reliably
--- expose per-rank mana costs, so this table is the source of truth; TBC data
--- is frozen so it only has to be verified once.
+-- Static TBC druid healing spell data. Costs are read LIVE from the client
+-- (GetSpellPowerCost works on the 2.5.x anniversary client: /md verify
+-- checked 44 costs on 2026-09-03) and this table is the fallback plus the
+-- reference the verify harness diffs against. Heal values, cast times and
+-- coefficients still come from here.
 --
--- !!! VERIFICATION REQUIRED: run /md verify in-game once. Values below are
--- best-effort from TBC references; any mismatch the harness prints must be
--- fixed here. Fields marked VERIFY are the least certain.
+-- Costs corrected from /md verify output on 2026-09-03 (level 64 druid):
+-- Rejuvenation R6-R12, Tranquility R1-R4, Swiftmend. Fields marked VERIFY
+-- are the least certain (heal values for ranks not yet learned).
 local _, MD = ...
 
 local SD = {}
@@ -58,13 +60,13 @@ SD.spells = {
     [1430]  = { family = "Rejuvenation", rank = 3,  level = 16, cost = 75,  hotTotal = 116,  hotDuration = 12 },
     [2090]  = { family = "Rejuvenation", rank = 4,  level = 22, cost = 105, hotTotal = 180,  hotDuration = 12 },
     [2091]  = { family = "Rejuvenation", rank = 5,  level = 28, cost = 135, hotTotal = 244,  hotDuration = 12 },
-    [3627]  = { family = "Rejuvenation", rank = 6,  level = 34, cost = 190, hotTotal = 304,  hotDuration = 12 },
-    [8910]  = { family = "Rejuvenation", rank = 7,  level = 40, cost = 235, hotTotal = 388,  hotDuration = 12 },
-    [9839]  = { family = "Rejuvenation", rank = 8,  level = 46, cost = 280, hotTotal = 488,  hotDuration = 12 },
-    [9840]  = { family = "Rejuvenation", rank = 9,  level = 52, cost = 335, hotTotal = 608,  hotDuration = 12 },
-    [9841]  = { family = "Rejuvenation", rank = 10, level = 58, cost = 405, hotTotal = 756,  hotDuration = 12 },
-    [25299] = { family = "Rejuvenation", rank = 11, level = 60, cost = 435, hotTotal = 888,  hotDuration = 12 },
-    [26981] = { family = "Rejuvenation", rank = 12, level = 63, cost = 450, hotTotal = 932,  hotDuration = 12 }, -- VERIFY
+    [3627]  = { family = "Rejuvenation", rank = 6,  level = 34, cost = 160, hotTotal = 304,  hotDuration = 12 },
+    [8910]  = { family = "Rejuvenation", rank = 7,  level = 40, cost = 195, hotTotal = 388,  hotDuration = 12 },
+    [9839]  = { family = "Rejuvenation", rank = 8,  level = 46, cost = 235, hotTotal = 488,  hotDuration = 12 },
+    [9840]  = { family = "Rejuvenation", rank = 9,  level = 52, cost = 280, hotTotal = 608,  hotDuration = 12 },
+    [9841]  = { family = "Rejuvenation", rank = 10, level = 58, cost = 335, hotTotal = 756,  hotDuration = 12 },
+    [25299] = { family = "Rejuvenation", rank = 11, level = 60, cost = 360, hotTotal = 888,  hotDuration = 12 },
+    [26981] = { family = "Rejuvenation", rank = 12, level = 63, cost = 370, hotTotal = 932,  hotDuration = 12 }, -- VERIFY heal
     [26982] = { family = "Rejuvenation", rank = 13, level = 69, cost = 415, hotTotal = 1060, hotDuration = 12 }, -- VERIFY
 
     -- Regrowth (hybrid: direct + HoT over 21s, 7 ticks)
@@ -82,25 +84,45 @@ SD.spells = {
     -- Lifebloom (single rank in TBC; 7s HoT + bloom on expiry)
     [33763] = { family = "Lifebloom", rank = 1, level = 64, cost = 220, hotTotal = 273, hotDuration = 7, bloom = 600 },
 
-    -- Priced for the spend tracker only (excluded from ranking). Costs VERIFY.
-    [740]   = { family = "Tranquility", rank = 1, level = 30, cost = 375,  cast = 8, channel = true },
-    [8918]  = { family = "Tranquility", rank = 2, level = 40, cost = 505,  cast = 8, channel = true },
-    [9862]  = { family = "Tranquility", rank = 3, level = 50, cost = 620,  cast = 8, channel = true },
-    [9863]  = { family = "Tranquility", rank = 4, level = 60, cost = 750,  cast = 8, channel = true },
+    -- Priced for the spend tracker only (excluded from ranking).
+    [740]   = { family = "Tranquility", rank = 1, level = 30, cost = 525,  cast = 8, channel = true },
+    [8918]  = { family = "Tranquility", rank = 2, level = 40, cost = 705,  cast = 8, channel = true },
+    [9862]  = { family = "Tranquility", rank = 3, level = 50, cost = 975,  cast = 8, channel = true },
+    [9863]  = { family = "Tranquility", rank = 4, level = 60, cost = 1295,  cast = 8, channel = true },
     [26983] = { family = "Tranquility", rank = 5, level = 69, cost = 1650, cast = 8, channel = true },
-    [18562] = { family = "Swiftmend",   rank = 1, level = 40, cost = 379 }, -- VERIFY
+    [18562] = { family = "Swiftmend",   rank = 1, level = 40, cost = 271 },
 
-    -- Zero-cost utility that must NOT be logged as unknown by the tracker.
-    [29166] = { family = "Innervate", rank = 1, level = 40, cost = 0 },
+    -- Innervate costs a percentage of base mana (67 at level 64), so it has
+    -- no static cost: priced live only. Listed so it is never "unknown".
+    [29166] = { family = "Innervate", rank = 1, level = 40 },
 }
 
 --------------------------------------------------------------------------------
--- Cost with talent / form modifiers.
--- TBC rounds talent-modified costs down; VERIFY floor-vs-round via /md verify.
+-- Costs. SD:GetCost() is what the model and the dashboard use: the client's
+-- live value when it reports one (talents, Tree of Life and whatever else the
+-- client applies are then exact), else the static table with the talent
+-- modifiers below. SD:StaticCost() is the table-only figure the verify
+-- harness diffs against the live one.
 --------------------------------------------------------------------------------
-function SD:GetCost(spellID)
+function SD:LiveCost(spellID)
+    if not GetSpellPowerCost then return nil end
+    local ok, costs = pcall(GetSpellPowerCost, spellID)
+    if ok and type(costs) == "table" then
+        for _, c in ipairs(costs) do
+            if c.type == 0 then return c.cost end -- 0 = mana
+        end
+        return 0 -- costs table without mana: free for our purposes
+    end
+    return nil
+end
+
+-- TBC rounds talent-modified costs down (assumed; the live value decides).
+-- NOTE: the client SUMS same-type percent modifiers (Moonglow + Tree of Life
+-- = -29%, not x0.91 x0.8); this fallback multiplies them and can be ~2% high
+-- when two apply. Only matters when GetSpellPowerCost is unavailable.
+function SD:StaticCost(spellID)
     local s = SD.spells[spellID]
-    if not s then return nil end
+    if not s or s.cost == nil then return nil end
     local cost = s.cost
     if MD.player.isDruid and cost > 0 then
         local fam = s.family
@@ -119,6 +141,15 @@ function SD:GetCost(spellID)
         end
     end
     return math.floor(cost)
+end
+
+-- Returns cost, "api" | "table"; nil when neither source knows the spell.
+function SD:GetCost(spellID)
+    local live = SD:LiveCost(spellID)
+    if live ~= nil then return live, "api" end
+    local static = SD:StaticCost(spellID)
+    if static ~= nil then return static, "table" end
+    return nil
 end
 
 --------------------------------------------------------------------------------

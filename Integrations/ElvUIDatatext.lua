@@ -41,7 +41,7 @@ local function OnEnter()
     local s = MD.GetManaState and MD:GetManaState()
     if s then
         local RM = MD.Regen
-        local spiritPerSec, mp5Gear = RM:Components()
+        local spiritPerSec, mp5Gear, _, unreported = RM:Components()
         if s.tto then
             DT.tooltip:AddDoubleLine("Time to OOM (raw)",
                 string.format("%ds +- %ds", s.tto, s.sigmaT or 0), 1, 1, 1, 1, 1, 1)
@@ -64,6 +64,10 @@ local function OnEnter()
             string.format("%d / %d mana/s", RM.base, RM.casting), 1, 1, 1, 1, 1, 1)
         DT.tooltip:AddDoubleLine("Spirit / gear mp5",
             string.format("~%d / ~%d", spiritPerSec * 5, mp5Gear), 1, 1, 1, 1, 1, 1)
+        if unreported > 0 then
+            DT.tooltip:AddDoubleLine("Dreamstate mp5 (added, not in the API)",
+                string.format("%d", unreported * 5 + 0.5), 1, 1, 1, 1, 1, 1)
+        end
         if RM:InFSR() then
             DT.tooltip:AddDoubleLine("Spirit regen resumes",
                 string.format("%.1fs", RM:FSRRemaining()), 1, 0.67, 0.2, 1, 1, 1)

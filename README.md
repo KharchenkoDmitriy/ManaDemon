@@ -16,10 +16,15 @@ drink reminders).
   full means spirit regen is running (five-second rule).
 - **`ManaDemon Regen`** — a second ElvUI datatext showing your *current* mp5 (casting
   regen inside the five-second rule, full regen outside), unlike the stock one.
-- **`/md`** — rank dashboard: class tab, spell subtabs, every rank with heal / mana /
-  HPM / HPS using *your* +healing, talents and TBC downranking penalties; Lifebloom
-  shows x2 / x3 rolling-stack rows. Druid-only for now; everything else works for any
-  mana healer. The Settings tab is the GUI for every option.
+- **`/md`** — rank dashboard: spell tabs, every rank with heal / mana / HPM / HPS and
+  **To OOM** (how many times you can chain-cast it from your current mana, counting
+  casting regen) using *your* +healing, talents, Tree of Life form and TBC downranking
+  penalties; Lifebloom shows x2 / x3 rolling-stack rows. A **Simulate** row lets you
+  override +healing, crit, mp5 and mana to see what a gear change would do. Druid-only for
+  now; everything else works for any mana healer.
+- **`/md options`** — settings window (Cell-style tabs): widget lock / rest segment /
+  position, alerts, spend half-life, minimap button, and the **Debug Console** — a
+  filterable log of regen, mana ticks, casts and the clock's state, with a Copy popup.
 - **Advisor** — "Innervate now — you're down 4,200 mana", "Super Mana Potion now",
   "+52 healing — Regrowth R7 is now your efficient rank. Rebind?", "Drink."
 - **End-of-combat line** — `3:42 | net -212 mp5 | spent 18.4k | overheal 31% |
@@ -27,8 +32,9 @@ drink reminders).
 
 ## Commands
 
-`/md` dashboard · `/md unlock` / `lock` / `reset` widget · `/md mute` · `/md drink` ·
-`/md rest` · `/md window N` · `/md verify` · `/md fsrtest` · `/md help`
+`/md` dashboard · `/md options` · `/md unlock` / `lock` / `reset` widget · `/md mute` ·
+`/md drink` · `/md rest` · `/md window N` · `/md verify` · `/md fsrtest` ·
+`/md regentest [N]` · `/md debug` · `/md help`
 
 ## Building
 
@@ -40,7 +46,9 @@ prompt; `make install WOW_ADDONS="/path/to/Interface/AddOns"` also copies it int
 
 The widget appears unlocked for 60 seconds — drag it where you want it, then `/md lock`.
 Run `/md verify` once: it checks the static TBC spell data against your client and prints
-anything that needs fixing.
+anything that needs fixing. `/md regentest` (idle, partial mana, no drink, 30s) tells
+whether your client's mana regen value includes Dreamstate. Both land in the Debug
+Console (`/md debug`, enable logging, Copy).
 
 ElvUI users: enable the **ManaDemon** datatext in any datatext slot
 (ElvUI config → DataTexts).

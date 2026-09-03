@@ -81,18 +81,22 @@ local toastPending = false
 local function CheckRankShift()
     toastPending = false
     if not MD.player.isDruid or not MD.cdb then return end
+    if MD.sim and next(MD.sim) then return end -- dashboard simulation active: not real gear
+    -- Suggestions depend on the form too (Tree of Life cost + aura), so a
+    -- stored snapshot from the other form is replaced, never compared.
     local current = MD.RankMath:SuggestedRanks()
+    local form = MD:InTreeForm() and "tree" or "caster"
     local stored = MD.cdb.suggestedRanks
-    if stored then
+    if stored and stored.form == form and stored.ranks then
         for family, rank in pairs(current) do
-            if stored[family] and stored[family] ~= rank then
+            if stored.ranks[family] and stored.ranks[family] ~= rank then
                 local label = MD.SpellData.families[family].label
                 MD:Alert(string.format("gear change — %s R%d is now your efficient rank (was R%d). Rebind?",
-                    label, rank, stored[family]))
+                    label, rank, stored.ranks[family]))
             end
         end
     end
-    MD.cdb.suggestedRanks = current
+    MD.cdb.suggestedRanks = { form = form, ranks = current }
 end
 
 MD:On("PLAYER_EQUIPMENT_CHANGED", function()
@@ -103,8 +107,9 @@ end)
 
 MD:RegisterCallback("MD_READY", function()
     C_Timer.After(5, function()
-        if MD.player.isDruid and MD.cdb and not MD.cdb.suggestedRanks then
-            MD.cdb.suggestedRanks = MD.RankMath:SuggestedRanks()
+        if MD.player.isDruid and MD.cdb and not (MD.cdb.suggestedRanks and MD.cdb.suggestedRanks.ranks) then
+            MD.cdb.suggestedRanks = { form = MD:InTreeForm() and "tree" or "caster",
+                                      ranks = MD.RankMath:SuggestedRanks() }
         end
     end)
 end)

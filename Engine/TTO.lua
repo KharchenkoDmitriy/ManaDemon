@@ -177,9 +177,9 @@ local function Quantize(v, step)
     return step * math.floor(v / step + 0.5)
 end
 
--- The shown value changes only after the same quantized value is seen on two
--- consecutive ticks — except when it worsens by more than two steps or crosses
--- the 60s / 20s severity boundaries downward, which apply at once.
+-- The shown value changes only after a consistent quantized value is seen on
+-- two consecutive ticks — except when it worsens by more than two steps or
+-- crosses the 60s / 20s severity boundaries downward, which apply at once.
 local function LatchValue(q, worseIsLower, step)
     local cur = disp.value
     if cur == nil or q == cur then
@@ -195,8 +195,12 @@ local function LatchValue(q, worseIsLower, step)
             return
         end
     end
-    if disp.cand == q then
-        disp.candTicks = disp.candTicks + 1
+    -- A candidate counts as "the same" when it lands within one step of the
+    -- previous candidate: the raw horizon jitters a few % tick to tick, and
+    -- demanding bit-identical quantized values could keep the shown number
+    -- from ever moving (seen 2026-09-03: "FULL 2:05" stuck at a true 94s).
+    if disp.cand and math.abs(q - disp.cand) <= step then
+        disp.cand, disp.candTicks = q, disp.candTicks + 1
     else
         disp.cand, disp.candTicks = q, 1
     end
@@ -321,3 +325,31 @@ function MD:GetDisplayString(valueHex)
     end
     return out
 end
+
+--------------------------------------------------------------------------------
+-- Debug log: mode transitions at once, a state summary every 5s in combat
+-- (15s out), first summary immediately after a transition.
+--------------------------------------------------------------------------------
+local dbgMode, dbgAcc = nil, 0
+local function Plain(str)
+    return (str:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+end
+
+MD:OnTick(function(dt)
+    if not state or not (MD.db and MD.db.debug and MD.db.debug.enabled) then return end
+    local s = state
+    if s.mode ~= dbgMode then
+        MD:Debug("tto", "mode %s -> %s (shown: %s)", tostring(dbgMode), s.mode, Plain(MD:GetDisplayString()))
+        dbgMode = s.mode
+        dbgAcc = math.huge
+    end
+    dbgAcc = dbgAcc + dt
+    if dbgAcc >= (s.inCombat and 5 or 15) then
+        dbgAcc = 0
+        local T = s.tto or s.ttf or s.bound
+        MD:Debug("tto", "%s '%s' | T %s rest %s | spend %.2f +- %.2f/s n=%d cv=%.2f | regen %.2f/s (duty %d%%, now %.2f) | net %+.2f/s | mana %d/%d",
+            s.mode, Plain(MD:GetDisplayString()),
+            T and string.format("%.0fs", T) or "-", s.rest and string.format("%.0fs", s.rest) or "-",
+            s.spend, s.sigma, s.casts, s.cv, s.regen, s.duty * 100, s.regenNow, s.net, s.mana, s.manaMax)
+    end
+end)

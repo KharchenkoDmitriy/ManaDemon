@@ -116,3 +116,75 @@ Both parties converged on most of the math; the table records who won the rest.
 | Rejected: counterfactual "at fight-average spend" second clock; confidence band; second line | **B** | A readout the player must be taught fails the one-second glance test. |
 
 Supersedes the v1 rows "pessimistic edge = p75" and "sustainable sentinel".
+
+## Talent audit (2026-09-03)
+
+Reviewed every talent that touches heal size, mana cost or regen against `Engine/RankMath.lua`,
+`Data/SpellData.lua` and `Engine/RegenModel.lua`.
+
+| Talent | Where | Status |
+|---|---|---|
+| Gift of Nature +2%/r | RankMath, all families incl. Lifebloom bloom | OK |
+| Improved Rejuvenation +5%/r | RankMath (whole Rejuv heal) | OK, but see stacking below |
+| Empowered Rejuvenation +4%/r on HoT bonus | Rejuv, Regrowth HoT, Lifebloom ticks (+x2/x3 rows) | OK; bloom deliberately excluded pending verification |
+| Empowered Touch | RankMath, HT bonus × (1 + 0.1r) | **Wrong shape**: the talent ADDS 0.1r to the coefficient. Identical for HT R5+ (coef 1.0), low for R1–R4 |
+| Improved Regrowth +10% crit/r | RankMath (Regrowth direct only) | OK |
+| Naturalist −0.1s/r HT | RankMath cast time; coefficient still from base cast | OK |
+| Nature's Grace (−0.5s next cast after a crit) | — | **Not modelled**; ≈ −0.5·crit s per chain-cast HT/Regrowth (a few % HPS) |
+| Moonglow −3%/r (HT, Regrowth, Rejuv) | SpellData:GetCost | OK, but see stacking |
+| Tranquil Spirit −2%/r (HT, Tranquility) | SpellData:GetCost | OK, but see stacking |
+| Tree of Life −20% cost on form HoTs; castable set | SpellData:GetCost, families.tol | OK |
+| Intensity, Living Spirit, Dreamstate, Lunar Guidance, Natural Perfection, Tree aura | via `GetManaRegen` / `UnitStat` / `GetSpellBonusHealing` / `GetSpellCritChance` | Implicit, no double count — **except Dreamstate, which the author reports is NOT in the reported mp5** |
+| Omen of Clarity | — | Melee-proc only in TBC; irrelevant to a healer's spend |
+
+**Percent-modifier stacking.** The code multiplies same-type percent mods; the TBC client
+sums them first (spellmod pct accumulation). GoN 5 + Imp Rejuv 3 = +25%, not +26.5%;
+HT cost with Moonglow 3 + Tranquil Spirit 5 = −19%, not −18.1%; Rejuv/Regrowth in Tree
+with Moonglow 3 = −29%, not −27.2% (≈7 mana per Rejuv). The cost half shows up directly as
+COST mismatches in `/md verify`; that output decides it (open item, not changed yet).
+
+**Dreamstate.** Measured 2026-09-03 (`/md regentest`, two specs, same character): the raw
+`GetManaRegen()` EXCLUDES it — ticks ran ~34 mp5 above the API with the talent and matched
+the API without. `RegenModel` now adds `{4,7,10}% × Int / 5` per second to both rates
+(`RM.unreported`); the raw values are kept in `RM.apiBase/apiCasting` and the test compares
+against those, so the verdict remains valid. Not extended to other classes' int-based regen
+talents (Shaman Unrelenting Storm) until measured.
+
+**Costs, superseding "the 2.5.x client does not reliably expose per-rank costs" (v1 scope) and
+"mana-cost modifier pipeline" (model decisions):** `GetSpellPowerCost` works on this client
+(44 costs checked), so `SD:GetCost()` is live-first and the static table is the fallback +
+verify reference. Static Rejuvenation R6–R12, Tranquility R1–R4 and Swiftmend costs were
+wrong and are now the live values; Innervate is a percentage of base mana and has no static
+cost. With live costs the cost-side stacking question is moot; the heal-side one (GoN +
+Improved Rejuvenation, ≈1%) stays open.
+
+**Spirit share decomposition (display only):** the level-70 constant read 2× low at level 64,
+so `RM:Components()` now derives it from the API's own two numbers and the in-5SR talent
+fraction: `S = (base − casting) / (1 − f)`, `G = base − S`. Cross-checked: G = 21 mp5 in both
+specs of the test character.
+
+**Display latch:** the shown value now latches on a candidate within one step of the previous
+candidate (jitter-tolerant); and the OOC observed-fill estimate is an EWMA over gain events
+(gain / interval), not a per-tick EWMA of a 2s-periodic signal. Fixes `FULL 2:05` stuck at a
+true 94s.
+
+**Tree of Life form (2026-09-03, v0.4.2).** Cost: live via `GetSpellPowerCost`, refreshed on
+`FORM_CHANGED`. Heal: the form's aura is +25% of Spirit as healing *received* by party members
+(the tree included), invisible to `GetSpellBonusHealing()`; `RankMath` adds it to the +healing
+input while in form (`db.treeAura`, default on) because it takes the same coefficient and
+downrank path as caster +healing (MaNGOS-era `SpellHealingBonus`: taken advertised benefit ×
+coeff). Only true for party targets, which is why it is a setting and labelled on the
+dashboard. Open item: confirm in-game that a Rejuv on yourself in form heals for the extra
+`0.25 × Spirit × 0.8 (× Emp Rejuv)` — the tick size before/after shifting settles it.
+
+## Settings window and debug console (2026-09-03)
+
+| Decision | Why |
+|---|---|
+| Mimic Cell's options UI (flat 0.115-grey panels, 1px black borders, class-colour accent, tab buttons on the frame's top edge, titled panes, 13/14px fonts) with a from-scratch kit in `UI/Style.lua` | Author's explicit ask ("I like their settings in general"). No dependency on Cell or its libraries; no pixel-perfect layer — plain sizes are enough for one fixed-width window. |
+| Settings live in their own frame (`/md options`), the dashboard keeps only a "Settings" button | Cell separates the options frame from the unit frames; the rank table and the options have different widths and lifetimes. |
+| Debug console = Cell's DebugConsole concept: `MD:Debug()` is a no-op unless enabled, memory-only ring (1000 lines), category filters, Copy popup with select-all edit box | Author's ask ("debug logs concept"). Memory-only keeps SavedVariables clean; the Copy popup is the only way to get text out of the client. |
+| Explicit categories on each `MD:Debug` call (regen / mana / spend / tto / combat / chat / other) instead of Cell's pattern-matching on the text | Cheaper and never misfiles a line. |
+| `MD:Print` mirrors into the `chat` category | `/md verify` and the regen test output become copyable without a second code path. |
+| Timestamp = wall clock + seconds since load with 2 decimals | Sub-second spacing is the point for mana ticks and 5SR edges; wall clock ties it to the author's notes. |
+| `/md regentest` measures instead of assuming (observed gain vs time-weighted API, diff vs `{4,7,10}% × Int / 5`) | The only honest way to answer whether the API includes Dreamstate on this client. |

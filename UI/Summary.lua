@@ -29,6 +29,8 @@ MD:On("PLAYER_REGEN_DISABLED", function()
         overhealed = 0,
         oomAt = nil,
     }
+    MD:Debug("combat", "pull: mana %d/%d, regen base %.2f casting %.2f",
+        fight.startMana, UnitPowerMax("player", 0), MD.Regen.base, MD.Regen.casting)
 end)
 
 -- OOM detection (below 2% counts as dry).
@@ -51,7 +53,10 @@ MD:On("PLAYER_REGEN_ENABLED", function()
 
     local duration = GetTime() - f.start
     local ST = MD.Spend
-    if duration < 15 or ST.combat.spent <= 0 then return end
+    if duration < 15 or ST.combat.spent <= 0 then
+        MD:Debug("combat", "end: %.0fs, spent %d - too short to record", duration, ST.combat.spent)
+        return
+    end
 
     local endMana = UnitPower("player", 0)
     local netMp5 = (endMana - f.startMana) / duration * 5
@@ -79,6 +84,7 @@ MD:On("PLAYER_REGEN_ENABLED", function()
     end
 
     local summary = table.concat(parts, " || ") -- ASCII only; default WoW fonts lack many glyphs
+    MD:Debug("combat", "end: %s (casts %d, healed %d, overhealed %d)", summary, ST.combat.casts, f.healed, f.overhealed)
     MD:Print(summary)
 
     MD.fightHistory[#MD.fightHistory + 1] = {
