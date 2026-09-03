@@ -21,6 +21,7 @@ local DEFAULTS = {
     minimap = { hide = false, angle = 220 },
     debug = {
         enabled = false,  -- MD:Debug() is a no-op unless this is on
+        maxLines = 1000,  -- memory ring size (Debug Console "keep lines")
         categories = { regen = true, mana = true, spend = true, tto = true,
                        heal = true, combat = true, chat = true, other = true },
     },

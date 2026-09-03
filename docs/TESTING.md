@@ -5,7 +5,9 @@
 Everything below is done on the druid, in-game, with the Debug Console open
 (`/md options` → General → Misc → Debug Console → tick **Enable Debug Logging**).
 After each test: **Copy** in the console, paste into a file under `.logs/`
-(gitignored) named like the test. Three to five files per session is plenty.
+(gitignored) named like the test. Three to five files per session is plenty. The console
+keeps 1000 lines by default — the **keep lines** box (top right, saved) raises it to 20000;
+a fight with the Mana category on produces roughly 3 lines per second.
 
 Install: `make install WOW_ADDONS="/path/to/_anniversary_/Interface/AddOns"` (or copy
 `dist/main/ManaDemon`), then `/reload`.

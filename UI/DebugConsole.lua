@@ -15,8 +15,14 @@ local CATEGORY_COLORS = {
     heal = "|cff66ff99", combat = "|cffff5555", chat = "|cffaaaaaa", other = "|cffcccccc",
 }
 
-local MAX_LOG_LINES = 1000   -- kept in memory (Copy exports all of them)
+local MIN_LINES, MAX_LINES, DEFAULT_LINES = 200, 20000, 1000
 local VIEW_LINES = 300       -- rendered in the window (newest)
+
+local function MaxLogLines()
+    local n = MD.db and MD.db.debug and tonumber(MD.db.debug.maxLines) or DEFAULT_LINES
+    if n < MIN_LINES then n = MIN_LINES elseif n > MAX_LINES then n = MAX_LINES end
+    return n
+end
 local logLines = {}
 local sessionT0 = GetTime()
 
@@ -34,8 +40,13 @@ function MD:DebugLog(category, text)
     local line = string.format("|cff888888%s +%.2f|r %s[%s]|r %s",
         date("%H:%M:%S"), GetTime() - sessionT0, CATEGORY_COLORS[category], category, tostring(text))
     logLines[#logLines + 1] = { category = category, text = line }
-    if #logLines > MAX_LOG_LINES then
-        table.remove(logLines, 1)
+    -- Trim in batches (drop the oldest 25% once the ring is a quarter over its
+    -- size) so a 20k-line buffer never pays a per-line table.remove(1).
+    local max = MaxLogLines()
+    if #logLines > max * 1.25 then
+        local keep = {}
+        for i = #logLines - max + 1, #logLines do keep[#keep + 1] = logLines[i] end
+        logLines = keep
     end
     dirty = true
 end
@@ -138,7 +149,7 @@ local function CreateDebugConsoleFrame()
     local clearBtn = UI.CreateButton(consoleFrame, "Clear", "red-hover", { 60, 17 })
     clearBtn:SetPoint("TOPRIGHT", -10, -10)
     clearBtn:SetScript("OnClick", function()
-        wipe(logLines)
+        logLines = {}
         RefreshLog()
     end)
 
@@ -179,6 +190,30 @@ local function CreateDebugConsoleFrame()
     countFS:SetPoint("RIGHT", regenBtn, "LEFT", -8, 0)
     countFS:SetTextColor(0.6, 0.6, 0.6)
 
+    -- "keep N lines": ring size, saved in the settings
+    local keepEB = UI.CreateEditBox(consoleFrame, 56, 16, false, false, true, UI.FONT_SMALL)
+    keepEB:SetPoint("TOPRIGHT", -10, -37)
+    keepEB:SetTextInsets(3, 3, 0, 0)
+    local keepLabel = consoleFrame:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    keepLabel:SetPoint("RIGHT", keepEB, "LEFT", -4, 0)
+    keepLabel:SetTextColor(0.7, 0.7, 0.7)
+    keepLabel:SetText("keep lines")
+    UI.SetTooltips(keepEB, "ANCHOR_TOPLEFT", 0, 3, "Lines kept in memory",
+        string.format("%d to %d (default %d). Copy exports all of them; the", MIN_LINES, MAX_LINES, DEFAULT_LINES),
+        string.format("window shows the newest %d. A long fight with Mana on is ~3 lines/s.", VIEW_LINES))
+    local function ApplyKeep(self)
+        local n = tonumber(self:GetText())
+        if n then
+            if n < MIN_LINES then n = MIN_LINES elseif n > MAX_LINES then n = MAX_LINES end
+            MD.db.debug.maxLines = n
+        end
+        self:SetText(tostring(MaxLogLines()))
+        self:HighlightText(0, 0)
+    end
+    keepEB:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    keepEB:SetScript("OnEditFocusLost", ApplyKeep)
+    consoleFrame.keepEB = keepEB
+
     UI.CreateScrollFrame(consoleFrame, -60, 5)
     consoleFrame.scrollFrame:SetScrollStep(37)
     UI.StylizeFrame(consoleFrame.scrollFrame, { 0.1, 0.1, 0.1, 0.5 })
@@ -192,6 +227,7 @@ local function CreateDebugConsoleFrame()
 
     consoleFrame:SetScript("OnShow", function()
         enableCB:SetChecked(MD.db.debug.enabled)
+        consoleFrame.keepEB:SetText(tostring(MaxLogLines()))
         for category, cb in pairs(categoryCBs) do
             cb:SetChecked(MD.db.debug.categories[category] ~= false)
         end
