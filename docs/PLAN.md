@@ -6,6 +6,10 @@ classes, where testing is harder (no alts), so it is built on verified generic p
 
 Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[?]` needs in-game data.
 
+**Design for everything below in §1b/§1c/§1d: `docs/DESIGN-v0.5.md`** (architecture,
+formulas, UI mockups, delivery order v0.5.0–v0.5.5, and the five calls worth arguing
+about first).
+
 ## Phase 1 — druid, verify and improve
 
 ### 1a. Close the open verification items (cheap, needs the author in-game)

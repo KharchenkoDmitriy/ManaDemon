@@ -334,3 +334,42 @@ dashboard line and `/md verify` show the relic. Awaiting the author's confirmati
 (looked like a broken integration once); tooltips on this client show base heal only, so
 formula checks go through the `heal` debug category; the user reads `.logs/*.txt` back to
 me — ask for them instead of guessing.
+
+## 2026-09-03 (design session) — v0.5 design and architecture
+
+No code. The author deferred the `docs/TESTING.md` §5 combat-log run and asked for the
+detailed design of everything still planned. Wrote **`docs/DESIGN-v0.5.md`**, covering
+`docs/PLAN.md` §1b (Nature's Grace, Innervate-aware clock, overheal-calibrated HPM,
+persisted fight history), §1c (row tooltips, Simulate form/Moonglow, one tooltip
+builder, `/md profile`) and §1d, plus the Phase 2 seams.
+
+**Architecture decided:** `RankMath` splits into `Context()` / `RowFor(spell, ctx,
+variant, explain)` / `Compute()` / `Explain()` so a row's intermediate terms are
+reachable for tooltips and `/md profile` without churning tables on the 2s re-render;
+`SD:StaticCost(id, ctx)` takes an override context and **sums** percent cost modifiers
+(the client's behaviour, already recorded in the code comment) because the simulate
+strip now depends on that path; new `Engine/Overheal.lua`, `Engine/ManaCooldowns.lua`
+(class table, Innervate value shared by the clock and the advisor, Phase 2 stubs),
+`UI/Tooltip.lua` (one `{l, r}` line builder for both datatexts, the minimap, the widget
+— which gains a hover tooltip — and the dashboard); `UI/Summary.lua`'s two duplicate
+combat-log handlers collapse to one; `UI/Dashboard.lua` splits into `_Rows` / `_Simulate`;
+copy popup and verify snapshot extracted as `MD:ShowCopyPopup` / `MD:Snapshot`.
+
+**Model calls:** Nature's Grace as the exact mixture `(1-p)*T0 + p*max(T0-0.5, 1.5)`
+rather than `cast - 0.5*crit` floored (the floor clips wrongly), fed to HPS, HP5 and To
+OOM; Innervate as `max(0, (5*S + G + U) - RM:Effective()) * 20 - cost`, i.e. the marginal
+gain over what the clock already projects, suppressed while the buff is up; overheal
+weighted by amount with a 150-event half-life, rank scope when it has 40 events else
+family, and the Pareto/suggested rank deliberately left on raw values so a noisy
+measurement can never fire a "rebind?" toast.
+
+**Delivery order:** v0.5.0 architecture alone (the only step with regression risk),
+then NG, then cooldowns, then overheal + history, then the UX step.
+
+**Open for the author:** §11 of the design lists the five contested calls (`inn` on the
+one-liner vs tooltip-only; overheal family-average vs rank-only; effective mode as a
+toggle vs a column; Nature's Grace in the mana columns or HPS only; time/gear decay on
+persisted overheal). Offered the usual Opus-party + Fable-judge debate on those before
+v0.5.2. Two model assumptions ship with a debug line that settles them next play
+session: the 0.5s Nature's Grace value (new `cast` category) and whether Innervate's
+400% touches anything but the spirit share (`regen` line on buff gain/fade).
