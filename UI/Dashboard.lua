@@ -99,6 +99,13 @@ local function Refresh()
             statsFS:SetText("|cffff9933SIMULATION|r  " .. statsFS:GetText())
         end
     end
+    if info and info.relic then
+        local r = info.relic
+        local what = r.flat and string.format("+%d %s", r.flat, MD.SpellData.families[r.family].label)
+            or r.perTick and string.format("+%d per %s tick", r.perTick, MD.SpellData.families[r.family].label)
+            or r.aura and string.format("+%d Tree aura", r.aura) or ""
+        statsFS:SetText(statsFS:GetText() .. string.format("   relic: %s (%s)", r.name, what))
+    end
     if info and info.treeAura > 0 then
         statsFS:SetText((statsFS:GetText():gsub("^%+%d+ healing",
             string.format("+%d healing (+%d Tree of Life aura on party targets)", info.statBonus, info.treeAura))))

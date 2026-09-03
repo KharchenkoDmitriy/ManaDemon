@@ -68,9 +68,10 @@ function RankMath:Compute()
     local sim = MD.sim or {}
     local liveBonus = BonusHealing()
     local statBonus = sim.heal or liveBonus
+    local relic = SD:Relic()
     local treeAura = 0
     if MD:InTreeForm() and not (MD.db and MD.db.treeAura == false) then
-        treeAura = 0.25 * (UnitStat("player", 5) or 0)
+        treeAura = 0.25 * (UnitStat("player", 5) or 0) + (relic and relic.aura or 0)
     end
     local bonus = statBonus + treeAura
     local liveCrit = NatureCrit()
@@ -109,7 +110,7 @@ function RankMath:Compute()
     local function CastsToOOM(cost, interval)
         return RankMath:CastsToOOM(cost, interval, mana, castingRegen)
     end
-    RankMath.info = { bonus = bonus, statBonus = statBonus, treeAura = treeAura, inTree = MD:InTreeForm(),
+    RankMath.info = { bonus = bonus, statBonus = statBonus, treeAura = treeAura, inTree = MD:InTreeForm(), relic = relic,
                       mana = mana, castingRegen = castingRegen, baseRegen = baseRegen, crit = crit,
                       simulated = next(sim) ~= nil,
                       live = { heal = liveBonus, crit = liveCrit * 100, casting = liveCasting * 5,
@@ -127,6 +128,9 @@ function RankMath:Compute()
         local allIDs = SD.all[family]
         if info and not info.exclude and allIDs and #allIDs > 0 then
             local rows = {}
+            -- relic flat bonus for this family: added to the BASE heal
+            local relicFlat = (relic and relic.family == family and relic.flat) or 0
+            local relicTick = (relic and relic.family == family and relic.perTick) or 0
             for _, id in ipairs(allIDs) do
                 local s = SD.spells[id]
                 local pen = Penalty(s.level, playerLevel)
@@ -135,13 +139,13 @@ function RankMath:Compute()
                 if info.type == "direct" then
                     castTime = math.max(s.cast - naturalist, 1.5)
                     local coef = math.min(math.max(s.cast, 1.5), 3.5) / 3.5
-                    local avg = (s.healMin + s.healMax) / 2
+                    local avg = (s.healMin + s.healMax) / 2 + relicFlat
                     heal = (avg + bonus * coef * pen * empTouch) * goN * (1 + 0.5 * crit)
 
                 elseif info.type == "hot" then
                     castTime = 1.5 -- GCD
                     local coef = s.hotDuration / 15
-                    heal = (s.hotTotal + bonus * coef * pen * empRejuv) * goN * impRejuv
+                    heal = (s.hotTotal + relicFlat + bonus * coef * pen * empRejuv) * goN * impRejuv
 
                 elseif info.type == "hybrid" then
                     castTime = math.max(s.cast, 1.5)
@@ -149,7 +153,7 @@ function RankMath:Compute()
                     local h = s.hotDuration / 15
                     local dCoef = c * c / (c + h)
                     local hCoef = h * h / (c + h)
-                    local avg = (s.healMin + s.healMax) / 2
+                    local avg = (s.healMin + s.healMax) / 2 + relicFlat
                     local direct = (avg + bonus * dCoef * pen) * goN * (1 + 0.5 * regrowthCrit)
                     local hot = (s.hotTotal + bonus * hCoef * pen * empRejuv) * goN
                     heal = direct + hot
@@ -157,10 +161,11 @@ function RankMath:Compute()
                 elseif info.type == "lifebloom" then
                     castTime = 1.5 -- GCD
                     -- One application ticking to completion plus its bloom.
-                    -- Empowered Rejuvenation on the bloom portion is unverified,
-                    -- so it is applied to the tick portion only (conservative).
-                    local hot = (s.hotTotal + bonus * SD.lifebloomHotCoef * pen * empRejuv) * goN
-                    local bloom = (s.bloom + bonus * SD.lifebloomBloomCoef * pen) * goN
+                    -- Verified 2026-09-03 (heal log): tick 87 = (273 + 450*0.5187*1.2)*1.1/7,
+                    -- bloom 864 = (600 + 450*0.3422*1.2)*1.1 -> Empowered
+                    -- Rejuvenation applies to the bloom too.
+                    local hot = (s.hotTotal + 7 * relicTick + bonus * SD.lifebloomHotCoef * pen * empRejuv) * goN
+                    local bloom = (s.bloom + bonus * SD.lifebloomBloomCoef * pen * empRejuv) * goN
                     heal = hot + bloom
                 end
 
@@ -184,7 +189,7 @@ function RankMath:Compute()
                     -- Pareto / suggestion because they are a different activity
                     -- from a single application.
                     if info.type == "lifebloom" then
-                        local tick = (s.hotTotal + bonus * SD.lifebloomHotCoef * pen * empRejuv) * goN / 7
+                        local tick = (s.hotTotal + 7 * relicTick + bonus * SD.lifebloomHotCoef * pen * empRejuv) * goN / 7
                         for stacks = 2, 3 do
                             local h = tick * 6 * stacks
                             rows[#rows + 1] = {

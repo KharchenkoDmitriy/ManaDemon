@@ -100,6 +100,13 @@ function MD:RunVerify()
         MD:Print(string.format("nature crit: %s%%", ok and string.format("%.1f", v) or "unavailable"))
     end
     MD:Print("talents: " .. MD:TalentSummary())
+    local relic, relicID, relicName = SD:Relic()
+    if relicID then
+        MD:Print(string.format("relic: %s (%d) - %s", relicName or "?", relicID,
+            relic and ("known: " .. relic.name) or "NOT in the relic table (tell the author what it does)"))
+    else
+        MD:Print("relic: none equipped")
+    end
     MD:Print("For the FSR anchor: stand idle at partial mana, run /md fsrtest, cast ONE " ..
         "Healing Touch, and watch which tick sizes appear when. For Dreamstate: /md regentest.")
 end

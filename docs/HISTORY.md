@@ -300,3 +300,15 @@ both fixed in `SD:StaticCost`. Tooltips show base heal only (932 in/out of form)
 and bloom tests need real heal amounts → new **heal** debug category logs every SPELL_HEAL /
 SPELL_PERIODIC_HEAL the player lands (amount, overheal, crit, `[tree]`); console widened to
 580. `docs/TESTING.md` §3/§4 rewritten around the heal log. Tests 1, 2, 6, 7 passed.
+
+## 2026-09-03 (late) — Heal log results (v0.4.8)
+
+Author's heal log: **Lifebloom matches the model exactly** (tick 87, bloom 864 with Emp Rejuv
+on the bloom; 829 without) → coefficients confirmed, Emp Rejuv applied to the bloom. **Tree
+aura confirmed** as +healing on the target (Rejuv +21/tick, Lifebloom +7/tick, bloom +32 = 70
+Spirit through the normal path), dynamic on running HoTs. **Rejuvenation ran ~3% high** (445 vs
+431/tick) while Lifebloom was exact → a flat +50 on Rejuvenation only, i.e. Idol of
+Rejuvenation. Added `SD.relics` (Idol of Rejuvenation, Harold's Broach, Emerald Queen, Avian
+Heart, Idol of Health, Raven Goddess — all but the first VERIFY) and `SD:Relic()` reading slot
+18; RankMath adds flat to the base heal, per-tick to Lifebloom ticks, aura to the Tree aura;
+dashboard line and `/md verify` show the relic. Awaiting the author's confirmation of the idol.

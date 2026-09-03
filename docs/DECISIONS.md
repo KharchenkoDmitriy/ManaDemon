@@ -79,7 +79,7 @@ Date: 2026-09-01.
   its combat staleness behavior.
 - FSR anchor: cast start vs. mana deduction vs. cast completion → `/md fsrtest`.
 - ~~Whether talent-modified costs floor or round~~ — **round** (Swiftmend 216.8 → 217, 2026-09-03). Tree of Life also discounts Tranquility.
-- Lifebloom coefficients and whether Empowered Rejuvenation touches the bloom
+- ~~Lifebloom coefficients and whether Empowered Rejuvenation touches the bloom~~ — **confirmed 2026-09-03** (heal log): 0.5187 / 0.3422 exact, Emp Rejuv applies to the bloom
   (assumed **not** — applied to tick portion only, conservative).
 - `GetSpellPowerCost` presence on the anniversary client (harness reports either way).
 - Downrank penalty exact form vs. tooltip reality at level < 70.
@@ -174,8 +174,14 @@ true 94s.
 input while in form (`db.treeAura`, default on) because it takes the same coefficient and
 downrank path as caster +healing (MaNGOS-era `SpellHealingBonus`: taken advertised benefit ×
 coeff). Only true for party targets, which is why it is a setting and labelled on the
-dashboard. Open item: confirm in-game that a Rejuv on yourself in form heals for the extra
-`0.25 × Spirit × 0.8 (× Emp Rejuv)` — the tick size before/after shifting settles it.
+dashboard. **Confirmed 2026-09-03** (heal log): Rejuv ticks +21 and Lifebloom ticks +7 / bloom +32
+in form = 70 Spirit × coefficient × Emp Rejuv × talent multipliers, i.e. exactly "+healing on the
+target". The aura is target-side and dynamic: a HoT already running gains it the moment the
+tree shifts. **Relics:** the same log showed Rejuvenation ~3% above the model with Lifebloom
+exact — the signature of a flat +50 on Rejuvenation (Idol of Rejuvenation); `SD.relics` +
+`SD:Relic()` read the relic slot and add flat / per-tick / aura bonuses (best-effort table,
+VERIFY per idol). With the idol, GoN × Improved Rejuvenation fits multiplicative (1.265) better
+than additive (1.25); kept multiplicative.
 
 ## Settings window and debug console (2026-09-03)
 

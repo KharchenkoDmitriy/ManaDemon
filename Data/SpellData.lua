@@ -98,6 +98,33 @@ SD.spells = {
 }
 
 --------------------------------------------------------------------------------
+-- Relics (idols). The heal-side bonus of the equipped idol, read from the
+-- relic slot. flat = added to the spell's BASE heal before talent multipliers
+-- (SPELLMOD_DAMAGE flat); perTick = added to each Lifebloom tick; aura = added
+-- to the Tree of Life aura (healing received by party targets); cost-only
+-- idols are already covered by the live cost. Values are best-effort from TBC
+-- item data — VERIFY marks the ones not yet seen in a heal log.
+--------------------------------------------------------------------------------
+SD.relics = {
+    [22398] = { name = "Idol of Rejuvenation",        family = "Rejuvenation", flat = 50 },
+    [25643] = { name = "Harold's Rejuvenating Broach", family = "Rejuvenation", flat = 86 },  -- VERIFY
+    [27886] = { name = "Idol of the Emerald Queen",   family = "Lifebloom",    perTick = 47 }, -- VERIFY
+    [28568] = { name = "Idol of the Avian Heart",     family = "HealingTouch", flat = 136 }, -- VERIFY
+    [22399] = { name = "Idol of Health",              family = "HealingTouch", flat = 100 }, -- VERIFY id
+    [32387] = { name = "Idol of the Raven Goddess",   aura = 44 },                          -- VERIFY
+}
+
+-- Returns the equipped relic's entry (or nil), plus the item ID and name for
+-- the verify snapshot (so unknown idols can be added).
+function SD:Relic()
+    if not GetInventoryItemID then return nil end
+    local ok, itemID = pcall(GetInventoryItemID, "player", 18)
+    if not ok or not itemID then return nil end
+    local name = GetItemInfo and GetItemInfo(itemID) or nil
+    return SD.relics[itemID], itemID, name
+end
+
+--------------------------------------------------------------------------------
 -- Costs. SD:GetCost() is what the model and the dashboard use: the client's
 -- live value when it reports one (talents, Tree of Life and whatever else the
 -- client applies are then exact), else the static table with the talent

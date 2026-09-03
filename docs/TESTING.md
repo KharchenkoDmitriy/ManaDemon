@@ -1,4 +1,4 @@
-# ManaDemon — what to test now (v0.4.7)
+# ManaDemon — what to test now (v0.4.8)
 
 Everything below is done on the druid, in-game, with the Debug Console open
 (`/md options` → General → Misc → Debug Console → tick **Enable Debug Logging**).
@@ -23,7 +23,7 @@ Install: `make install WOW_ADDONS="/path/to/_anniversary_/Interface/AddOns"` (or
 - `/md verify` — expect **0 COST mismatches** now (Innervate is skipped). Any CAST line
   other than Naturalist is a bug. Paste the output.
 
-## 3. Tree of Life aura on heals (5 min) — decides an open model item
+## 3. Tree of Life aura on heals — DONE 2026-09-03 (confirmed; keep for regression)
 Tooltips on this client show BASE values only (932 in and out of form), so use the
 **Heal** log category (v0.4.7+): every heal / HoT tick you land is logged with amount,
 overheal and `[tree]` when in form. Being at full health is fine (overheal is still
@@ -35,12 +35,17 @@ reported with the full amount).
    dashboard's Heal/cast (1725 vs 1810) already shows the two predictions — the log says
    which one is real.
 
-## 4. Empowered Rejuvenation on the Lifebloom bloom (3 min)
+## 4. Empowered Rejuvenation on the Lifebloom bloom — DONE 2026-09-03 (confirmed)
 1. Cast **one** Lifebloom on yourself out of combat (out of form is simplest), let it
    expire (7s). The log shows 7 ticks and one non-tick "Lifebloom" line = the bloom.
 2. Expected tick = `(273 + 450 × 0.5187 × 1.20) × 1.10 / 7`; bloom without EmpRejuv =
    `(600 + 450 × 0.3422) × 1.10`, with = `(600 + 450 × 0.3422 × 1.20) × 1.10`.
 3. Copy the lines.
+
+## 4b. Relic slot (1 min)
+`/md verify` now prints the equipped relic and whether the table knows it. If it says NOT in
+the relic table, paste the idol's name and tooltip text. Then cast one Rejuvenation on
+yourself out of form: the tick should now match the dashboard's Heal/cast ÷ 4 within 1.
 
 ## 5. One real fight with logging on (the clock's constants)
 - Any dungeon boss or a long trash pull (≥ 90s) where you actually heal.
