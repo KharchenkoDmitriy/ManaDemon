@@ -3,7 +3,9 @@
 -- regen running). Text is LEFT-anchored so the "OOM" label never slides when
 -- the digit count or the rest segment changes; the underline follows the
 -- text width. All show/hide decisions live in MD:UpdateVisibility() —
--- nothing else may call Show/Hide on this frame.
+-- nothing else may call Show/Hide on this frame. Hovering shows the shared
+-- tooltip (UI/Tooltip.lua); that requires mouse input on the frame, so
+-- db.widgetTooltip turns both off together.
 local _, MD = ...
 
 local widget, text, underline
@@ -38,6 +40,20 @@ local function CreateWidget()
         self:StopMovingOrSizing()
         local point, _, relPoint, x, y = self:GetPoint()
         MD.db.pos = { point, relPoint, x, y }
+    end)
+
+    -- Hover tooltip (the shared builder) and a left-click shortcut to the
+    -- dashboard. This needs mouse input on the widget, which also means it
+    -- swallows clicks in its own 190x22 rectangle -- hence the setting.
+    widget:SetScript("OnEnter", function(self)
+        if MD.db.widgetTooltip == false then return end
+        MD.Tip:Show(self, "ANCHOR_TOPLEFT", MD.Tip:Clock({ "Left-click: dashboard" }))
+    end)
+    widget:SetScript("OnLeave", function() MD.Tip:Hide() end)
+    widget:SetScript("OnMouseUp", function(_, button)
+        if button == "LeftButton" and MD.db.locked and MD.ToggleDashboard then
+            MD:ToggleDashboard()
+        end
     end)
 
     -- pulse animation (used by MD:Alert and the one-per-fight 30s flash)
@@ -130,7 +146,7 @@ function MD:UpdateVisibility()
         wantShown = true
         widget:EnableMouse(true)
     else
-        widget:EnableMouse(false)
+        widget:EnableMouse(MD.db.widgetTooltip ~= false)
         if not MD.player.usesMana then
             wantShown = false
         elseif InCombatLockdown() or UnitAffectingCombat("player") then

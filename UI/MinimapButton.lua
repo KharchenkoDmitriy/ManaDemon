@@ -59,17 +59,10 @@ local function CreateButton()
         self:SetScript("OnUpdate", nil)
     end)
     btn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine("ManaDemon")
-        local str = MD.GetDisplayString and MD:GetDisplayString() or ""
-        if str ~= "" then
-            GameTooltip:AddLine(str, 1, 1, 1)
-        end
-        GameTooltip:AddLine("Left-click: dashboard", 0.7, 0.7, 0.7)
-        GameTooltip:AddLine("Right-click: settings", 0.7, 0.7, 0.7)
-        GameTooltip:Show()
+        MD.Tip:Show(self, "ANCHOR_LEFT",
+            MD.Tip:Clock({ "Left-click: dashboard", "Right-click: settings" }))
     end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    btn:SetScript("OnLeave", function() MD.Tip:Hide() end)
 
     Reposition()
     MD:UpdateMinimapButton()

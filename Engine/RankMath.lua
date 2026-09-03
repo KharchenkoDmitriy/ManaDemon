@@ -7,10 +7,19 @@
 --   downrank penalty    = min(1, (spellLevel + 11) / casterLevel)
 --   healing crits are 1.5x, HoTs never crit.
 -- Penalties apply to the BONUS-healing contribution, not the base heal.
+--
+-- Structure (docs/DESIGN-v0.5.md §1.3): Context() resolves every input once
+-- (simulation overrides are applied THERE and nowhere else), RowFor() turns one
+-- spell into one row, Compute() runs every family plus the Pareto/suggestion
+-- pass, and Explain() rebuilds a single row with its intermediate terms for the
+-- dashboard tooltip. RowFor only allocates row.calc when asked, because the
+-- dashboard re-renders every 2s and those tables would be pure garbage.
 local _, MD = ...
 
 local RankMath = {}
 MD.RankMath = RankMath
+
+local EMPTY = {}
 
 local function BonusHealing()
     if GetSpellBonusHealing then
@@ -45,38 +54,40 @@ function RankMath:CastsToOOM(cost, interval, mana, regen)
     return math.floor((mana - cost) / net) + 1
 end
 
--- Returns family -> { label, tol, rows = {...}, suggestedID, callout }; the
--- inputs used (bonus, statBonus, treeAura, inTree) are left in RankMath.info.
--- Row: { id, rank, cost, cast, heal, hpm, hps, hp5 (sustained healing per 5s
--- at zero mana, regen-paced, 5SR-aware; nil without base regen), casts
--- (chain-casts to OOM from current mana, math.huge when regen covers the
--- cost), dominated, suggested, isMax }
-function RankMath:Compute()
+--------------------------------------------------------------------------------
+-- Context: every input the rank math reads, resolved once.
+--
+-- Tree of Life aura: party members (the tree included) receive extra healing
+-- equal to 25% of the druid's Spirit. It is a "healing received" aura on the
+-- targets, so GetSpellBonusHealing() never shows it, but it goes through the
+-- same coefficient/penalty path as +healing (MaNGOS-era SpellHealingBonus:
+-- taken advertised benefit * coeff). Counted while in form unless the setting
+-- is off; only true for targets in your party.
+--
+-- Simulation overrides (MD.sim, session-only, set from the dashboard's
+-- "Simulate" strip): nil = live value. Only the rank math reads them; the
+-- clock, widget and advisor always use real inputs.
+--------------------------------------------------------------------------------
+function RankMath:Context()
     local SD = MD.SpellData
-    local results = {}
-    if not MD.player.isDruid then return results end
+    local sim = MD.sim or EMPTY
 
-    -- Tree of Life aura: party members (the tree included) receive extra
-    -- healing equal to 25% of the druid's Spirit. It is a "healing received"
-    -- aura on the targets, so GetSpellBonusHealing() never shows it, but it
-    -- goes through the same coefficient/penalty path as +healing (MaNGOS-era
-    -- SpellHealingBonus: taken advertised benefit * coeff). Counted while in
-    -- form unless the setting is off; only true for targets in your party.
-    -- Simulation overrides (MD.sim, session-only, set from the dashboard's
-    -- "Simulate" strip): nil = live value. Only the rank math reads them;
-    -- the clock, widget and advisor always use real inputs.
-    local sim = MD.sim or {}
     local liveBonus = BonusHealing()
     local statBonus = sim.heal or liveBonus
     local relic = SD:Relic()
+
+    -- A simulated form changes the aura AND the costs; keep the two in step.
+    local inTree
+    if sim.tree ~= nil then inTree = sim.tree else inTree = MD:InTreeForm() end
+
     local treeAura = 0
-    if MD:InTreeForm() and not (MD.db and MD.db.treeAura == false) then
+    if inTree and not (MD.db and MD.db.treeAura == false) then
         treeAura = 0.25 * (UnitStat("player", 5) or 0) + (relic and relic.aura or 0)
     end
-    local bonus = statBonus + treeAura
+
     local liveCrit = NatureCrit()
     local crit = sim.crit and (sim.crit / 100) or liveCrit
-    local playerLevel = MD.player.level
+
     -- Chain-cast budget: every cast nets (cost - castingRegen * interval);
     -- from the current mana that allows floor((mana - cost) / net) + 1 casts
     -- (interval = cast time, or the 1.5s GCD for instants). Casting regen is
@@ -85,9 +96,44 @@ function RankMath:Compute()
     local liveMana = UnitPower("player", 0) or 0
     local liveCasting = MD.Regen and MD.Regen.casting or 0
     local liveBase = MD.Regen and MD.Regen.base or 0
-    local mana = sim.mana or liveMana
-    local castingRegen = sim.casting and (sim.casting / 5) or liveCasting
-    local baseRegen = sim.base and (sim.base / 5) or liveBase
+
+    local ctx = {
+        bonus = statBonus + treeAura,
+        statBonus = statBonus,
+        treeAura = treeAura,
+        inTree = inTree,
+        relic = relic,
+        crit = crit,
+        playerLevel = MD.player.level,
+        mana = sim.mana or liveMana,
+        castingRegen = sim.casting and (sim.casting / 5) or liveCasting,
+        baseRegen = sim.base and (sim.base / 5) or liveBase,
+
+        goN = 1 + 0.02 * MD:TalentRank("Gift of Nature"),
+        empTouch = 1 + 0.10 * MD:TalentRank("Empowered Touch"),
+        empRejuv = 1 + 0.04 * MD:TalentRank("Empowered Rejuvenation"),
+        impRejuv = 1 + 0.05 * MD:TalentRank("Improved Rejuvenation"),
+        naturalist = 0.1 * MD:TalentRank("Naturalist"), -- -0.1s HT cast per rank
+
+        simulated = next(sim) ~= nil,
+        live = { heal = liveBonus, crit = liveCrit * 100, casting = liveCasting * 5,
+                 base = liveBase * 5, mana = liveMana },
+    }
+    ctx.regrowthCrit = math.min(1, crit + 0.10 * MD:TalentRank("Improved Regrowth"))
+
+    -- Cost source. The live client value is exact (it applies talents and form
+    -- itself), so it stays the default. It is wrong the moment the dashboard
+    -- simulates a form or a talent rank the player does not actually have, and
+    -- only then does the static table (with those overrides) take over.
+    local costOverride = (sim.tree ~= nil) or (sim.moonglow ~= nil)
+    ctx.costCtx = costOverride and { inTree = inTree, moonglow = sim.moonglow } or nil
+    ctx.CostFor = function(id)
+        if ctx.costCtx then
+            return SD:StaticCost(id, ctx.costCtx), "table (simulated)"
+        end
+        return SD:GetCost(id)
+    end
+
     -- Sustained output at zero mana (author's "HP5"): cast only when regen has
     -- paid for it. Each cast starts 5s of casting regen, then base regen runs
     -- until the next cast is affordable, so the steady-state interval is
@@ -95,114 +141,201 @@ function RankMath:Compute()
     --   T = 5 + (cost - 5*casting) / base   otherwise
     -- never shorter than the cast itself. HP5 = 5 * heal / T. Nil when base
     -- regen is zero (cannot sustain anything).
-    local function SustainedInterval(cost, interval)
+    ctx.SustainedInterval = function(cost, interval)
         if cost <= 0 then return interval end
         local T
-        if castingRegen > 0 and cost <= 5 * castingRegen then
-            T = cost / castingRegen
-        elseif baseRegen > 0 then
-            T = 5 + (cost - 5 * castingRegen) / baseRegen
+        if ctx.castingRegen > 0 and cost <= 5 * ctx.castingRegen then
+            T = cost / ctx.castingRegen
+        elseif ctx.baseRegen > 0 then
+            T = 5 + (cost - 5 * ctx.castingRegen) / ctx.baseRegen
         else
             return nil
         end
         return math.max(T, interval)
     end
-    local function CastsToOOM(cost, interval)
-        return RankMath:CastsToOOM(cost, interval, mana, castingRegen)
+    ctx.CastsToOOM = function(cost, interval)
+        return RankMath:CastsToOOM(cost, interval, ctx.mana, ctx.castingRegen)
     end
-    RankMath.info = { bonus = bonus, statBonus = statBonus, treeAura = treeAura, inTree = MD:InTreeForm(), relic = relic,
-                      mana = mana, castingRegen = castingRegen, baseRegen = baseRegen, crit = crit,
-                      simulated = next(sim) ~= nil,
-                      live = { heal = liveBonus, crit = liveCrit * 100, casting = liveCasting * 5,
-                               base = liveBase * 5, mana = liveMana } }
 
-    local goN = 1 + 0.02 * MD:TalentRank("Gift of Nature")
-    local empTouch = 1 + 0.10 * MD:TalentRank("Empowered Touch")
-    local empRejuv = 1 + 0.04 * MD:TalentRank("Empowered Rejuvenation")
-    local impRejuv = 1 + 0.05 * MD:TalentRank("Improved Rejuvenation")
-    local regrowthCrit = math.min(1, crit + 0.10 * MD:TalentRank("Improved Regrowth"))
-    local naturalist = 0.1 * MD:TalentRank("Naturalist") -- -0.1s HT cast per rank
+    return ctx
+end
+
+--------------------------------------------------------------------------------
+-- One row from one spell.
+--   variant  nil for the real rank; 2 or 3 for the rolling Lifebloom stacks
+--   explain  fills row.calc with every intermediate term (tooltip only)
+-- Row: { id, rank, level, cost, cast, heal, hpm, hps, hp5 (sustained healing
+-- per 5s at zero mana, regen-paced, 5SR-aware; nil without base regen), casts
+-- (chain-casts to OOM from current mana, math.huge when regen covers the
+-- cost), known, isMax; dominated/suggested are set by Compute() }
+--------------------------------------------------------------------------------
+function RankMath:RowFor(spellID, ctx, variant, explain)
+    local SD = MD.SpellData
+    local s = SD.spells[spellID]
+    if not s then return nil end
+    local info = SD.families[s.family]
+    if not info then return nil end
+
+    local pen = Penalty(s.level, ctx.playerLevel)
+    local relic = ctx.relic
+    -- relic bonus for this family: flat goes on the BASE heal, perTick on
+    -- each Lifebloom tick
+    local relicFlat = (relic and relic.family == s.family and relic.flat) or 0
+    local relicTick = (relic and relic.family == s.family and relic.perTick) or 0
+    local bonus = ctx.bonus
+
+    local heal, castTime, calc
+
+    if info.type == "direct" then
+        castTime = math.max(s.cast - ctx.naturalist, 1.5)
+        local coef = math.min(math.max(s.cast, 1.5), 3.5) / 3.5
+        local base = (s.healMin + s.healMax) / 2 + relicFlat
+        local bonusOut = bonus * coef * pen * ctx.empTouch
+        local critMult = 1 + 0.5 * ctx.crit
+        heal = (base + bonusOut) * ctx.goN * critMult
+        if explain then
+            calc = { kind = "direct", base = (s.healMin + s.healMax) / 2, relicFlat = relicFlat,
+                     bonus = bonus, coef = coef, penalty = pen, bonusMult = ctx.empTouch,
+                     bonusMultName = "Empowered Touch", bonusOut = bonusOut,
+                     talentMult = ctx.goN, critMult = critMult, crit = ctx.crit }
+        end
+
+    elseif info.type == "hot" then
+        castTime = 1.5 -- GCD
+        local coef = s.hotDuration / 15
+        local bonusOut = bonus * coef * pen * ctx.empRejuv
+        heal = (s.hotTotal + relicFlat + bonusOut) * ctx.goN * ctx.impRejuv
+        if explain then
+            calc = { kind = "hot", base = s.hotTotal, relicFlat = relicFlat,
+                     bonus = bonus, coef = coef, penalty = pen, bonusMult = ctx.empRejuv,
+                     bonusMultName = "Empowered Rejuvenation", bonusOut = bonusOut,
+                     talentMult = ctx.goN * ctx.impRejuv,
+                     duration = s.hotDuration, ticks = s.hotDuration / 3 }
+        end
+
+    elseif info.type == "hybrid" then
+        castTime = math.max(s.cast, 1.5)
+        local c = math.min(math.max(s.cast, 1.5), 3.5) / 3.5
+        local h = s.hotDuration / 15
+        local dCoef = c * c / (c + h)
+        local hCoef = h * h / (c + h)
+        local base = (s.healMin + s.healMax) / 2 + relicFlat
+        local dBonus = bonus * dCoef * pen
+        local hBonus = bonus * hCoef * pen * ctx.empRejuv
+        local critMult = 1 + 0.5 * ctx.regrowthCrit
+        local direct = (base + dBonus) * ctx.goN * critMult
+        local hot = (s.hotTotal + hBonus) * ctx.goN
+        heal = direct + hot
+        if explain then
+            calc = { kind = "hybrid", base = (s.healMin + s.healMax) / 2, relicFlat = relicFlat,
+                     bonus = bonus, penalty = pen, talentMult = ctx.goN,
+                     directCoef = dCoef, directBonus = dBonus, direct = direct,
+                     hotCoef = hCoef, hotBonus = hBonus, hot = hot, hotBase = s.hotTotal,
+                     bonusMult = ctx.empRejuv, bonusMultName = "Empowered Rejuvenation",
+                     critMult = critMult, crit = ctx.regrowthCrit,
+                     duration = s.hotDuration }
+        end
+
+    elseif info.type == "lifebloom" then
+        castTime = 1.5 -- GCD
+        -- One application ticking to completion plus its bloom.
+        -- Verified 2026-09-03 (heal log): tick 87 = (273 + 450*0.5187*1.2)*1.1/7,
+        -- bloom 864 = (600 + 450*0.3422*1.2)*1.1 -> Empowered Rejuvenation
+        -- applies to the bloom too.
+        local hotBonus = bonus * SD.lifebloomHotCoef * pen * ctx.empRejuv
+        local bloomBonus = bonus * SD.lifebloomBloomCoef * pen * ctx.empRejuv
+        local hot = (s.hotTotal + 7 * relicTick + hotBonus) * ctx.goN
+        local bloom = (s.bloom + bloomBonus) * ctx.goN
+        if variant then
+            -- Rolling stacks: each refresh cast is paid for with 6 ticks at the
+            -- stack's multiplier (one tick is lost to the refresh) and never a
+            -- bloom (the stack is renewed before it expires).
+            heal = (hot / 7) * 6 * variant
+        else
+            heal = hot + bloom
+        end
+        if explain then
+            calc = { kind = "lifebloom", base = s.hotTotal, relicTick = relicTick,
+                     bonus = bonus, penalty = pen, bonusMult = ctx.empRejuv,
+                     bonusMultName = "Empowered Rejuvenation", talentMult = ctx.goN,
+                     hotCoef = SD.lifebloomHotCoef, hotBonus = hotBonus, hot = hot,
+                     bloomCoef = SD.lifebloomBloomCoef, bloomBonus = bloomBonus,
+                     bloomBase = s.bloom, bloom = bloom,
+                     tick = hot / 7, stacks = variant, duration = s.hotDuration }
+        end
+    end
+
+    if not heal then return nil end
+
+    local cost, costSource = ctx.CostFor(spellID)
+    cost = cost or 0
+    local T = ctx.SustainedInterval(cost, castTime)
+
+    local row = {
+        id = spellID, rank = s.rank, level = s.level,
+        cost = cost, cast = castTime, heal = heal,
+        hpm = cost > 0 and heal / cost or 0,
+        hps = heal / castTime,
+        hp5 = T and 5 * heal / T or nil,
+        casts = ctx.CastsToOOM(cost, castTime),
+        known = SD.knownSet[spellID] or false,
+        isMax = (not variant) and SD.maxRank[s.family] == spellID or false,
+    }
+    if variant then
+        row.variant = variant
+        row.rankLabel = "x" .. variant
+        row.virtual = true
+    end
+    if calc then
+        calc.family = s.family
+        calc.label = info.label
+        calc.type = info.type
+        calc.cost = cost
+        calc.costSource = costSource
+        calc.castBase = castTime
+        calc.sustainedInterval = T
+        calc.mana = ctx.mana
+        calc.castingRegen = ctx.castingRegen
+        calc.baseRegen = ctx.baseRegen
+        calc.netPerCast = cost - ctx.castingRegen * castTime
+        row.calc = calc
+    end
+    return row
+end
+
+-- One row plus its full breakdown, for the dashboard tooltip. Rebuilt from a
+-- fresh context so it always matches what the table is showing.
+function RankMath:Explain(spellID, variant)
+    return RankMath:RowFor(spellID, RankMath:Context(), variant, true)
+end
+
+--------------------------------------------------------------------------------
+-- Returns family -> { label, tol, rows = {...}, suggestedID, callout }; the
+-- inputs used are left in RankMath.info (the context).
+--------------------------------------------------------------------------------
+function RankMath:Compute()
+    local SD = MD.SpellData
+    local results = {}
+    if not MD.player.isDruid then return results end
+
+    local ctx = RankMath:Context()
+    RankMath.info = ctx
 
     for _, family in ipairs(SD.familyOrder) do
         local info = SD.families[family]
         local allIDs = SD.all[family]
         if info and not info.exclude and allIDs and #allIDs > 0 then
             local rows = {}
-            -- relic flat bonus for this family: added to the BASE heal
-            local relicFlat = (relic and relic.family == family and relic.flat) or 0
-            local relicTick = (relic and relic.family == family and relic.perTick) or 0
             for _, id in ipairs(allIDs) do
-                local s = SD.spells[id]
-                local pen = Penalty(s.level, playerLevel)
-                local heal, castTime
-
-                if info.type == "direct" then
-                    castTime = math.max(s.cast - naturalist, 1.5)
-                    local coef = math.min(math.max(s.cast, 1.5), 3.5) / 3.5
-                    local avg = (s.healMin + s.healMax) / 2 + relicFlat
-                    heal = (avg + bonus * coef * pen * empTouch) * goN * (1 + 0.5 * crit)
-
-                elseif info.type == "hot" then
-                    castTime = 1.5 -- GCD
-                    local coef = s.hotDuration / 15
-                    heal = (s.hotTotal + relicFlat + bonus * coef * pen * empRejuv) * goN * impRejuv
-
-                elseif info.type == "hybrid" then
-                    castTime = math.max(s.cast, 1.5)
-                    local c = math.min(math.max(s.cast, 1.5), 3.5) / 3.5
-                    local h = s.hotDuration / 15
-                    local dCoef = c * c / (c + h)
-                    local hCoef = h * h / (c + h)
-                    local avg = (s.healMin + s.healMax) / 2 + relicFlat
-                    local direct = (avg + bonus * dCoef * pen) * goN * (1 + 0.5 * regrowthCrit)
-                    local hot = (s.hotTotal + bonus * hCoef * pen * empRejuv) * goN
-                    heal = direct + hot
-
-                elseif info.type == "lifebloom" then
-                    castTime = 1.5 -- GCD
-                    -- One application ticking to completion plus its bloom.
-                    -- Verified 2026-09-03 (heal log): tick 87 = (273 + 450*0.5187*1.2)*1.1/7,
-                    -- bloom 864 = (600 + 450*0.3422*1.2)*1.1 -> Empowered
-                    -- Rejuvenation applies to the bloom too.
-                    local hot = (s.hotTotal + 7 * relicTick + bonus * SD.lifebloomHotCoef * pen * empRejuv) * goN
-                    local bloom = (s.bloom + bonus * SD.lifebloomBloomCoef * pen * empRejuv) * goN
-                    heal = hot + bloom
-                end
-
-                if heal then
-                    local cost = SD:GetCost(id)
-                    rows[#rows + 1] = {
-                        id = id, rank = s.rank, level = s.level,
-                        cost = cost, cast = castTime, heal = heal,
-                        hpm = cost > 0 and heal / cost or 0,
-                        hps = heal / castTime,
-                        hp5 = (function() local T = SustainedInterval(cost, castTime) return T and 5 * heal / T or nil end)(),
-                        casts = CastsToOOM(cost, castTime),
-                        known = SD.knownSet[id] or false,
-                        isMax = SD.maxRank[family] == id,
-                    }
-
-                    -- Rolling Lifebloom stacks: each refresh cast is paid for
-                    -- with 6 ticks at the stack's multiplier (one tick is lost
-                    -- to the refresh) and never a bloom (the stack is renewed
-                    -- before it expires). Informational rows: excluded from
-                    -- Pareto / suggestion because they are a different activity
-                    -- from a single application.
+                local row = RankMath:RowFor(id, ctx)
+                if row then
+                    rows[#rows + 1] = row
+                    -- Informational rolling-stack rows: excluded from Pareto /
+                    -- suggestion because they are a different activity from a
+                    -- single application.
                     if info.type == "lifebloom" then
-                        local tick = (s.hotTotal + 7 * relicTick + bonus * SD.lifebloomHotCoef * pen * empRejuv) * goN / 7
                         for stacks = 2, 3 do
-                            local h = tick * 6 * stacks
-                            rows[#rows + 1] = {
-                                id = id, rank = s.rank, level = s.level,
-                                rankLabel = "x" .. stacks, virtual = true,
-                                cost = cost, cast = castTime, heal = h,
-                                hpm = cost > 0 and h / cost or 0,
-                                hps = h / castTime,
-                                hp5 = (function() local T = SustainedInterval(cost, castTime) return T and 5 * h / T or nil end)(),
-                                casts = CastsToOOM(cost, castTime),
-                                known = SD.knownSet[id] or false,
-                                isMax = false,
-                            }
+                            rows[#rows + 1] = RankMath:RowFor(id, ctx, stacks)
                         end
                     end
                 end

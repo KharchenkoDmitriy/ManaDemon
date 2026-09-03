@@ -69,46 +69,64 @@ function MD:RunVerify()
         MD:Print("unpriced spells seen this session: " .. table.concat(names, ", "))
     end
 
-    -- input snapshot for by-hand formula checks
-    local RM = MD.Regen
     MD:Print("— input snapshot —")
+    for _, line in ipairs(MD:Snapshot()) do MD:Print(line) end
+    MD:Print("For the FSR anchor: stand idle at partial mana, run /md fsrtest, cast ONE " ..
+        "Healing Touch, and watch which tick sizes appear when. For Dreamstate: /md regentest.")
+end
+
+--------------------------------------------------------------------------------
+-- Every model input in one block. /md verify prints it, /md profile copies it,
+-- and both therefore always agree. Returns an array of plain strings (no
+-- colour escapes, so it survives a paste).
+--------------------------------------------------------------------------------
+function MD:Snapshot()
+    local SD = MD.SpellData
+    local RM = MD.Regen
+    local out = {}
+    local function add(fmt, ...)
+        out[#out + 1] = select("#", ...) > 0 and string.format(fmt, ...) or fmt
+    end
+
     if GetManaRegen then
-        MD:Print(string.format("GetManaRegen: base %.2f/s, casting %.2f/s (x5 = %d / %d mp5)",
-            RM.apiBase, RM.apiCasting, RM.apiBase * 5 + 0.5, RM.apiCasting * 5 + 0.5))
+        add("GetManaRegen: base %.2f/s, casting %.2f/s (x5 = %d / %d mp5)",
+            RM.apiBase, RM.apiCasting, RM.apiBase * 5 + 0.5, RM.apiCasting * 5 + 0.5)
         if RM.unreported > 0 then
-            MD:Print(string.format("model adds Dreamstate %.2f/s (%d mp5) -> base %.2f/s, casting %.2f/s",
-                RM.unreported, RM.unreported * 5 + 0.5, RM.base, RM.casting))
+            add("model adds Dreamstate %.2f/s (%d mp5) -> base %.2f/s, casting %.2f/s",
+                RM.unreported, RM.unreported * 5 + 0.5, RM.base, RM.casting)
         end
         local drinking = MD:HasBuff("Drink") or MD:HasBuff("Refreshment") or MD:HasBuff("Food & Drink")
-        MD:Print(string.format("drink buff up: %s; observed OOC fill %.2f/s (FSR duty %d%%)",
-            drinking and "yes" or "no", RM:ObservedFill(), RM:Duty() * 100))
+        add("drink buff up: %s; observed OOC fill %.2f/s (FSR duty %d%%)",
+            drinking and "yes" or "no", RM:ObservedFill(), RM:Duty() * 100)
     end
+
     local spirit = UnitStat("player", 5) or 0
     local intellect = UnitStat("player", 4) or 0
     local spiritPerSec, mp5Gear, inFSRFrac = RM:Components()
-    MD:Print(string.format("spirit %d, int %d -> spirit share %.2f/s (%d mp5), gear/buffs ~%d mp5, in-5SR fraction %d%%",
-        spirit, intellect, spiritPerSec, spiritPerSec * 5 + 0.5, mp5Gear, inFSRFrac * 100))
+    add("spirit %d, int %d -> spirit share %.2f/s (%d mp5), gear/buffs ~%d mp5, in-5SR fraction %d%%",
+        spirit, intellect, spiritPerSec, spiritPerSec * 5 + 0.5, mp5Gear, inFSRFrac * 100)
+
     if GetSpellBonusHealing then
         local ok, v = pcall(GetSpellBonusHealing)
-        MD:Print("+healing: " .. (ok and tostring(v) or "unavailable") ..
+        add("+healing: " .. (ok and tostring(v) or "unavailable") ..
             (MD:InTreeForm() and string.format(" (Tree of Life form: +%d aura on party targets = 25%% of %d spirit%s)",
                 0.25 * spirit, spirit, (MD.db.treeAura == false) and ", NOT counted (setting off)" or "")
              or " (not in Tree form)"))
     end
     if GetSpellCritChance then
         local ok, v = pcall(GetSpellCritChance, 4)
-        MD:Print(string.format("nature crit: %s%%", ok and string.format("%.1f", v) or "unavailable"))
+        add("nature crit: %s%%", ok and string.format("%.1f", v) or "unavailable")
     end
-    MD:Print("talents: " .. MD:TalentSummary())
+    add("talents: " .. MD:TalentSummary())
+
     local relic, relicID, relicName = SD:Relic()
     if relicID then
-        MD:Print(string.format("relic: %s (%d) - %s", relicName or "?", relicID,
-            relic and ("known: " .. relic.name) or "NOT in the relic table (tell the author what it does)"))
+        add("relic: %s (%d) - %s", relicName or "?", relicID,
+            relic and ("known: " .. relic.name) or "NOT in the relic table (tell the author what it does)")
     else
-        MD:Print("relic: none equipped")
+        add("relic: none equipped")
     end
-    MD:Print("For the FSR anchor: stand idle at partial mana, run /md fsrtest, cast ONE " ..
-        "Healing Touch, and watch which tick sizes appear when. For Dreamstate: /md regentest.")
+    return out
 end
 
 --------------------------------------------------------------------------------

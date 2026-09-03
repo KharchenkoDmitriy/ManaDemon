@@ -90,14 +90,17 @@ local function BuildPlainTextLog()
 end
 
 --------------------------------------------------------------------------------
--- Copy popup
+-- Copy popup: a read-only scroll edit box holding plain text, pre-selected so
+-- Ctrl+C just works. Public (MD:ShowCopyPopup) because /md profile hands the
+-- author 40 lines of state and chat is the wrong place for that.
 --------------------------------------------------------------------------------
-local copyFrame, copyTextArea
+local copyFrame, copyTextArea, copyTitle
 
-local function ShowCopyPopup()
+function MD:ShowCopyPopup(title, text)
     if not copyFrame then
-        copyFrame = UI.CreateMovableFrame("Copy Debug Log", "ManaDemonDebugCopyFrame", 460, 340, "FULLSCREEN_DIALOG", 10, true)
+        copyFrame = UI.CreateMovableFrame("Copy", "ManaDemonDebugCopyFrame", 460, 340, "FULLSCREEN_DIALOG", 10, true)
         copyFrame:SetToplevel(true)
+        copyTitle = copyFrame.header.text
 
         local hint = copyFrame:CreateFontString(nil, "OVERLAY", UI.FONT)
         hint:SetPoint("TOPLEFT", 5, -5)
@@ -119,7 +122,8 @@ local function ShowCopyPopup()
         end)
     end
 
-    copyFrame.text = BuildPlainTextLog()
+    if copyTitle then copyTitle:SetText(title or "Copy") end
+    copyFrame.text = text or ""
     copyTextArea.eb:SetText(copyFrame.text)
     copyTextArea.eb:SetCursorPosition(0)
 
@@ -128,6 +132,10 @@ local function ShowCopyPopup()
     copyFrame:Show()
     copyTextArea.eb:SetFocus()
     copyTextArea.eb:HighlightText()
+end
+
+local function ShowLogCopyPopup()
+    MD:ShowCopyPopup("Copy Debug Log", BuildPlainTextLog())
 end
 
 --------------------------------------------------------------------------------
@@ -156,7 +164,7 @@ local function CreateDebugConsoleFrame()
     local copyBtn = UI.CreateButton(consoleFrame, "Copy", "accent-hover", { 60, 17 }, false, false, nil, nil,
         "Copy", "Opens a text box with the visible categories as plain text - Ctrl+C there.")
     copyBtn:SetPoint("RIGHT", clearBtn, "LEFT", -5, 0)
-    copyBtn:SetScript("OnClick", ShowCopyPopup)
+    copyBtn:SetScript("OnClick", ShowLogCopyPopup)
 
     local regenBtn = UI.CreateButton(consoleFrame, "Regen test", "accent-hover", { 80, 17 }, false, false, nil, nil,
         "Regen test (30s)", "Stand idle at partial mana, no drink, no casting.",

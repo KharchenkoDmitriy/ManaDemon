@@ -16,6 +16,7 @@ local DEFAULTS = {
     halfLife = 15,        -- seconds; half-life of the spend-rate EWMA
     drinkReminder = true,
     showRest = true,      -- "rest 2:10" segment: time to full if you stop casting
+    widgetTooltip = true, -- hover tooltip on the widget (needs mouse input on it)
     treeAura = true,      -- count the Tree of Life aura (+25% Spirit as healing received by the party) in heal values
     firstRun = true,
     minimap = { hide = false, angle = 220 },

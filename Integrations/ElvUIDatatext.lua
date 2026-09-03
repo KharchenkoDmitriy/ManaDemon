@@ -34,54 +34,15 @@ local function OnClick()
     end
 end
 
+-- All lines come from the shared builder (UI/Tooltip.lua) so the datatext,
+-- the minimap button and the widget can never say different things.
 local function OnEnter()
     DT.tooltip:ClearLines()
     DT.tooltip:AddLine("ManaDemon")
-
-    local s = MD.GetManaState and MD:GetManaState()
-    if s then
-        local RM = MD.Regen
-        local spiritPerSec, mp5Gear, _, unreported = RM:Components()
-        if s.tto then
-            DT.tooltip:AddDoubleLine("Time to OOM (raw)",
-                string.format("%ds +- %ds", s.tto, s.sigmaT or 0), 1, 1, 1, 1, 1, 1)
-        elseif s.ttf then
-            DT.tooltip:AddDoubleLine("Time to full (raw)", string.format("%ds", s.ttf), 1, 1, 1, 1, 1, 1)
-        elseif s.mode == "hold" then
-            DT.tooltip:AddDoubleLine("Net rate within noise",
-                s.bound and string.format("OOM no sooner than %ds", s.bound) or "sustainable", 1, 1, 1, 1, 1, 1)
-        end
-        if s.inCombat and s.rest then
-            DT.tooltip:AddDoubleLine("Full if you stop casting", string.format("%ds", s.rest), 1, 1, 1, 1, 1, 1)
-        end
-        DT.tooltip:AddDoubleLine("Net rate (pessimistic)",
-            string.format("%+d mana/s", -s.net), 1, 1, 1, 1, 1, 1)
-        DT.tooltip:AddDoubleLine("Spending",
-            string.format("%d +- %d mana/s (%d casts, CV %.2f)", s.spend, s.sigma, s.casts, s.cv), 1, 1, 1, 1, 1, 1)
-        DT.tooltip:AddDoubleLine("Regen now / projected",
-            string.format("%d / %d mana/s  (5SR %d%% of time)", s.regenNow, s.regen, s.duty * 100), 1, 1, 1, 1, 1, 1)
-        DT.tooltip:AddDoubleLine("Regen out of 5SR / casting",
-            string.format("%d / %d mana/s", RM.base, RM.casting), 1, 1, 1, 1, 1, 1)
-        DT.tooltip:AddDoubleLine("Spirit / gear mp5",
-            string.format("~%d / ~%d", spiritPerSec * 5, mp5Gear), 1, 1, 1, 1, 1, 1)
-        if unreported > 0 then
-            DT.tooltip:AddDoubleLine("Dreamstate mp5 (added, not in the API)",
-                string.format("%d", unreported * 5 + 0.5), 1, 1, 1, 1, 1, 1)
-        end
-        if RM:InFSR() then
-            DT.tooltip:AddDoubleLine("Spirit regen resumes",
-                string.format("%.1fs", RM:FSRRemaining()), 1, 0.67, 0.2, 1, 1, 1)
-        end
-    end
-
-    local last = MD.fightHistory and MD.fightHistory[#MD.fightHistory]
-    if last then
-        DT.tooltip:AddLine(" ")
-        DT.tooltip:AddLine("Last fight: " .. (last.summary or "-"), 0.7, 0.7, 0.7, true)
-    end
-
+    MD.Tip:Render(DT.tooltip, MD.Tip:Mana())
+    MD.Tip:Render(DT.tooltip, MD.Tip:Fights(1))
     DT.tooltip:AddLine(" ")
-    DT.tooltip:AddLine("Click: dashboard  |  Shift-click: reset window", 0.5, 0.5, 0.5)
+    DT.tooltip:AddLine("Click: dashboard   Shift-click: reset window", 0.5, 0.5, 0.5)
     DT.tooltip:Show()
 end
 

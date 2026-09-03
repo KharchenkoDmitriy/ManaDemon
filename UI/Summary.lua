@@ -8,31 +8,32 @@ local MAX_HISTORY = 5
 
 local fight = nil -- active fight state
 
--- Overheal via combat log (SPELL_HEAL / SPELL_PERIODIC_HEAL from the player).
+-- Combat log, one handler and one CombatLogGetCurrentEventInfo() call: the
+-- player's own heals feed the fight totals, the per-spell overheal stats and
+-- the "heal" debug category. Overheal is recorded in AND out of combat --
+-- rolling Lifebloom on a tank between pulls is exactly the sort of casting
+-- whose overheal belongs in the average.
 MD:On("COMBAT_LOG_EVENT_UNFILTERED", function()
-    if not fight then return end
-    local _, subevent, _, sourceGUID = CombatLogGetCurrentEventInfo()
-    if sourceGUID ~= MD.player.guid then return end
-    if subevent == "SPELL_HEAL" or subevent == "SPELL_PERIODIC_HEAL" then
-        local amount = select(15, CombatLogGetCurrentEventInfo()) or 0
-        local overheal = select(16, CombatLogGetCurrentEventInfo()) or 0
-        fight.healed = fight.healed + amount
-        fight.overhealed = fight.overhealed + overheal
-    end
-end)
-
--- Debug "heal" category: every heal and HoT tick the player lands, from the
--- combat log (amount includes overheal; overheal reported separately). This
--- is how heal formulas get verified in-game (Tree aura, Lifebloom bloom).
-MD:On("COMBAT_LOG_EVENT_UNFILTERED", function()
-    if not (MD.db and MD.db.debug and MD.db.debug.enabled and MD.db.debug.categories.heal) then return end
     local _, subevent, _, sourceGUID, _, _, _, _, destName, _, _,
         spellID, spellName, _, amount, overheal, _, critical = CombatLogGetCurrentEventInfo()
     if sourceGUID ~= MD.player.guid then return end
-    if subevent == "SPELL_HEAL" or subevent == "SPELL_PERIODIC_HEAL" then
+    if subevent ~= "SPELL_HEAL" and subevent ~= "SPELL_PERIODIC_HEAL" then return end
+    amount, overheal = amount or 0, overheal or 0
+
+    if MD.Overheal then MD.Overheal:Record(spellID, amount, overheal) end
+
+    if fight then
+        fight.healed = fight.healed + amount
+        fight.overhealed = fight.overhealed + overheal
+    end
+
+    -- Debug "heal": every heal and HoT tick the player lands (amount includes
+    -- overheal; overheal reported separately). This is how heal formulas get
+    -- verified in-game (Tree aura, Lifebloom bloom, relics).
+    if MD.db and MD.db.debug and MD.db.debug.enabled and MD.db.debug.categories.heal then
         MD:Debug("heal", "%s (%d)%s on %s: %d%s%s%s", spellName or "?", spellID or 0,
-            subevent == "SPELL_PERIODIC_HEAL" and " tick" or "", destName or "?", amount or 0,
-            (overheal or 0) > 0 and string.format(" (%d overheal)", overheal) or "",
+            subevent == "SPELL_PERIODIC_HEAL" and " tick" or "", destName or "?", amount,
+            overheal > 0 and string.format(" (%d overheal)", overheal) or "",
             critical and " CRIT" or "", MD:InTreeForm() and " [tree]" or "")
     end
 end)

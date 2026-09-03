@@ -12,6 +12,8 @@ local _, MD = ...
 local SD = {}
 MD.SpellData = SD
 
+local EMPTY = {}
+
 -- family metadata
 --   type:    direct | hot | hybrid | lifebloom | channel | instant
 --   tol:     castable while in Tree of Life form
@@ -144,31 +146,41 @@ function SD:LiveCost(spellID)
 end
 
 -- The client ROUNDS talent-modified costs to the nearest integer (verified
--- 2026-09-03: Swiftmend 271 x 0.8 = 216.8 -> live 217). NOTE: the client SUMS
--- same-type percent modifiers (Moonglow + Tree of Life = -29%, not
--- x0.91 x0.8); this fallback multiplies them and can be ~2% high when two
--- apply. Only matters when GetSpellPowerCost is unavailable.
-function SD:StaticCost(spellID)
+-- 2026-09-03: Swiftmend 271 x 0.8 = 216.8 -> live 217) and SUMS same-type
+-- percent modifiers (Moonglow + Tree of Life = -29%, not x0.91 x0.8), which is
+-- what this does. The optional ctx overrides the live talents/form so the
+-- dashboard can price a rank in a form the player is not currently in:
+--   ctx = { inTree = <bool>, moonglow = 0..3, tranquilSpirit = 0..5 }
+-- Any nil field falls back to the live value, so SD:StaticCost(id) is
+-- unchanged for every existing caller.
+local MOONGLOW_FAMILIES = { HealingTouch = true, Regrowth = true, Rejuvenation = true }
+local TRANQUIL_FAMILIES = { HealingTouch = true, Tranquility = true }
+local TOL_FAMILIES = { Rejuvenation = true, Regrowth = true, Lifebloom = true,
+                       Swiftmend = true, Tranquility = true }
+
+function SD:StaticCost(spellID, ctx)
     local s = SD.spells[spellID]
     if not s or s.cost == nil then return nil end
     local cost = s.cost
     if MD.player.isDruid and cost > 0 then
+        ctx = ctx or EMPTY
         local fam = s.family
+        local moonglow = ctx.moonglow or MD:TalentRank("Moonglow")
+        local tranquil = ctx.tranquilSpirit or MD:TalentRank("Tranquil Spirit")
+        local inTree = ctx.inTree
+        if inTree == nil then inTree = MD:InTreeForm() end
+
+        local reduction = 0
         -- Moonglow: -3%/rank for Healing Touch, Regrowth AND Rejuvenation.
-        if fam == "HealingTouch" or fam == "Regrowth" or fam == "Rejuvenation" then
-            cost = cost * (1 - 0.03 * MD:TalentRank("Moonglow"))
-        end
+        if MOONGLOW_FAMILIES[fam] then reduction = reduction + 0.03 * moonglow end
         -- Tranquil Spirit: -2%/rank for Healing Touch and Tranquility.
-        if fam == "HealingTouch" or fam == "Tranquility" then
-            cost = cost * (1 - 0.02 * MD:TalentRank("Tranquil Spirit"))
-        end
+        if TRANQUIL_FAMILIES[fam] then reduction = reduction + 0.02 * tranquil end
         -- Tree of Life: -20% on the form's HoTs, Swiftmend AND Tranquility
         -- (verified 2026-09-03: the client discounts Tranquility in form even
         -- though it cannot be cast there).
-        if MD:InTreeForm() and (fam == "Rejuvenation" or fam == "Regrowth"
-                or fam == "Lifebloom" or fam == "Swiftmend" or fam == "Tranquility") then
-            cost = cost * 0.8
-        end
+        if inTree and TOL_FAMILIES[fam] then reduction = reduction + 0.20 end
+
+        cost = cost * (1 - reduction)
     end
     return math.floor(cost + 0.5)
 end
