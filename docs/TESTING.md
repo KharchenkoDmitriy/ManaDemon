@@ -1,5 +1,7 @@
 # ManaDemon — what to test now (v0.4.8)
 
+**Status 2026-09-03:** §1, §2, §3, §4, §4b, §6, §7 done and passed. **Only §5 is outstanding.**
+
 Everything below is done on the druid, in-game, with the Debug Console open
 (`/md options` → General → Misc → Debug Console → tick **Enable Debug Logging**).
 After each test: **Copy** in the console, paste into a file under `.logs/`

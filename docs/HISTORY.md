@@ -312,3 +312,25 @@ Rejuvenation. Added `SD.relics` (Idol of Rejuvenation, Harold's Broach, Emerald 
 Heart, Idol of Health, Raven Goddess — all but the first VERIFY) and `SD:Relic()` reading slot
 18; RankMath adds flat to the base heal, per-tick to Lifebloom ticks, aura to the Tree aura;
 dashboard line and `/md verify` show the relic. Awaiting the author's confirmation of the idol.
+
+## 2026-09-03 (end of session) — State for the next session
+
+**State:** master at v0.4.8 (+ docs commit), clean tree, `dist/main/` built. Phase 1a of
+`docs/PLAN.md` is done except the clock-constant tuning, which needs `docs/TESTING.md` §5
+(one real fight with logging on; author will do it later). The relic slot is confirmed
+(Idol of Rejuvenation) and heal-side stacking is settled as multiplicative.
+
+**Next session, in order:**
+1. If a §5 log is available: read the `[tto]` lines vs what happened, tune `K_SIGMA` /
+   `CV_STABLE` in `Engine/TTO.lua`, record in DECISIONS.
+2. PLAN §1b: Nature's Grace (cast-time EV term), Innervate-aware clock (second figure),
+   overheal-calibrated HPM (per-spell overheal from `UI/Summary.lua`), persisted fight
+   history (last 20 per character in `MD.cdb`).
+3. PLAN §1c: per-row dashboard tooltips (breakdown of every number), Simulate form/Moonglow
+   inputs, shared tooltip builder, `/md profile`.
+4. Then Phase 2 (Priest first) on the generic parts; testing via guildmates' pastes.
+
+**Gotchas learned today:** a new build needs `/reload` before ElvUI datatexts re-register
+(looked like a broken integration once); tooltips on this client show base heal only, so
+formula checks go through the `heal` debug category; the user reads `.logs/*.txt` back to
+me — ask for them instead of guessing.
