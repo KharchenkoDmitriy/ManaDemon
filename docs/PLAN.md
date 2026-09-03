@@ -13,13 +13,12 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[?]` needs in-g
   target (dynamic, HoTs already running gain it). Model unchanged.
 - [x] **Empowered Rejuvenation on the Lifebloom bloom** — confirmed yes; applied.
   Lifebloom coefficients 0.5187 / 0.3422 confirmed exact.
-- [?] **Relic slot** — `SD.relics` added from the Rejuv anomaly (+50 = Idol of
-  Rejuvenation?). Author to confirm the equipped idol; other idols VERIFY.
+- [x] **Relic slot** — author confirmed the idol; `SD.relics` reads slot 18. Other idols
+  still VERIFY as they get equipped.
 - [?] **Heal values for unlearned ranks** (`-- VERIFY` in `Data/SpellData.lua`): read the
   spellbook tooltips as ranks are learned (65–70); freeze the table.
-- [~] **Heal-side percent stacking** (Gift of Nature + Improved Rejuvenation, ≈1%): with
-  the relic hypothesis the data favours multiplicative (kept). Re-check once the relic is
-  confirmed.
+- [x] **Heal-side percent stacking** (Gift of Nature + Improved Rejuvenation): with the
+  relic confirmed the data fits multiplicative (1.265). Kept.
 - [?] **Clock constants** `K_SIGMA` / `CV_STABLE` (`Engine/TTO.lua`): one logged real
   fight (`TESTING.md` §5). Judge: was the shown OOM time honest, jumpy, pessimistic?
 
