@@ -279,3 +279,12 @@ reads them (nil = live) and reports `info.simulated` + `info.live` for the label
 a "Simulate:" row under the tabs with five edit boxes (blank = live, the live value in each
 label), Clear button, orange SIMULATION prefix on the stats line while any override is set.
 The gear-change toast is suppressed while simulating. Frame height 496.
+
+## 2026-09-03 (night) — Commit, clean-up, plan
+
+Committed v0.4.6 (`9da7dfe`, 22 files); removed the stale `feedback-round-3` worktree and
+branch. Wrote `docs/PLAN.md` (Phase 1 druid: close verification items → model improvements
+→ UX → housekeeping; Phase 2 other classes, Priest first, built on the generic parts) and
+`docs/TESTING.md` (smoke test of the new UI, `/md verify`, Tree aura test, Lifebloom bloom
+test, one logged real fight for the clock constants, spamtest, Simulate). Author agreed
+with all suggestions; next session starts with whatever the tests return, then PLAN §1b.
