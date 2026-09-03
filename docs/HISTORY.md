@@ -373,3 +373,48 @@ persisted overheal). Offered the usual Opus-party + Fable-judge debate on those 
 v0.5.2. Two model assumptions ship with a debug line that settles them next play
 session: the 0.5s Nature's Grace value (new `cast` category) and whether Innervate's
 400% touches anything but the spirit share (`regen` line on buff gain/fade).
+
+## 2026-09-03 (implementation) — v0.5.0 to v0.5.2
+
+Author approved the design and said to start implementing. Three of the six planned
+releases landed; `docs/DESIGN-v0.5.md` §9 is the remaining order (overheal + persisted
+history, then the UX step, then docs).
+
+**v0.5.0 — architecture, no intended behaviour change.** `RankMath` split into
+`Context()` / `RowFor(spell, ctx, variant, explain)` / `Compute()` / `Explain()`;
+`row.calc` is only allocated when asked, so the dashboard's 2s re-render churns nothing.
+`SD:StaticCost(id, ctx)` takes an override context and now **sums** percent cost
+modifiers, which is what the client does (the multiplicative fallback was a documented
+~2% error). New `UI/Tooltip.lua` is the single `{l, r}` line builder behind both ElvUI
+datatexts, the minimap button and the widget — the widget gained a hover tooltip and a
+left-click shortcut, which needs mouse input on the frame, hence `db.widgetTooltip`.
+`UI/Summary.lua` went from two combat-log handlers and three
+`CombatLogGetCurrentEventInfo()` calls to one of each. `UI/Dashboard.lua` split into
+`_Rows` / `_Simulate` on `MD.DashboardParts`. `MD:ShowCopyPopup` and `MD:Snapshot`
+extracted for the coming `/md profile`.
+
+**v0.5.1 — Nature's Grace.** `E[T] = (1−p)·T0 + p·max(T0−0.5, 1.5)`, the mixture rather
+than `cast − 0.5·crit` floored (that form clips the wrong branch when `T0−0.5` lands on
+the GCD). Throughput over a chain is `heal / E[T]` exactly, so averaging the cast time is
+correct for a sustained column. Feeds HPS, the HP5 interval floor and To OOM — To OOM
+goes slightly **down**, because a faster cast earns less regen, which is right. Grey `*`
+in the Cast column, `db.naturesGrace` in Options > Model, and a new `cast` debug category
+logging the client's own cast duration against the model — the thing that will settle the
+0.5s and Naturalist, neither of which is in the spellbook tooltip.
+
+**v0.5.2 — mana cooldowns.** `Engine/ManaCooldowns.lua` owns the class table (Druid live;
+Priest/Shaman/Paladin stubs awaiting a value model and one log from that class) plus the
+potions, and returns the **marginal** mana a source buys:
+`max(0, (5·S + G + U) − RM:Effective()) × 20 − cost`. Suppressed entirely while the buff
+is up, since `GetManaRegen` already reports the boosted rate then. The clock's secondary
+segment shows `inn 2:10` instead of `rest` when the clock is ≤90s, the cooldown is ready
+and it is worth ≥10% of the pool (`db.showCooldown`); the advisor's own rough 3.5×
+estimate is gone, so the two can no longer disagree on screen. Results are cached for
+0.4s because the advisor and the clock both ask every tick.
+
+**Next:** v0.5.3 (`Engine/Overheal.lua`, effective mode, `cdb.fights` + zone-aware seed),
+v0.5.4 (row tooltips wired to hover, Simulate form/Moonglow row, `/md profile`), v0.5.5
+(TESTING/DECISIONS + release). Two assumptions ship with a debug line that proves them on
+the author's next play session: the 0.5s Nature's Grace value (`cast` category) and
+whether Innervate's 400% touches anything beyond the spirit share (`regen` category, on
+buff gain/fade).

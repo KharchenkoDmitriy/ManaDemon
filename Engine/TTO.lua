@@ -94,6 +94,22 @@ local function Compute()
         s.mode = "hold"
         if net + sigma > 0 then s.bound = mana / (net + sigma) end
     end
+    -- Big mana cooldown: what the clock becomes if you press it now. The
+    -- delta is already marginal over RM:Effective() (Engine/ManaCooldowns.lua),
+    -- so it is simply added to the pool.
+    if s.inCombat and MD.ManaCooldowns then
+        local best = MD.ManaCooldowns:Best()
+        if best and best.delta > 0 then
+            best.tto = nil -- MC:All() caches its entries; never show a stale projection
+            if s.mode == "oom" and net > 0 then
+                best.tto = (mana + best.delta) / net
+            elseif s.mode == "hold" and net + sigma > 0 then
+                best.tto = (mana + best.delta) / (net + sigma)
+            end
+            s.cd = best
+        end
+    end
+
     -- sigma of the projected horizon (delta method): T * sigma / |net|
     local T = s.tto or s.ttf
     if T and s.inCombat and net ~= 0 then
@@ -105,7 +121,8 @@ end
 -- Raw state for every consumer except the display string. Fields:
 -- mana, manaMax, pct, regen (projection), regenNow, duty, spend, sigma,
 -- pessimistic, net, casts, cv, stable, inCombat, rest, mode, and one of
--- tto (oom) / ttf (full, ooc) / bound (hold); sigmaT when a horizon exists.
+-- tto (oom) / ttf (full, ooc) / bound (hold); sigmaT when a horizon exists;
+-- cd = the richest ready mana cooldown { name, short, delta, tto, ... } or nil.
 function MD:GetManaState()
     return state
 end
@@ -271,6 +288,7 @@ local WHITE = "|cffffffff"
 local WARN  = "|cffffaa33"
 local CRIT  = "|cffff4444"
 local GOOD  = "|cff33ff66"
+local MANA  = "|cff4fa9f0"
 
 local function FmtTime(sec)
     if sec > CAP then return ">10m" end
@@ -312,16 +330,33 @@ function MD:GetDisplayString(valueHex)
         end
     end
 
-    -- Secondary segment: "rest" = time to full if you stop casting now.
-    -- Combat only, never next to a FULL clock, hidden when within 25% of the
-    -- primary (no decision content), two-space separator (never a pipe).
-    if s.inCombat and s.rest and (m == "oom" or m == "hold" or m == "warmup")
-        and not (MD.db and MD.db.showRest == false) then
-        local r = s.rest
-        local show = (v == nil) or (v > CAP) or (math.abs(r - v) / math.max(v, 1) >= 0.25)
-        if show then
-            out = out .. "  " .. GREY .. "rest " .. FmtTime(Quantize(r, r < 30 and 1 or 5)) .. "|r"
+    -- Secondary segment: AT MOST ONE, and never next to a FULL clock.
+    --   "inn 2:10"  what the clock becomes if you press the cooldown now.
+    --               Takes the slot when the clock is short (<= 90s), the
+    --               cooldown is ready and it is worth at least 10% of the
+    --               pool: at that point it is the only decision left, and
+    --               "stop casting entirely" is the one you are least likely
+    --               to take. Suppressed while the buff is already up, because
+    --               GetManaRegen reports the boosted rate and the clock is
+    --               then already right.
+    --   "rest 2:10" time to full if you stop casting now. Hidden when it is
+    --               within 25% of the primary (no decision content).
+    -- Two-space separator, never a pipe.
+    if s.inCombat and (m == "oom" or m == "hold" or m == "warmup") then
+        local seg
+        local cd = s.cd
+        if cd and cd.tto and m == "oom" and v and v <= 90
+            and cd.delta >= 0.10 * math.max(s.manaMax, 1)
+            and not (MD.db and MD.db.showCooldown == false) then
+            seg = MANA .. cd.short .. " " .. FmtTime(Quantize(cd.tto, cd.tto < 60 and 5 or 15)) .. "|r"
+        elseif s.rest and not (MD.db and MD.db.showRest == false) then
+            local r = s.rest
+            local show = (v == nil) or (v > CAP) or (math.abs(r - v) / math.max(v, 1) >= 0.25)
+            if show then
+                seg = GREY .. "rest " .. FmtTime(Quantize(r, r < 30 and 1 or 5)) .. "|r"
+            end
         end
+        if seg then out = out .. "  " .. seg end
     end
     return out
 end
@@ -351,5 +386,9 @@ MD:OnTick(function(dt)
             s.mode, Plain(MD:GetDisplayString()),
             T and string.format("%.0fs", T) or "-", s.rest and string.format("%.0fs", s.rest) or "-",
             s.spend, s.sigma, s.casts, s.cv, s.regen, s.duty * 100, s.regenNow, s.net, s.mana, s.manaMax)
+        if s.cd then
+            MD:Debug("tto", "  cooldown ready: %s worth %d mana -> OOM %s",
+                s.cd.name, s.cd.delta, s.cd.tto and string.format("%.0fs", s.cd.tto) or "-")
+        end
     end
 end)

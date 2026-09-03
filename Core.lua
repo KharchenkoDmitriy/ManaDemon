@@ -17,6 +17,7 @@ local DEFAULTS = {
     drinkReminder = true,
     showRest = true,      -- "rest 2:10" segment: time to full if you stop casting
     widgetTooltip = true, -- hover tooltip on the widget (needs mouse input on it)
+    showCooldown = true,  -- "inn 2:10" segment: the clock if you press your mana cooldown now
     treeAura = true,      -- count the Tree of Life aura (+25% Spirit as healing received by the party) in heal values
     naturesGrace = true,  -- average Nature's Grace into the dashboard's cast times
     firstRun = true,

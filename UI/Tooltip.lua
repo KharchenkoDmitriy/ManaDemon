@@ -23,6 +23,7 @@ local MUTED  = { 0.43, 0.43, 0.43 }
 local WARN   = { 1, 0.67, 0.2 }
 local GOLD   = { 1, 0.82, 0 }
 local GOOD   = { 0.2, 1, 0.4 }
+local MANA   = { 0.31, 0.66, 0.94 }
 
 local function Accent()
     return { UI.accent[1], UI.accent[2], UI.accent[3] }
@@ -105,6 +106,26 @@ function Tip:Mana()
     if RM:InFSR() then
         lines[#lines + 1] = { l = "Spirit regen resumes",
             r = string.format("%.1fs", RM:FSRRemaining()), c = WARN, rc = WHITE }
+    end
+
+    -- What each mana source is worth right now, and what it buys on the clock.
+    if MD.ManaCooldowns then
+        local sources = MD.ManaCooldowns:All()
+        if #sources > 0 then
+            lines[#lines + 1] = {}
+            for _, src in ipairs(sources) do
+                local right
+                if not src.ready then
+                    right = string.format("%d mana, ready in %ds", src.delta, src.cdRemaining)
+                elseif s.cd and s.cd.key == src.key and s.cd.tto then
+                    right = string.format("%d mana -> OOM %ds", src.delta, s.cd.tto)
+                else
+                    right = string.format("%d mana, ready", src.delta)
+                end
+                lines[#lines + 1] = { l = src.name, r = right, c = KEY,
+                    rc = src.ready and MANA or MUTED }
+            end
+        end
     end
     return lines
 end

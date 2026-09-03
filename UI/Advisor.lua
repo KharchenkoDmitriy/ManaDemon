@@ -1,76 +1,35 @@
 -- Advisor: three push-channel features that fire at real decision moments.
---   1. Innervate/potion timing — alert the first moment the mana deficit
---      exceeds what the consumable restores, so none of it is wasted.
+--   1. Mana-cooldown / potion timing — alert the first moment the mana deficit
+--      exceeds what the source restores, so none of it is wasted. The sources
+--      and their values come from Engine/ManaCooldowns.lua.
 --   2. Gear-change rank toast — when +healing shifts a spell's efficient rank.
 --   3. Drink reminder — out of combat, low mana, not drinking.
 local _, MD = ...
 
-local INNERVATE = 29166
-
--- itemID -> max restored mana (max roll, so the alert never fires early)
-local MANA_POTIONS = {
-    { id = 22832, value = 3000, name = "Super Mana Potion" },
-    { id = 13444, value = 2250, name = "Major Mana Potion" },
-    { id = 13443, value = 1500, name = "Superior Mana Potion" },
-    { id = 3827,  value = 585,  name = "Mana Potion" },
-}
-
-local firedInnervate, firedPotion = false, false
-
-local function ItemReady(itemID)
-    if GetItemCount(itemID) == 0 then return false end
-    local ok, start, duration
-    if C_Container and C_Container.GetItemCooldown then
-        ok, start, duration = pcall(C_Container.GetItemCooldown, itemID)
-    elseif GetItemCooldown then
-        ok, start, duration = pcall(GetItemCooldown, itemID)
-    end
-    if not ok then return true end -- can't read cooldown: don't suppress
-    return not start or start == 0 or (start + duration - GetTime()) <= 0
-end
-
-local function InnervateReady()
-    if not MD.player.isDruid then return false end
-    if not (IsSpellKnown and IsSpellKnown(INNERVATE)) then return false end
-    local start, duration = GetSpellCooldown(INNERVATE)
-    return start == 0 or (start + duration - GetTime()) <= 0
-end
-
--- Rough Innervate value: 400% spirit regen + full regen while casting for 20s.
--- Estimated as 3.5x the spirit-based regen rate over 20s (conservative).
-local function InnervateValue()
-    local spiritPerSec = MD.Regen:Components()
-    return spiritPerSec * 3.5 * 20
-end
+-- Every mana source (Innervate today, per-class cooldowns later, plus carried
+-- potions) and what it is worth right now comes from Engine/ManaCooldowns.lua,
+-- so the advisor and the OOM clock can never quote different numbers for the
+-- same decision.
+local fired = {}
 
 MD:OnTick(function()
     if not MD.db or not UnitAffectingCombat("player") or not MD.player.usesMana then return end
+    if not MD.ManaCooldowns then return end
     local deficit = UnitPowerMax("player", 0) - UnitPower("player", 0)
 
-    if not firedInnervate and InnervateReady() then
-        local value = InnervateValue()
-        if value > 500 and deficit >= value then
-            firedInnervate = true
-            MD:Alert(string.format("Innervate now — you're down %d mana (worth ~%d).", deficit, value))
-        end
-    end
-
-    if not firedPotion then
-        for _, potion in ipairs(MANA_POTIONS) do
-            if ItemReady(potion.id) then
-                if deficit >= potion.value then
-                    firedPotion = true
-                    MD:Alert(string.format("%s now — you're down %d mana, none of it will be wasted.",
-                        potion.name, deficit))
-                end
-                break -- only consider the best potion carried
-            end
+    for _, src in ipairs(MD.ManaCooldowns:All()) do
+        -- Fire the first moment the deficit swallows the whole thing: any
+        -- earlier and part of the restore is wasted.
+        if src.ready and src.delta > 500 and not fired[src.key] and deficit >= src.delta then
+            fired[src.key] = true
+            MD:Alert(string.format("%s now - you're down %d mana (worth ~%d), none of it will be wasted.",
+                src.name, deficit, src.delta))
         end
     end
 end)
 
 MD:On("PLAYER_REGEN_ENABLED", function()
-    firedInnervate, firedPotion = false, false
+    wipe(fired)
 end)
 
 --------------------------------------------------------------------------------

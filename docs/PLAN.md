@@ -27,10 +27,14 @@ about first).
   fight (`TESTING.md` §5). Judge: was the shown OOM time honest, jumpy, pessimistic?
 
 ### 1b. Model improvements (already justified)
-- [ ] **Nature's Grace** as an expected-value cast-time term: `cast − 0.5 × crit`
-  for HT / Regrowth chains (floor 1.5s). Show in the Cast column when active.
-- [ ] **Innervate-aware clock**: second figure on the tooltip / rest segment
-  ("OOM 1:20, 2:40 with Innervate") using the advisor's readiness check.
+- [x] **Nature's Grace** as an expected-value cast-time term — shipped in v0.5.1 as the
+  exact mixture `(1−p)·T0 + p·max(T0−0.5, 1.5)` (the floored form clips the wrong branch
+  at the GCD); grey `*` in the Cast column, derivation in the row tooltip. The 0.5s is
+  [?] until the new `cast` debug category confirms it in-game.
+- [x] **Innervate-aware clock** — shipped in v0.5.2 via `Engine/ManaCooldowns.lua`, which
+  now owns every mana source (Innervate, potions, Phase 2 class stubs) and the one value
+  model the clock AND the advisor read. `inn 2:10` takes the secondary segment under 90s.
+  [?] the "400% on the spirit share only" split, until the `regen` log around one Innervate.
 - [ ] **Overheal-calibrated HPM**: per-spell overheal from the combat log (plumbing exists
   in `UI/Summary.lua`), shown as "effective HPM" once ≥ N casts of that spell were seen.
 - [ ] **Persist fight history** (last 20 per character in `MD.cdb`) so the pull-time seed
@@ -46,7 +50,8 @@ about first).
 
 ### 1d. Housekeeping
 - [x] Commit v0.4.6, remove the stale worktree.
-- [ ] Split `UI/Dashboard.lua` rendering from row building if tooltips make it long.
+- [x] Split `UI/Dashboard.lua` into `_Rows` (columns, pool, rendering) and `_Simulate`
+  (the what-if strip) — v0.5.0.
 
 ## Phase 2 — other classes (after 1 is green)
 

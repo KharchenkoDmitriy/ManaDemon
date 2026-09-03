@@ -6,13 +6,13 @@ local tab = UI.CreateFrame("ManaDemonOptionsFrame_GeneralTab", MD.optionsFrame, 
 tab:SetAllPoints(MD.optionsFrame)
 tab:Hide()
 
-local lockCB, restCB, tipCB, muteCB, drinkCB, minimapCB, halfLifeSlider, treeAuraCB, ngCB
+local lockCB, restCB, tipCB, cdCB, muteCB, drinkCB, minimapCB, halfLifeSlider, treeAuraCB, ngCB
 
 --------------------------------------------------------------------------------
 -- OOM widget
 --------------------------------------------------------------------------------
 local function CreateWidgetPane()
-    local pane = UI.CreateTitledPane(tab, "OOM Widget", 205, 142)
+    local pane = UI.CreateTitledPane(tab, "OOM Widget", 205, 164)
     pane:SetPoint("TOPLEFT", tab, "TOPLEFT", 5, -5)
 
     lockCB = UI.CreateCheckButton(pane, "Lock widget", function(checked)
@@ -34,8 +34,15 @@ local function CreateWidgetPane()
         "widget, so it also swallows clicks in its own small rectangle.")
     tipCB:SetPoint("TOPLEFT", restCB, "BOTTOMLEFT", 0, -9)
 
+    cdCB = UI.CreateCheckButton(pane, "Show mana cooldown", function(checked)
+        MD.db.showCooldown = checked
+    end, "Mana cooldown projection", "Under 90s to OOM, with Innervate (or a potion) ready and",
+        "worth at least 10% of your pool, the clock shows 'inn 2:10':",
+        "what it becomes if you press it now. It replaces 'rest' there.")
+    cdCB:SetPoint("TOPLEFT", tipCB, "BOTTOMLEFT", 0, -9)
+
     local resetBtn = UI.CreateButton(pane, "Reset position", "accent-hover", { 150, 17 })
-    resetBtn:SetPoint("TOPLEFT", tipCB, "BOTTOMLEFT", 0, -12)
+    resetBtn:SetPoint("TOPLEFT", cdCB, "BOTTOMLEFT", 0, -12)
     resetBtn:SetScript("OnClick", function()
         local d = MD.DEFAULTS.pos
         MD.db.pos = { d[1], d[2], d[3], d[4] }
@@ -154,6 +161,7 @@ local function ShowTab(which)
     lockCB:SetChecked(MD.db.locked)
     restCB:SetChecked(MD.db.showRest ~= false)
     tipCB:SetChecked(MD.db.widgetTooltip ~= false)
+    cdCB:SetChecked(MD.db.showCooldown ~= false)
     muteCB:SetChecked(MD.db.muted)
     drinkCB:SetChecked(MD.db.drinkReminder)
     minimapCB:SetChecked(not MD.db.minimap.hide)
