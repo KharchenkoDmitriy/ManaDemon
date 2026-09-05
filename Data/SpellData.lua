@@ -119,8 +119,9 @@ SD.spells = {
 -- matches the slot and the idol silently vanishes from the model.
 --------------------------------------------------------------------------------
 SD.relics = {
-    -- Vanilla, still worn while levelling
+    -- Vanilla / Anniversary greens, still worn while levelling
     [22398] = { name = "Idol of Rejuvenation",         family = "Rejuvenation", flat = 50 },              -- measured 2026-09-03
+    [186054] = { name = "Communal Idol of Life",       family = "Rejuvenation", flat = 15, verify = true },  -- Anniversary green, ilvl 52; author wore it 2026-09-05
     [22399] = { name = "Idol of Health",               family = "HealingTouch", castReduce = 0.15, verify = true },
     -- Burning Crusade
     [25643] = { name = "Harold's Rejuvenating Broach", family = "Rejuvenation", flat = 87, verify = true },    -- quest; one source says 86

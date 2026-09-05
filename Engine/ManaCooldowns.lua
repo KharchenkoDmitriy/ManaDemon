@@ -62,11 +62,16 @@ MC.potions = {
 -- Readiness
 --------------------------------------------------------------------------------
 -- Seconds of cooldown left; 0 = ready, nil = the client would not say.
+-- GetSpellCooldown reports the GLOBAL cooldown on every spell for 1.5s after
+-- any cast, so a duration that short is not the spell's own cooldown: treat
+-- it as ready. (The first regression log showed "cooldown used: Innervate"
+-- on every Regrowth cast -- Innervate was never touched.)
+local GCD_MAX = 1.6
 local function SpellCooldownRemaining(id)
     if not GetSpellCooldown then return nil end
     local ok, start, duration = pcall(GetSpellCooldown, id)
     if not ok or start == nil then return nil end
-    if start == 0 then return 0 end
+    if start == 0 or (duration or 0) <= GCD_MAX then return 0 end
     return math.max(0, start + duration - GetTime())
 end
 

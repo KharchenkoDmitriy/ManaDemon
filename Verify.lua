@@ -26,13 +26,24 @@ function MD:RunVerify()
             -- cast time (GetSpellInfo returns milliseconds)
             if s.cast and castMs and castMs > 0 then
                 checkedCast = checkedCast + 1
-                if math.abs(castMs / 1000 - s.cast) > 0.01 then
-                    -- Naturalist lowers live HT cast time; report as info, not error.
-                    local talentNote = (s.family == "HealingTouch" and MD:TalentRank("Naturalist") > 0)
-                        and " (Naturalist affects live value)" or ""
+                -- Compare against what the model expects, not the raw table:
+                -- Naturalist and a cast-time idol are known. (The first
+                -- regression log reported 13 "mismatches", all Naturalist.)
+                -- The live value may sit UNDER the 1.5s GCD floor the model
+                -- applies (HT R1 reads 1.0s with Naturalist 5); that is fine.
+                local expect = s.cast
+                if s.family == "HealingTouch" then
+                    expect = expect - 0.1 * MD:TalentRank("Naturalist")
+                    local relic = SD:Relic()
+                    if relic and relic.castReduce and relic.family == s.family then
+                        expect = expect - relic.castReduce
+                    end
+                end
+                if math.abs(castMs / 1000 - expect) > 0.01 then
                     mismatches = mismatches + 1
-                    MD:Print(string.format("|cffffaa33CAST|r %s: table %.1fs, live %.1fs%s",
-                        label, s.cast, castMs / 1000, talentNote))
+                    MD:Print(string.format("|cffffaa33CAST|r %s: table %.1fs%s, live %.1fs",
+                        label, s.cast, expect ~= s.cast and string.format(" (model %.1fs)", expect) or "",
+                        castMs / 1000))
                 end
             end
             -- mana cost: the live value is what the model uses; the static

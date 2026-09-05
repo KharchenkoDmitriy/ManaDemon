@@ -372,6 +372,30 @@ idol; it is 33508. Added the TBC set: Budding Life (−36 Rejuv mana), Crescent 
 Broach at +87 (one source says 86 — calibration will settle it). Everything but the measured
 Idol of Rejuvenation is flagged `verify`.
 
+**15. Regrowth's +healing split is amount-weighted, not coefficient-weighted (v0.6.8).**
+The first regression log (`.logs/regression/spam-test`, 13 Regrowth R9 casts on self at +531
+healing, Gift of Nature 1, no Improved Regrowth) is the first thing calibration ever caught.
+One HoT tick landed at **209**; the coefficient-weighted split (`c²/(c+h)`, `h²/(c+h)` =
+0.166 / 0.994) predicted **232**, the amount-weighted split (direct `c × avg/(avg+hot)`,
+HoT `h × hot/(avg+hot)` = **0.286 / 0.701** — the numbers theorycraft has always quoted for
+Regrowth) predicts **209.3**. The eleven non-crit direct hits averaged 1282 against 1172 /
+1237. Switched. **Rests on one tick and eleven directs**; the next run's `/md calibrate`
+confirms or refutes it. The residual +3.7% on the direct portion is NOT the equipped idol
+(Communal Idol of Life is +15 Rejuvenation) and is most likely the table's base range for
+R9 — calibration will say.
+
+**16. Calibration must never see the Simulate strip.** The same log reported "model
+1487.7" for that Regrowth; the implied simulated +healing is **exactly 2400** — the author
+had run TESTING §7 and left the strip populated. `RankMath:Context({ live = true })` now
+exists and `EventPrediction` uses it. Any other consumer that compares against reality must
+do the same.
+
+**17. `GetSpellCooldown` reports the GCD.** For 1.5s after any cast, every spell's cooldown
+reads as the global cooldown, so `ManaCooldowns` logged "cooldown used: Innervate" on every
+Regrowth and would have flickered the `inn` segment and the advisor's readiness. A duration
+≤ 1.6s is now treated as ready. Also: the player is `HEALER (self)` when nobody has assigned
+a role — solo, the author's own heals were filed under UNKNOWN.
+
 ### Priority, set by the author
 
 C1 self-calibration -> A waste report -> D1 logging -> B1 pull budget -> D2 Cell

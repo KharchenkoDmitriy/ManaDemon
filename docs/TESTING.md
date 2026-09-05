@@ -1,8 +1,17 @@
 # ManaDemon — what to test now (v0.6.6)
 
-**Status 2026-09-05:** the first real dungeon log (`.logs/dungeon-BF-1.txt`) was analysed
-and produced v0.6.0–v0.6.5 (`docs/DESIGN-v0.6.md`). §1–§4b, §6, §7 passed on v0.4.8 and are
-kept for regression. **Outstanding: §0b (v0.6 regression), §5, §8, §9, §11–§14.**
+**Status 2026-09-05 (evening), v0.6.8:** the author ran `/md verify`, a `/reload`, `/md
+profile` and `/md spamtest` on v0.6.7 (`.logs/regression/`). Results: **§2 verify passed**
+(0 cost mismatches; the 13 CAST lines were all Naturalist and the harness now knows that);
+**§6 spamtest passed** (13 predicted, 13 measured); **§8 Nature's Grace CONFIRMED** — two
+casts after a crit read `live 1.50s`, the rest 2.00s; **§11 calibration caught a real
+model error on its first run** (Regrowth's +healing split, fixed — see DECISIONS §15) and
+exposed a sim leak (fixed). Also found: a false "cooldown used: Innervate" on every cast
+(the GCD; fixed) and the `/md profile` paste came out **empty** (see §2b).
+
+**Still to do, in this order:** §0b · §2b · **§12 roster in a group** (the biggest unknown)
+· §5 (needs a hard pull) · §9 (needs one Innervate) · §11 again after a dungeon night · §13
+· §14. §1, §3, §4, §4b, §7 are regression-only.
 
 Everything below is done on the druid, in-game, with the Debug Console open
 (`/md options` → General → Misc → Debug Console → tick **Enable Debug Logging**).
@@ -70,6 +79,12 @@ intended change to any number. What to confirm:
   live-vs-static costs, the clock state and all settings. Paste it once so the baseline is
   on record; from now on this is the thing to attach to any "this number looks wrong".
 
+## 2b. `/md profile` came out empty — NEW, 30s
+The regression paste of `/md profile` was a 0-byte file. Either the copy box was empty (a
+bug — was there a Lua error? `/console scriptErrors 1`), or the paste failed. Run it again;
+if the box is empty, tell me what the chat line said. `/md verify`'s snapshot section is the
+same content, so nothing is lost meanwhile.
+
 ## 3. Tree of Life aura on heals — DONE 2026-09-03 (confirmed; keep for regression)
 Tooltips on this client show BASE values only (932 in and out of form), so use the
 **Heal** log category: every heal / HoT tick you land is logged with amount, overheal and
@@ -112,7 +127,11 @@ the relic table, paste the idol's name and tooltip text.
 - The interesting question this answers: **does a Moonglow respec change your efficient
   rank?** Tell me if it does.
 
-## 8. Nature's Grace cast times (2 min) — NEW, settles an assumption
+## 8. Nature's Grace cast times — CONFIRMED 2026-09-05 (Regrowth); Healing Touch still worth one look
+The spam test settled it: casts right after a CRIT read `live 1.50s`, all others `2.00s`
+(`.logs/regression/spam-test`). The 0.5s and the GCD floor are real on this client. What is
+left is only Healing Touch in caster form — Naturalist 5 makes R1 read 1.0s live, under the
+model's 1.5s GCD floor, which is expected but worth seeing once.
 The model now assumes a spell crit takes **0.5s** off your next cast (floor 1.5s) and
 averages that into the Cast column, HPS, HP5 and To OOM. Neither the 0.5s nor Naturalist's
 effect is visible in a spellbook tooltip, so:

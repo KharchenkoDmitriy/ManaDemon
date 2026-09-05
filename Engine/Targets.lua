@@ -50,6 +50,10 @@ local function Describe(unit)
     local role, source = AssignedRole(unit), "assigned"
     if not role then role, source = PartyAssignmentRole(unit), "partyassign" end
     if not role then role, source = CLASS_ROLE[class], "class" end
+    -- the player: this addon exists for the healer, and solo there is nobody
+    -- to assign a role (the first regression log filed the author's own
+    -- Regrowths under UNKNOWN)
+    if not role and unit == "player" and MD.player.usesMana then role, source = "HEALER", "self" end
     if not role then role, source = "UNKNOWN", "unknown" end
 
     return { guid = guid, name = name or "?", class = class, role = role, roleSource = source, unit = unit }

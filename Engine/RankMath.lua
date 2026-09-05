@@ -68,9 +68,13 @@ end
 -- "Simulate" strip): nil = live value. Only the rank math reads them; the
 -- clock, widget and advisor always use real inputs.
 --------------------------------------------------------------------------------
-function RankMath:Context()
+-- opts.live: ignore the Simulate strip. Calibration compares REAL heals with
+-- the model and must never see a what-if input (the first regression log had
+-- it predicting Regrowth at 1488 against a real 1282 -- a simulated +healing
+-- was still in the strip).
+function RankMath:Context(opts)
     local SD = MD.SpellData
-    local sim = MD.sim or EMPTY
+    local sim = (opts and opts.live) and EMPTY or (MD.sim or EMPTY)
 
     local liveBonus = BonusHealing()
     local statBonus = sim.heal or liveBonus
@@ -225,9 +229,19 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
         castTime = ctx.ExpectedCast(castBase, ngCrit)
         local c = math.min(math.max(s.cast, 1.5), 3.5) / 3.5
         local h = s.hotDuration / 15
-        local dCoef = c * c / (c + h)
-        local hCoef = h * h / (c + h)
-        local base = (s.healMin + s.healMax) / 2 + relicFlat
+        -- The hybrid's +healing is split between the direct hit and the HoT in
+        -- proportion to their BASE AMOUNTS, each portion then taking its own
+        -- coefficient: direct gets c x avg/(avg+hot), the HoT h x hot/(avg+hot).
+        -- For Regrowth that is 0.286 / 0.70 -- the widely quoted numbers. The
+        -- earlier coefficient-weighted split (c^2/(c+h), h^2/(c+h) = 0.166 /
+        -- 0.994) predicted a 232 tick where the first regression log showed
+        -- 209; the amount-weighted split predicts 209.3 (docs/DECISIONS.md
+        -- v0.6 §15). Calibration confirms or refutes it with the next run.
+        local avgBase = (s.healMin + s.healMax) / 2
+        local share = avgBase / (avgBase + s.hotTotal)
+        local dCoef = c * share
+        local hCoef = h * (1 - share)
+        local base = avgBase + relicFlat
         local dBonus = bonus * dCoef * pen
         local hBonus = bonus * hCoef * pen * ctx.empRejuv
         local critMult = 1 + 0.5 * ctx.regrowthCrit
@@ -360,8 +374,8 @@ end
 
 -- One row plus its full breakdown, for the dashboard tooltip. Rebuilt from a
 -- fresh context so it always matches what the table is showing.
-function RankMath:Explain(spellID, variant)
-    return RankMath:RowFor(spellID, RankMath:Context(), variant, true)
+function RankMath:Explain(spellID, variant, opts)
+    return RankMath:RowFor(spellID, RankMath:Context(opts), variant, true)
 end
 
 -- What ONE combat-log event should read, for Engine/Calibration.lua:
@@ -370,7 +384,7 @@ end
 -- Crit is stripped here because a single event either crit or did not; the
 -- row's (1 + 0.5 x crit) is an expectation and cannot be compared to one hit.
 function RankMath:EventPrediction(spellID)
-    local row = RankMath:Explain(spellID)
+    local row = RankMath:Explain(spellID, nil, { live = true })
     local c = row and row.calc
     if not c then return nil end
     local out = { crit = c.crit or 0, family = c.family, talentMult = c.talentMult }

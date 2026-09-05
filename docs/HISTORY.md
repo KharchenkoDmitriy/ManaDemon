@@ -611,3 +611,37 @@ and found two wrong entries (Idol of Health is a cast-time relic; Emerald Queen 
 the HoT total, not +47/tick) and one wrong ID (Budding Life is 33508, not 33076). Added the
 TBC cost-only idols (Budding Life, Crescent Goddess) and cast-time relics as kinds. Sources
 in `Data/SpellData.lua`.
+
+## 2026-09-05 (evening) — First regression logs on v0.6.7; v0.6.8
+
+Author ran `/md verify`, a `/reload`, `/md profile` and `/md spamtest` (`.logs/regression/`).
+**A respec happened between the two sessions**: the talent line now reads Intensity 3,
+Dreamstate 3, Lunar Guidance 3, Moonglow 3, Nature's Grace 1 / Gift of Nature 1, Improved
+Rejuvenation 3, Naturalist 5 — a Dreamstate build, **no Tree of Life**. Everything Tree-
+specific is dormant; calibration's reset-on-build-change is exactly for this.
+
+**Passed:** verify (0 cost mismatches), spamtest (13 predicted, 13 measured), the snapshot
+header on every Copy, the overheal convention latching GROSS on the first heal, the
+shown-string and cooldown log lines, `Drink.` falling back correctly with no fights recorded.
+**Nature's Grace confirmed:** two casts after a crit at `live 1.50s`, the rest 2.00s.
+
+**Calibration caught a real error on its first run.** Regrowth R9 direct: observed 1282
+(11 non-crit), model 1488, ratio 0.862. Two things at once: (1) the model was reading the
+Simulate strip — the implied simulated +healing is exactly 2400, a round number the author
+had typed for TESTING §7 — so `EventPrediction` now uses `Context({ live = true })`; (2) with
+live inputs the model was 1172, still 9% low, and the one HoT tick (209 observed vs 232
+predicted) pointed at the split: **Regrowth's +healing is split by base amounts
+(0.286 / 0.701), not by coefficients (0.166 / 0.994)** — the amount-weighted split predicts
+the tick at 209.3. Switched; DECISIONS §15. A +3.7% residual on the direct remains and is
+not the idol.
+
+**Also fixed:** `GetSpellCooldown` returns the GCD for 1.5s after any cast, so "cooldown
+used: Innervate" fired on every Regrowth (≤1.6s now means ready); the author's own heals
+were filed under role UNKNOWN when solo (now `HEALER (self)`); `/md verify` compares against
+the model's cast time so Naturalist no longer counts as 13 mismatches. **Relic:** the author
+wears Communal Idol of Life (186054), an Anniversary green: +15 Rejuvenation, added,
+unverified. **Open:** the `/md profile` paste was a 0-byte file — bug or paste failure
+unknown (TESTING §2b).
+
+**Still to test:** §0b, §2b, §12 roster in a group (the biggest unknown), §5, §9, §11 after
+a night, §13, §14. Committed as v0.6.8 and fast-forwarded into local master; not pushed.
