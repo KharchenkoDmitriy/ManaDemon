@@ -13,17 +13,16 @@ local COLS = {
     { key = "heal",  x = 170, w = 86,  label = "Heal/cast" },
     { key = "hpm",   x = 260, w = 64,  label = "HPM" },
     { key = "hps",   x = 328, w = 64,  label = "HPS" },
-    { key = "hp5",   x = 396, w = 64,  label = "HP5" },
-    { key = "cast",  x = 464, w = 50,  label = "Cast" },
-    { key = "casts", x = 518, w = 56,  label = "To OOM" },
-    { key = "note",  x = 578, w = 160, label = "" },
+    { key = "cast",  x = 396, w = 50,  label = "Cast" },
+    { key = "casts", x = 450, w = 56,  label = "To OOM" },
+    { key = "note",  x = 510, w = 228, label = "" },
 }
 
 local ROW_HEIGHT = 16
 
 -- Columns whose values become overheal-adjusted in "Effective" mode. Mana,
 -- Cast and To OOM never move: mana spent is mana spent.
-local EFFECTIVE_COLS = { heal = true, hpm = true, hps = true, hp5 = true }
+local EFFECTIVE_COLS = { heal = true, hpm = true, hps = true }
 
 local function Fmt(n, decimals)
     return string.format(decimals and ("%." .. decimals .. "f") or "%d", n)
@@ -128,11 +127,11 @@ function MD.DashboardParts.CreateTable(parent, width)
             end
             -- In effective mode a row with no measurement of its own keeps its
             -- raw value and gets a grey "?" so the two are never confused.
-            local heal, hpm, hps, hp5 = r.heal, r.hpm, r.hps, r.hp5
+            local heal, hpm, hps = r.heal, r.hpm, r.hps
             local unmeasured = ""
             if effective then
                 if r.overheal then
-                    heal, hpm, hps, hp5 = r.effHeal, r.effHpm, r.effHps, r.effHp5
+                    heal, hpm, hps = r.effHeal, r.effHpm, r.effHps
                 else
                     unmeasured = "|cff777777?|r"
                 end
@@ -144,7 +143,6 @@ function MD.DashboardParts.CreateTable(parent, width)
             row.cells.heal:SetText(c .. Fmt(heal) .. "|r" .. unmeasured)
             row.cells.hpm:SetText(c .. Fmt(hpm, 2) .. "|r")
             row.cells.hps:SetText(c .. Fmt(hps) .. "|r")
-            row.cells.hp5:SetText(c .. (hp5 and Fmt(hp5) or "-") .. "|r")
             -- the grey "*" means the cast time is a Nature's Grace average
             row.cells.cast:SetText(c .. Fmt(r.cast, 1) .. "s|r" .. (r.ng and "|cff888888*|r" or ""))
             row.cells.casts:SetText(c .. (r.casts == math.huge and "inf" or Fmt(r.casts)) .. "|r")

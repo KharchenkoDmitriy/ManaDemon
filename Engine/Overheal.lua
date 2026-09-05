@@ -1,6 +1,6 @@
 -- Measured overheal, per spell family and per rank, from the combat log.
 -- UI/Summary.lua's single COMBAT_LOG handler feeds Record(); RankMath asks
--- Fraction() so the dashboard can show "effective" heal / HPM / HPS / HP5 --
+-- Fraction() so the dashboard can show "effective" heal / HPM / HPS --
 -- what the spell is actually worth on the targets this player heals, rather
 -- than on a dummy at 1 hp.
 --

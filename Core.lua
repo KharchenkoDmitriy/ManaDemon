@@ -18,9 +18,11 @@ local DEFAULTS = {
     showRest = true,      -- "rest 2:10" segment: time to full if you stop casting
     widgetTooltip = true, -- hover tooltip on the widget (needs mouse input on it)
     showCooldown = true,  -- "inn 2:10" segment: the clock if you press your mana cooldown now
+    oomConfidence = 0.7,  -- print OOM digits only while sigma/net <= this; above it show the bound.
+                          -- Derived from one level-61 dungeon (docs/DESIGN-v0.6.md §3b): re-derive on raid logs.
     treeAura = true,      -- count the Tree of Life aura (+25% Spirit as healing received by the party) in heal values
     naturesGrace = true,  -- average Nature's Grace into the dashboard's cast times
-    effectiveMode = false, -- dashboard shows overheal-adjusted heal/HPM/HPS/HP5
+    effectiveMode = false, -- dashboard shows overheal-adjusted heal/HPM/HPS
     healAmountGross = nil, -- latched from the combat log: does SPELL_HEAL's "amount" include the overheal?
     firstRun = true,
     minimap = { hide = false, angle = 220 },

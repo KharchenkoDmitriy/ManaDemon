@@ -61,8 +61,9 @@ error:
 
 | | sigma / net |
 |---|---|
-| the hard pull (after warm-up) | median **0.43**, range 0.34–0.66 |
-| every other in-combat sample | median **1.01** |
+| the hard pull, `oom` mode, after warm-up | median **0.41**, range 0.34–0.66 |
+| every other `oom`-mode sample | median **0.73**, range 0.17–0.99 |
+| `hold`-mode samples | > 1 by definition (they already show a bound) |
 
 Everywhere else: 181 mode transitions in 28 minutes, shown value changed on 79% of
 consecutive samples, `rest` was the stable and useful number (median 13s).
@@ -99,7 +100,7 @@ v0.6:
 | `Engine/PullBudget.lua` | **new** | "How many more pulls before I drink", from persisted fight history. |
 | `UI/Dashboard_Waste.lua` | **new** | The Waste view: where mana went, where healing was wasted. |
 | `Engine/Overheal.lua` | **change** | Event-kind, role, class and per-target buckets; wasted-mana accounting. |
-| `Engine/RankMath.lua` | **change** | HP5 redefined; `EventPrediction()`; Lifebloom rolling rows use tick-scope overheal. |
+| `Engine/RankMath.lua` | **change** | HP5 removed; `EventPrediction()`; Lifebloom rolling rows use tick-scope overheal. |
 | `Engine/TTO.lua` | **change** | The `OOM 0s` fix; confidence gate on the point estimate. |
 | `UI/Summary.lua` | **change** | Per-spell spend per fight; roster line at the pull; passes kind + destGUID. |
 | `UI/Dashboard.lua` | **change** | `currentFamily` -> `currentView`; Waste tab; default view from usage. |
@@ -146,49 +147,23 @@ not the fixing.
 
 ---
 
-## 2. F1 — HP5 redefined: sustained while chain-casting
+## 2. F1 — HP5 removed
 
-**Author's definition:** healing per 5s sustainable on regenerated mana alone **while
-still casting** — permanently inside the five-second rule.
-
-Today's formula lets you drop out of the FSR between casts and collect full regen: a
-different, more optimistic question. Replace it:
+The author's intended definition was "healing per 5s sustainable on regenerated mana while
+still casting", i.e. permanently inside the five-second rule. Worked through, that is
 
 ```
-T    = max(cost / castingRegen, castTime)
-HP5  = 5 * heal / T
+T   = max(cost / castingRegen, castTime)
+HP5 = 5 * heal / T   =   5 * castingRegen * HPM     (whenever the spell costs more than
+                                                     regen delivers during its own cast)
 ```
 
-In the normal case — a spell costs more than regen delivers during its own cast — this is
-
-```
-HP5 = 5 * castingRegen * HPM
-```
-
-so **HP5 rank-orders exactly like HPM.** That is not a defect (it converts HPM into
-interpretable units) but the tooltip must say it, or the column implies information it does
-not carry. When regen outruns the spell's cost rate, cast time binds and HP5 = 5 x HPS.
-
-**Worked values** at the log's 142 mp5 casting regen (28.33/s), heal figures illustrative:
-
-| spell | cost | today's T | new T | change |
-|---|---|---|---|---|
-| Lifebloom | 176 | 5.5s | **6.2s** | −11% HP5 |
-| Swiftmend | 217 | 6.1s | **7.7s** | −21% |
-| Rejuvenation | 296 | 7.2s | **10.4s** | −30% |
-| Regrowth | 460 | 9.6s | **16.2s** | −41% |
-
-The expensive spells lose most — correct, since chain-casting them in the 5SR is exactly
-where the old formula's out-of-FSR regen was doing the heavy lifting.
-
-`ctx.SustainedInterval` becomes `ctx.ChainInterval`; the old formula survives as
-`ctx.LapsedInterval`, both in `row.calc`. Row tooltip:
-
-```
-| HP5   sustained, chain-casting in the 5SR      186  (one cast per 10.4s)     |
-|       = 5 x 142 mp5 x 4.21 HPM / 5 -- HP5 orders exactly like HPM            |
-|       if you let the 5SR lapse between casts:  270  (one per 7.2s)           |
-```
+so **HP5 orders every rank exactly like HPM** — a unit conversion, not a new axis. The
+author's call, on review: *it does not provide new insights; remove it.* The column, the
+`SustainedInterval` closure, the tooltip and glossary lines and the `effHp5` field are gone
+in v0.6.0; the Cast / To OOM / note columns shift left and the note column widens
+(`UI/Dashboard_Rows.lua`). The regen figure the hint line used to attach to HP5 now sits
+with To OOM, which is the column that actually consumes it.
 
 ---
 
@@ -234,9 +209,13 @@ When not confident, `rest` shows **unconditionally** rather than only when it di
 the primary by 25% — the primary is a bound now, not a number to compare against.
 
 `db.oomConfidence` default **0.7** is *derived from a single level-61 dungeon* and is
-recorded as provenance, not truth. At 0.7 the hard pull keeps 6 of its 7 samples (the one it
-drops is the warm-up `~5:00`, already marked `~`) and 80% of the quiet chatter goes away.
-**Re-derive from the first heroic and raid logs.**
+recorded as provenance, not truth. Inside `oom` mode — the only place the gate acts — 0.7
+keeps **all 6** hard-pull samples and drops **29 of 53 (55%)** quiet ones; it sits exactly at
+the quiet median. (An earlier draft claimed 80% removed; that figure had mixed in `hold`
+samples, which are above 1 by construction and never showed digits anyway.) The digits come
+back only after two consecutive confident ticks, so a value hovering at the threshold does
+not flip the display's shape. **Re-derive from the first heroic and raid logs** — Options >
+Model exposes it as a percentage slider with that caveat in its tooltip.
 
 Deliberately *not* a change to `K_SIGMA` or `CV_STABLE` (`docs/PLAN.md` §1a stays open):
 the mode logic was right; only the decision to print digits was wrong.
@@ -581,7 +560,7 @@ Options > Model grows by a slider and a checkbox; General tab height 350 -> ~400
 
 | version | contents | visible change |
 |---|---|---|
-| **v0.6.0** | F1 HP5, F2 both halves, F8 | no red `OOM 0s`; quiet fights stop showing invented digits; HP5 drops 10–40%; dashboard opens on Lifebloom |
+| **v0.6.0** | F1 HP5 removed, F2 both halves, F8 | no red `OOM 0s`; quiet fights show `OOM >2:00` instead of invented digits; HP5 column gone; dashboard opens on the most-cast spell |
 | **v0.6.1** | F6 logging + `Engine/Targets.lua` | richer logs; roster at each pull; `/md export` |
 | **v0.6.2** | F3 `Engine/Calibration.lua`, `/md calibrate`, drift alerts | the model starts checking itself |
 | **v0.6.3** | F4 Overheal dimensions, wasted mana, `UI/Dashboard_Waste.lua`, spend breakdown | the Waste view |
@@ -621,8 +600,8 @@ is what proves it. **F3 before F4** is the author's priority.
    (who eats boss melee) would fill the gaps but adds a mechanism that can be wrong quietly.
    Decision: start without it, let F6 measure how often `NONE` actually happens.
 4. **F6 before F4** inverts the author's stated order by one step, for the reason in §11.
-5. **HP5 now duplicates HPM's ordering.** Keep it (interpretable units) or replace the column
-   with something carrying new information — e.g. *effective* HPM as a permanent column?
+5. ~~HP5 duplicates HPM's ordering~~ — **decided: removed** (v0.6.0). The freed column is
+   not reassigned yet; *effective* HPM as a permanent column is the candidate.
 6. **`oomConfidence` as a user-facing slider** vs an internal constant. A slider invites
    fiddling; a constant invites being forgotten. Slider, with the provenance in its tooltip.
 7. **Per-target overheal session-only.** Persisting it would enable "Dëstroyka always eats

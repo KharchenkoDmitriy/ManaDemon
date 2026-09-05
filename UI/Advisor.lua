@@ -17,13 +17,28 @@ MD:OnTick(function()
     if not MD.ManaCooldowns then return end
     local deficit = UnitPowerMax("player", 0) - UnitPower("player", 0)
 
-    for _, src in ipairs(MD.ManaCooldowns:All()) do
+    local sources = MD.ManaCooldowns:All() -- richest first
+    for i, src in ipairs(sources) do
         -- Fire the first moment the deficit swallows the whole thing: any
         -- earlier and part of the restore is wasted.
         if src.ready and src.delta > 500 and not fired[src.key] and deficit >= src.delta then
             fired[src.key] = true
-            MD:Alert(string.format("%s now - you're down %d mana (worth ~%d), none of it will be wasted.",
-                src.name, deficit, src.delta))
+            -- The clock advertises the RICHEST ready source; this alert fires
+            -- for the one that fits the deficit NOW. On the first dungeon log
+            -- those disagreed on screen (clock: Innervate, alert: potion), so
+            -- say why the cheaper one is being called first.
+            local held
+            for j = 1, i - 1 do
+                local richer = sources[j]
+                if richer.ready and not fired[richer.key] then held = richer break end
+            end
+            local msg = string.format("%s now - you're down %d mana (worth ~%d), none of it will be wasted.",
+                src.name, deficit, src.delta)
+            if held then
+                msg = msg .. string.format(" %s is ready too but worth ~%d: hold it until you're down that far.",
+                    held.name, held.delta)
+            end
+            MD:Alert(msg)
         end
     end
 end)

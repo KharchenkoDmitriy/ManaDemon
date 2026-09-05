@@ -48,6 +48,13 @@ MD:On("UNIT_SPELLCAST_SUCCEEDED", function(unit, _, spellID)
         if isMax then
             ST.combat.maxRankCasts = ST.combat.maxRankCasts + 1
         end
+        -- lifetime casts per family, so the dashboard can open on the spell
+        -- this character actually uses
+        local sd = MD.SpellData.spells[spellID]
+        if sd and MD.cdb then
+            MD.cdb.familyCasts = MD.cdb.familyCasts or {}
+            MD.cdb.familyCasts[sd.family] = (MD.cdb.familyCasts[sd.family] or 0) + 1
+        end
         MD:Debug("spend", "%s (%d) cost %d [%s]%s", GetSpellInfo(spellID) or "?", spellID, cost, source,
             isMax and " max rank" or "")
     else

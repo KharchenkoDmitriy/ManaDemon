@@ -6,7 +6,7 @@ local tab = UI.CreateFrame("ManaDemonOptionsFrame_GeneralTab", MD.optionsFrame, 
 tab:SetAllPoints(MD.optionsFrame)
 tab:Hide()
 
-local lockCB, restCB, tipCB, cdCB, muteCB, drinkCB, minimapCB, halfLifeSlider, treeAuraCB, ngCB
+local lockCB, restCB, tipCB, cdCB, muteCB, drinkCB, minimapCB, halfLifeSlider, confSlider, treeAuraCB, ngCB
 
 --------------------------------------------------------------------------------
 -- OOM widget
@@ -75,7 +75,7 @@ end
 -- Model
 --------------------------------------------------------------------------------
 local function CreateModelPane()
-    local pane = UI.CreateTitledPane(tab, "Model", 205, 175)
+    local pane = UI.CreateTitledPane(tab, "Model", 205, 222)
     pane:SetPoint("TOPLEFT", tab, "TOPLEFT", 222, -5)
 
     halfLifeSlider = UI.CreateSlider("Spend half-life (s)", pane, 5, 60, 160, 1, function(value)
@@ -84,12 +84,22 @@ local function CreateModelPane()
         "Shorter reacts faster, longer is steadier. Default 15s.")
     halfLifeSlider:SetPoint("TOPLEFT", pane, 22, -45)
 
+    -- Stored as a fraction (0.3-1.5), shown as a percentage: "print the OOM
+    -- digits while the projection's error is under N% of its own value".
+    confSlider = UI.CreateSlider("OOM digits below error", pane, 30, 150, 160, 5, function(value)
+        MD.db.oomConfidence = value / 100
+    end, nil, true, "How sure the clock must be to print digits",
+        "sigma/net of the projection. Below this the clock shows 'OOM 2:00';",
+        "above it, 'OOM >2:00' (no sooner than). 70% comes from one easy dungeon:",
+        "the hard pull sat at 34-66%, the quiet ones at a median 73%. Retune on raid logs.")
+    confSlider:SetPoint("TOPLEFT", halfLifeSlider, "BOTTOMLEFT", 0, -34)
+
     treeAuraCB = UI.CreateCheckButton(pane, "Count Tree of Life aura", function(checked)
         MD.db.treeAura = checked
         MD:Fire("FORM_CHANGED", MD:InTreeForm())
     end, "Tree of Life aura in heal values", "Party members under your Tree of Life aura receive",
         "25% of your Spirit as extra healing. It is not part of the", "+healing stat, so the dashboard adds it while you are in form.")
-    treeAuraCB:SetPoint("TOPLEFT", pane, 5, -88)
+    treeAuraCB:SetPoint("TOPLEFT", pane, 5, -135)
 
     ngCB = UI.CreateCheckButton(pane, "Average in Nature's Grace", function(checked)
         MD.db.naturesGrace = checked
@@ -183,6 +193,7 @@ local function ShowTab(which)
     drinkCB:SetChecked(MD.db.drinkReminder)
     minimapCB:SetChecked(not MD.db.minimap.hide)
     halfLifeSlider:SetValue(MD.db.halfLife or 15)
+    confSlider:SetValue(math.floor((MD.db.oomConfidence or 0.7) * 100 + 0.5))
     treeAuraCB:SetChecked(MD.db.treeAura ~= false)
     ngCB:SetChecked(MD.db.naturesGrace ~= false)
 end

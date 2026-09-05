@@ -335,6 +335,18 @@ role and class buckets persist.
 were ignored; the likely reason is that the alert answered "is this potion efficient?" when
 the question was "can I pull again?". Hence `Engine/PullBudget.lua`.
 
+**10. HP5 removed rather than redefined.** Redefining it to the author's intent (sustained
+while chain-casting, i.e. inside the 5SR) reduces to `5 x castingRegen x HPM`, which orders
+every rank exactly like HPM. On review the author agreed it carried no insight of its own.
+Gone in v0.6.0: column, closure, tooltip lines, `effHp5`. Recorded so nobody reintroduces it
+as a "new" metric.
+
+**11. The confidence gate's numbers, corrected.** Inside `oom` mode (the only place it acts)
+the hard pull sat at median 0.41 and the quiet pulls at median 0.73; a 0.7 gate keeps all six
+hard-pull samples and drops 55% of quiet digits — not the 80% first claimed, which had mixed
+in `hold` samples that are above 1 by construction. Still the right default; still to be
+re-derived on raid logs.
+
 ### Priority, set by the author
 
 C1 self-calibration -> A waste report -> D1 logging -> B1 pull budget -> D2 Cell

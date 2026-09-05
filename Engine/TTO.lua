@@ -87,6 +87,16 @@ local function Compute()
     elseif net > sigma then
         s.mode = "oom"
         s.tto = mana / net
+        -- How much to trust that number: sigma/net is the relative error of
+        -- the projection. In the first dungeon log the one hard pull sat at
+        -- 0.34-0.66 and every quiet pull at a median 0.73 -- the digits on the
+        -- quiet ones were +-90% and changed on 79% of consecutive samples.
+        -- Above db.oomConfidence the display falls back to the one-sided bound
+        -- (mana / (net + sigma), "no sooner than") that hold already uses.
+        -- The mode logic is untouched; only whether digits get printed changes.
+        s.rel = sigma / net
+        s.confident = s.rel <= ((MD.db and MD.db.oomConfidence) or 0.7)
+        s.bound = mana / (net + sigma)
     elseif net < -sigma then
         s.mode = "full"
         s.ttf = (manaMax - mana) / -net
@@ -139,6 +149,7 @@ local function ResetDisplay(mode)
     disp.modeCand, disp.modeTicks = nil, 0
     disp.value, disp.cand, disp.candTicks = nil, nil, 0
     disp.step, disp.finer, disp.finerSince = nil, nil, nil
+    disp.bounded, disp.confTicks, disp.stale = false, 0, false
     wipe(disp.history)
 end
 
@@ -236,9 +247,33 @@ MD:OnTick(function()
     LatchMode(state.mode)
 
     local m = disp.mode
+
+    -- Confidence latch for the oom point estimate: drop to the bound at once
+    -- (bad news), but need two confident ticks to bring the digits back, so
+    -- rel hovering around the threshold does not flip the shape every tick.
+    if m == "oom" and state.mode == "oom" then
+        if not state.confident then
+            if not disp.bounded then
+                disp.bounded = true
+                disp.value, disp.cand, disp.candTicks = nil, nil, 0 -- a bound is not a tto
+            end
+            disp.confTicks = 0
+        elseif disp.bounded then
+            disp.confTicks = disp.confTicks + 1
+            if disp.confTicks >= 2 then
+                disp.bounded = false
+                disp.value, disp.cand, disp.candTicks = nil, nil, 0
+            end
+        end
+    end
+
     local v, worseIsLower, sigmaT
     if m == "oom" then
-        v, worseIsLower, sigmaT = state.tto, true, state.sigmaT
+        if disp.bounded then
+            v, worseIsLower, sigmaT = state.bound, true, 60 -- bound: coarse by design
+        else
+            v, worseIsLower, sigmaT = state.tto, true, state.sigmaT
+        end
     elseif m == "hold" then
         v, worseIsLower, sigmaT = state.bound, true, 60 -- bound: coarse by design
     elseif m == "full" then
@@ -249,8 +284,14 @@ MD:OnTick(function()
     if v then
         local step = ChooseStep(v, sigmaT, now)
         LatchValue(Quantize(v, step), worseIsLower, step)
+        disp.stale = false
     else
-        disp.value = nil
+        -- No value for the LATCHED mode in the current state: this is the
+        -- window where the mode latch is holding "oom" while the state has
+        -- already moved to "hold" (which sets bound, not tto). Keep the last
+        -- shown value for those two ticks instead of nil-ing it -- nil used to
+        -- fall through "v or 0" into a red "OOM 0s vv" at 79% mana.
+        disp.stale = true
     end
 
     -- shown-value history for the arrow: keep ~10s
@@ -317,8 +358,12 @@ function MD:GetDisplayString(valueHex)
         local bound = (v and v <= CAP) and FmtTime(v) or "10m"
         out = GREY .. "OOM >" .. bound .. " =|r"
     else -- oom
-        v = v or 0
-        if v < 20 then
+        if v == nil then
+            out = GREY .. "OOM --|r"             -- never fabricate a number
+        elseif disp.bounded then
+            local bound = (v <= CAP) and FmtTime(v) or "10m"
+            out = GREY .. "OOM >" .. bound .. " =|r"  -- digits not trusted: the bound
+        elseif v < 20 then
             out = CRIT .. "OOM " .. FmtTime(v) .. " vv|r"
         else
             local hex = valueHex or (v < 60 and WARN or WHITE)
@@ -345,13 +390,14 @@ function MD:GetDisplayString(valueHex)
     if s.inCombat and (m == "oom" or m == "hold" or m == "warmup") then
         local seg
         local cd = s.cd
-        if cd and cd.tto and m == "oom" and v and v <= 90
+        if cd and cd.tto and m == "oom" and not disp.bounded and v and v <= 90
             and cd.delta >= 0.10 * math.max(s.manaMax, 1)
             and not (MD.db and MD.db.showCooldown == false) then
             seg = MANA .. cd.short .. " " .. FmtTime(Quantize(cd.tto, cd.tto < 60 and 5 or 15)) .. "|r"
         elseif s.rest and not (MD.db and MD.db.showRest == false) then
             local r = s.rest
-            local show = (v == nil) or (v > CAP) or (math.abs(r - v) / math.max(v, 1) >= 0.25)
+            -- always when the primary is a bound or missing: nothing to compare against
+            local show = disp.bounded or (v == nil) or (v > CAP) or (math.abs(r - v) / math.max(v, 1) >= 0.25)
             if show then
                 seg = GREY .. "rest " .. FmtTime(Quantize(r, r < 30 and 1 or 5)) .. "|r"
             end
@@ -382,10 +428,12 @@ MD:OnTick(function(dt)
     if dbgAcc >= (s.inCombat and 5 or 15) then
         dbgAcc = 0
         local T = s.tto or s.ttf or s.bound
-        MD:Debug("tto", "%s '%s' | T %s rest %s | spend %.2f +- %.2f/s n=%d cv=%.2f | regen %.2f/s (duty %d%%, now %.2f) | net %+.2f/s | mana %d/%d",
+        MD:Debug("tto", "%s '%s' | T %s rest %s | spend %.2f +- %.2f/s n=%d cv=%.2f | regen %.2f/s (duty %d%%, now %.2f) | net %+.2f/s%s | mana %d/%d",
             s.mode, Plain(MD:GetDisplayString()),
             T and string.format("%.0fs", T) or "-", s.rest and string.format("%.0fs", s.rest) or "-",
-            s.spend, s.sigma, s.casts, s.cv, s.regen, s.duty * 100, s.regenNow, s.net, s.mana, s.manaMax)
+            s.spend, s.sigma, s.casts, s.cv, s.regen, s.duty * 100, s.regenNow, s.net,
+            s.rel and string.format(" rel %.2f%s", s.rel, s.confident and "" or " BOUND") or "",
+            s.mana, s.manaMax)
         if s.cd then
             MD:Debug("tto", "  cooldown ready: %s worth %d mana -> OOM %s",
                 s.cd.name, s.cd.delta, s.cd.tto and string.format("%.0fs", s.cd.tto) or "-")

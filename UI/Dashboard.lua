@@ -10,7 +10,26 @@ local WIDTH, HEIGHT = 760, 514 -- +18 for the Simulate strip's second row
 local frame, statsFS, calloutFS, hintFS, recapFS, messageFS, effectiveCB
 local rankTable, simStrip
 local currentFamily = "HealingTouch"
+local userPicked = false   -- once a tab is clicked, stop picking one automatically
 local spellTabs, highlightTab = {}, nil
+
+-- The family this character actually casts most (persisted counts kept by the
+-- spend tracker), so the dashboard opens on the spell that matters. The first
+-- dungeon log had one Healing Touch in 29 minutes and 245 Lifeblooms; it opened
+-- on Healing Touch.
+local function DefaultFamily()
+    local counts = MD.cdb and MD.cdb.familyCasts
+    local best, bestN = "HealingTouch", -1
+    if counts then
+        for _, family in ipairs(MD.SpellData.familyOrder) do
+            local info = MD.SpellData.families[family]
+            if info and not info.exclude and (counts[family] or 0) > bestN then
+                best, bestN = family, counts[family] or 0
+            end
+        end
+    end
+    return best
+end
 
 --------------------------------------------------------------------------------
 -- refresh
@@ -71,9 +90,9 @@ local function Refresh()
     if info then
         -- One line only: this sits 18px above the table, and the old paragraph
         -- wrapped onto the rows. The full glossary is the header row's tooltip.
-        hintFS:SetFormattedText("|cff888888HPM per mana - HPS per second of cast - HP5 sustained at 0 mana " ..
-            "(%d / %d mp5 casting / resting) - To OOM from %d mana.  Hover the header or any row.|r",
-            info.castingRegen * 5 + 0.5, info.baseRegen * 5 + 0.5, info.mana)
+        hintFS:SetFormattedText("|cff888888HPM heal per mana - HPS heal per second of cast - " ..
+            "To OOM chain-casts from %d mana at %d mp5 casting regen.  Hover the header or any row.|r",
+            info.mana, info.castingRegen * 5 + 0.5)
     end
 
     local res = results[currentFamily]
@@ -134,6 +153,7 @@ local function CreateDashboard()
     end
     highlightTab = UI.CreateButtonGroup(buttons, function(id)
         currentFamily = id
+        userPicked = true
         Refresh()
     end)
 
@@ -144,7 +164,7 @@ local function CreateDashboard()
     effectiveCB = UI.CreateCheckButton(frame, "Effective", function(checked)
         MD.db.effectiveMode = checked
         Refresh()
-    end, "Overheal-adjusted values", "Heal, HPM, HPS and HP5 become value x (1 - measured overheal),",
+    end, "Overheal-adjusted values", "Heal, HPM and HPS become value x (1 - measured overheal),",
         "from your own combat log. Mana, Cast and To OOM never move.",
         "A grey ? means that rank has no measurement of its own yet.")
     effectiveCB:SetPoint("LEFT", settingsBtn, "LEFT", -80, 0) -- label runs right of the box
@@ -184,6 +204,7 @@ local function CreateDashboard()
 
     frame:SetScript("OnShow", function()
         effectiveCB:SetChecked(MD.db.effectiveMode and true or false)
+        if not userPicked then currentFamily = DefaultFamily() end
         Refresh()
     end)
 

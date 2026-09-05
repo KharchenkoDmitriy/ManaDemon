@@ -150,25 +150,6 @@ function RankMath:Context()
         return SD:GetCost(id)
     end
 
-    -- Sustained output at zero mana (author's "HP5"): cast only when regen has
-    -- paid for it. Each cast starts 5s of casting regen, then base regen runs
-    -- until the next cast is affordable, so the steady-state interval is
-    --   T = cost / casting            if 5s of casting regen already cover it
-    --   T = 5 + (cost - 5*casting) / base   otherwise
-    -- never shorter than the cast itself. HP5 = 5 * heal / T. Nil when base
-    -- regen is zero (cannot sustain anything).
-    ctx.SustainedInterval = function(cost, interval)
-        if cost <= 0 then return interval end
-        local T
-        if ctx.castingRegen > 0 and cost <= 5 * ctx.castingRegen then
-            T = cost / ctx.castingRegen
-        elseif ctx.baseRegen > 0 then
-            T = 5 + (cost - 5 * ctx.castingRegen) / ctx.baseRegen
-        else
-            return nil
-        end
-        return math.max(T, interval)
-    end
     ctx.CastsToOOM = function(cost, interval)
         return RankMath:CastsToOOM(cost, interval, ctx.mana, ctx.castingRegen)
     end
@@ -180,11 +161,13 @@ end
 -- One row from one spell.
 --   variant  nil for the real rank; 2 or 3 for the rolling Lifebloom stacks
 --   explain  fills row.calc with every intermediate term (tooltip only)
--- Row: { id, rank, level, cost, cast, heal, hpm, hps, hp5 (sustained healing
--- per 5s at zero mana, regen-paced, 5SR-aware; nil without base regen), casts
--- (chain-casts to OOM from current mana, math.huge when regen covers the
--- cost), known, isMax; overheal + effHeal/effHpm/effHps/effHp5 when the
--- combat log has enough samples; dominated/suggested are set by Compute() }
+-- Row: { id, rank, level, cost, cast, heal, hpm, hps, casts (chain-casts to
+-- OOM from current mana, math.huge when regen covers the cost), known, isMax;
+-- overheal + effHeal/effHpm/effHps when the combat log has enough samples;
+-- dominated/suggested are set by Compute() }
+-- HP5 ("sustained healing per 5s") was removed in v0.6.0: chain-casting inside
+-- the 5SR it reduces to 5 x castingRegen x HPM, so it ordered every rank
+-- exactly like HPM and carried no information of its own.
 --------------------------------------------------------------------------------
 function RankMath:RowFor(spellID, ctx, variant, explain)
     local SD = MD.SpellData
@@ -293,14 +276,12 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
 
     local cost, costSource = ctx.CostFor(spellID)
     cost = cost or 0
-    local T = ctx.SustainedInterval(cost, castTime)
 
     local row = {
         id = spellID, rank = s.rank, level = s.level,
         cost = cost, cast = castTime, heal = heal,
         hpm = cost > 0 and heal / cost or 0,
         hps = heal / castTime,
-        hp5 = T and 5 * heal / T or nil,
         casts = ctx.CastsToOOM(cost, castTime),
         known = SD.knownSet[spellID] or false,
         isMax = (not variant) and SD.maxRank[s.family] == spellID or false,
@@ -324,7 +305,6 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
             row.effHeal = row.heal * k
             row.effHpm = row.hpm * k
             row.effHps = row.hps * k
-            row.effHp5 = row.hp5 and row.hp5 * k or nil
         end
     end
 
@@ -338,7 +318,6 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
         calc.castNG = castTime
         calc.ngCrit = ngCrit
         calc.naturesGrace = ctx.naturesGrace
-        calc.sustainedInterval = T
         calc.mana = ctx.mana
         calc.castingRegen = ctx.castingRegen
         calc.baseRegen = ctx.baseRegen

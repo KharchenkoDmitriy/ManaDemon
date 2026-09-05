@@ -7,7 +7,7 @@ local UI = MD.UI
 local WIDTH = 432
 -- Per-tab frame height; a tab may overwrite its entry once it has measured
 -- its content (About does).
-local TAB_HEIGHT = { general = 350, about = 360 }
+local TAB_HEIGHT = { general = 400, about = 360 }
 MD.optionsTabHeight = TAB_HEIGHT
 
 local frame = UI.CreateFrame("ManaDemonOptionsFrame", UIParent, WIDTH, TAB_HEIGHT.general)

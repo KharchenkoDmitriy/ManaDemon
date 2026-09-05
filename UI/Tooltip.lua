@@ -244,12 +244,6 @@ function Tip:Row(row)
     lines[#lines + 1] = {}
     lines[#lines + 1] = { l = "HPM   heal per mana", r = Num(row.hpm, 2), c = KEY }
     lines[#lines + 1] = { l = "HPS   heal per second of cast", r = Num(row.hps), c = KEY }
-    if row.hp5 then
-        lines[#lines + 1] = { l = "HP5   sustained at 0 mana",
-            r = string.format("%d  (interval %.1fs)", row.hp5, c.sustainedInterval), c = KEY }
-    else
-        lines[#lines + 1] = { l = "HP5   sustained at 0 mana", r = "-  cannot sustain", c = KEY, rc = MUTED }
-    end
     if row.casts == math.huge then
         lines[#lines + 1] = { l = "To OOM", r = "never: regen covers the cost", c = KEY, rc = GOOD }
     else
@@ -291,8 +285,6 @@ function Tip:Columns()
     lines[#lines + 1] = { l = "Heal/cast", r = "one cast, all ticks, at your stats", c = KEY, rc = SUB }
     lines[#lines + 1] = { l = "HPM", r = "heal per mana", c = KEY, rc = SUB }
     lines[#lines + 1] = { l = "HPS", r = "heal per second of cast time (1.5s GCD for instants)", c = KEY, rc = SUB }
-    lines[#lines + 1] = { l = "HP5", r = "healing per 5s you can sustain at ZERO mana,", c = KEY, rc = SUB }
-    lines[#lines + 1] = { l = "", r = "casting only as fast as regen pays for it (5SR-aware)", rc = SUB }
     lines[#lines + 1] = { l = "To OOM", r = "chain-casts from your current mana", c = KEY, rc = SUB }
 
     if info then
