@@ -8,7 +8,7 @@ local UI = MD.UI
 
 local WIDTH, HEIGHT = 760, 514 -- +18 for the Simulate strip's second row
 local frame, statsFS, calloutFS, hintFS, recapFS, messageFS, effectiveCB
-local rankTable, simStrip
+local rankTable, simStrip, wasteView
 local currentFamily = "HealingTouch"
 local userPicked = false   -- once a tab is clicked, stop picking one automatically
 local spellTabs, highlightTab = {}, nil
@@ -50,6 +50,21 @@ local function Refresh()
         "+%d healing   regen |cff33ff66%d|r mana/s out of 5SR, |cffffaa33%d|r casting   ~%d mp5 spirit, ~%d mp5 gear/buffs%s",
         bonus, RM.base, RM.casting, spiritPerSec * 5, mp5Gear,
         unreported > 0 and string.format(", +%d mp5 Dreamstate (not in the API)", unreported * 5 + 0.5) or "")
+
+    -- the Waste view replaces the rank table, its hint and its callout
+    local waste = currentFamily == "Waste"
+    wasteView.frame:SetShown(waste)
+    rankTable.frame:SetShown(not waste)
+    effectiveCB:SetShown(not waste)
+    if waste then
+        messageFS:Hide()
+        rankTable:Release()
+        calloutFS:SetText("|cffffcc00Where the mana went and where the healing was wasted, from your own combat log.|r")
+        hintFS:SetText("|cff888888Overheal is a share of gross healing. Wasted mana is each event that healed nothing, " ..
+            "carrying its share of the cast's cost. Mana belongs to the spell, so it only appears in Spell mode.|r")
+        wasteView:Render()
+        return
+    end
 
     if not MD.player.isDruid then
         rankTable:Release()
@@ -151,6 +166,11 @@ local function CreateDashboard()
             btn:SetShown(MD.player.isDruid)
         end
     end
+    -- the Waste view is a fifth tab after the families
+    local wasteBtn = UI.CreateButton(frame, "Waste", "accent-hover", { 80, 20 }, false, false, UI.FONT_TITLE, UI.FONT_TITLE_DISABLE)
+    wasteBtn.id = "Waste"
+    wasteBtn:SetPoint("LEFT", prev, "RIGHT", -1, 0)
+    buttons[#buttons + 1] = wasteBtn
     highlightTab = UI.CreateButtonGroup(buttons, function(id)
         currentFamily = id
         userPicked = true
@@ -169,6 +189,8 @@ local function CreateDashboard()
         "A grey ? means that rank has no measurement of its own yet.")
     effectiveCB:SetPoint("LEFT", settingsBtn, "LEFT", -80, 0) -- label runs right of the box
     effectiveCB:SetShown(MD.player.isDruid)
+    -- the Waste tab works for any class; only the rank tabs are druid-only
+    wasteBtn:Show()
 
     simStrip = MD.DashboardParts.CreateStrip(frame, 16, -42, Refresh)
 
@@ -196,6 +218,10 @@ local function CreateDashboard()
     rankTable = MD.DashboardParts.CreateTable(frame, WIDTH)
     rankTable.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -138)
     rankTable.frame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 40)
+
+    wasteView = MD.DashboardParts.CreateWaste(frame, WIDTH)
+    wasteView.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -138)
+    wasteView.frame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 40)
 
     recapFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     recapFS:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 16)

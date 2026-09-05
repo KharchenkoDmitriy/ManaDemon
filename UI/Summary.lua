@@ -60,7 +60,8 @@ MD:On("COMBAT_LOG_EVENT_UNFILTERED", function()
         kind = "bloom"
     end
 
-    if MD.Overheal then MD.Overheal:Record(spellID, amount, overheal) end
+    local wasted = 0
+    if MD.Overheal then wasted = MD.Overheal:Record(spellID, kind, amount, overheal, destGUID, destName) end
     if MD.Calibration then
         -- (a function call inside "a and f() or b" is truncated to ONE value,
         -- which would hand calibration the NET convention's gross -- the bug
@@ -85,6 +86,7 @@ MD:On("COMBAT_LOG_EVENT_UNFILTERED", function()
         end
         fight.healed = fight.healed + effective
         fight.overhealed = fight.overhealed + (gross - effective)
+        fight.wastedMana = (fight.wastedMana or 0) + wasted
     end
 
     -- Debug "heal": every heal and HoT tick the player lands, exactly as the
@@ -142,11 +144,27 @@ MD:On("PLAYER_REGEN_ENABLED", function()
     local netMp5 = (endMana - f.startMana) / duration * 5
     local avgSpendRate = ST.combat.spent / duration
 
+    -- spend by family, biggest first, for the "where did it go" clause
+    local SHORT = { Lifebloom = "LB", Rejuvenation = "RJ", Regrowth = "RG", HealingTouch = "HT",
+                    Swiftmend = "SM", Tranquility = "TQ", other = "other" }
+    local fams = {}
+    for fam, mana in pairs(ST.combat.byFamily) do fams[#fams + 1] = { fam, mana } end
+    table.sort(fams, function(a, b) return a[2] > b[2] end)
+    local breakdown = {}
+    for i = 1, math.min(4, #fams) do
+        breakdown[#breakdown + 1] = string.format("%s %d%%", SHORT[fams[i][1]] or fams[i][1],
+            fams[i][2] / ST.combat.spent * 100 + 0.5)
+    end
+
     local parts = {
         FmtClock(duration),
         string.format("net %+d mp5", netMp5),
-        string.format("spent %.1fk", ST.combat.spent / 1000),
+        string.format("spent %.1fk%s", ST.combat.spent / 1000,
+            #breakdown > 0 and (" (" .. table.concat(breakdown, ", ") .. ")") or ""),
     }
+    if (f.wastedMana or 0) > 0 then
+        parts[#parts + 1] = string.format("~%.1fk into full health", f.wastedMana / 1000)
+    end
     if f.healed + f.overhealed > 0 then
         parts[#parts + 1] = string.format("overheal %d%%",
             f.overhealed / (f.healed + f.overhealed) * 100)
@@ -180,6 +198,8 @@ MD:On("PLAYER_REGEN_ENABLED", function()
         oomAt = f.oomAt,
         healed = f.healed,
         overhealed = f.overhealed,
+        wastedMana = f.wastedMana,
+        byFamily = (function() local t = {} for k, v in pairs(ST.combat.byFamily) do t[k] = v end return t end)(),
         zone = GetRealZoneText and GetRealZoneText() or nil,
         summary = summary,
     }

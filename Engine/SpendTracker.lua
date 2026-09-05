@@ -11,7 +11,9 @@ local events = {}          -- { {t, cost}, ... } newest last; pruned to 60s
 local WINDOW = 60
 
 ST.unknown = {}            -- spellID -> true, spells we couldn't price
-ST.combat = { casts = 0, maxRankCasts = 0, spent = 0 }
+ST.combat = { casts = 0, maxRankCasts = 0, spent = 0, byFamily = {} }
+ST.session = {}            -- family -> { casts, mana } since login (Waste view)
+ST.sessionSpent = 0
 
 -- Pull-time seed (accepted "light history" design): decays fast so real casts
 -- take over within ~10s.
@@ -48,13 +50,21 @@ MD:On("UNIT_SPELLCAST_SUCCEEDED", function(unit, _, spellID)
         if isMax then
             ST.combat.maxRankCasts = ST.combat.maxRankCasts + 1
         end
-        -- lifetime casts per family, so the dashboard can open on the spell
-        -- this character actually uses
+        -- per family: lifetime casts (dashboard default tab), this session
+        -- (Waste view) and this fight (summary breakdown). Spells outside the
+        -- druid table -- buffs, dispels, forms -- land in "other", which is the
+        -- ~7% of mana the first dungeon log showed nothing was counting.
         local sd = MD.SpellData.spells[spellID]
+        local fam = sd and sd.family or "other"
         if sd and MD.cdb then
             MD.cdb.familyCasts = MD.cdb.familyCasts or {}
-            MD.cdb.familyCasts[sd.family] = (MD.cdb.familyCasts[sd.family] or 0) + 1
+            MD.cdb.familyCasts[fam] = (MD.cdb.familyCasts[fam] or 0) + 1
         end
+        ST.session[fam] = ST.session[fam] or { casts = 0, mana = 0 }
+        ST.session[fam].casts = ST.session[fam].casts + 1
+        ST.session[fam].mana = ST.session[fam].mana + cost
+        ST.sessionSpent = ST.sessionSpent + cost
+        ST.combat.byFamily[fam] = (ST.combat.byFamily[fam] or 0) + cost
         MD:Debug("spend", "%s (%d) cost %d [%s]%s", GetSpellInfo(spellID) or "?", spellID, cost, source,
             isMax and " max rank" or "")
     else
@@ -171,6 +181,7 @@ MD:On("PLAYER_REGEN_DISABLED", function()
     ST.combat.casts = 0
     ST.combat.maxRankCasts = 0
     ST.combat.spent = 0
+    wipe(ST.combat.byFamily)
     local last = events[#events]
     if (not last or GetTime() - last[1] > 30) and MD.fightHistory and #MD.fightHistory > 0 then
         -- "Last time here" beats "last time anywhere": the same zone usually
