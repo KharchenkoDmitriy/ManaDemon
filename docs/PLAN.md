@@ -85,6 +85,23 @@ wasted ticks, never below 36% mana except once). Design and architecture:
 **Caveat carried through all of it:** that log was a level 61 dungeon on a level 64 druid.
 Heroics and raids differ. No constant from it is hard-coded.
 
+## Phase 1.7 — fight recording, replay, coaching, simulation (v0.7)
+
+Design `docs/DESIGN-v0.7.md`, debated (`docs/debates/v0.7-sim/`), decided (`docs/DECISIONS.md`
+§v0.7), specified for implementation in **`docs/SPEC-v0.7.md`**. Order is fixed; each step is
+one commit with its "verifiable by" line in the spec §0.
+
+- [ ] **v0.7.0** HP-at-cast + cost + form on every own cast; 20 s pre-pull ring; plan-free
+  labels; summaries to 200 rows; the one-line "N of M casts on targets above 85%" summary.
+- [ ] **v0.7.1** `RankMath:SpellKit`; `Engine/SimModel.lua`; `/md simrun` self-tests;
+  `/md simreplay fixture` against `Data/SimFixture_BF1.lua` (already generated).
+- [ ] **v0.7.2** `Engine/FightRecorder.lua`; `/md export` recording section.
+- [ ] **v0.7.3** HP half of replay; the six gates; Validate.
+- [ ] **v0.7.4** `Engine/SimPlanner.lua` rules + classifier; card; loop closure.
+- [ ] **v0.7.5** the search.
+- [ ] **v0.7.6** `UI/Dashboard_Review.lua`.
+- [ ] **v0.7.7** `UI/SimWindow.lua`, `Data/SimPresets.lua`, `FromRecordings`, Monte Carlo.
+
 ## Phase 2 — other classes (after 1 is green)
 
 Generic parts already work for any mana class: the OOM clock, widget, datatexts,

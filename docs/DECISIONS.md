@@ -402,3 +402,69 @@ C1 self-calibration -> A waste report -> D1 logging -> B1 pull budget -> D2 Cell
 (investigate only). **F6 logging ships before F4 waste** because the waste report's role
 dimension rests on `UnitGroupRolesAssigned` returning real values in the author's groups,
 and the roster log line is what proves it.
+
+
+## v0.7 (2026-09-05): combat simulation and fight review — debate outcome
+
+Design: `docs/DESIGN-v0.7.md`. Debated by two Opus parties (a theorycrafter and a healer
+pragmatist) with rebuttals and a Fable judge; papers in `docs/debates/v0.7-sim/`, verdicts
+in `JUDGE.md` there. Implementation spec: **`docs/SPEC-v0.7.md`** — it wins over the design
+wherever they differ. The calls, as ruled:
+
+1. **Expected value everywhere in replay and search**; triage sized on the non-crit heal;
+   Monte Carlo (K=30, three plans) only in synthetic Setup. On a frozen timeline crit is the
+   only noise (~2% of healing) and never moves P(death).
+2. **Five-rule fixed-order family stands** with exact domains (`swiftmend ≤{.30,.40}`,
+   `direct ≤{.35,.45,.55}`, `roll ×{0,1,3}`, `hot ≤{.60,.80,.90}`, `filler wait|LB x1`);
+   the engine models every logged action for replay, the planner emits only the rules. The
+   physical lower bound is a debug assertion, never a card number.
+3. **Overheal endogenous** (HP cap); sim-vs-measured printed as a named residual per family;
+   promotion to a gate at ≤10% |Δ| once ≥5 recordings pass everything else.
+4. **Other healers**: environment in replay, assignment in synthetic; one gate
+   `foreignShare ≤ 0.25` → Coach, else validate-only. No bracket.
+5. **Event-driven**, 10–20 ms per plan (the design's 1 ms was 10× optimistic), zero
+   allocation in `Run`, early abort.
+6. **Review is a dashboard tab**; the window arrives with synthetic Setup.
+7. **"Wait" first-class**, `minActivity = 0`; card reports `waitFraction` and the longest gap.
+8. **Six validation gates** as settings with provenance (mana mean 2% / max 5% of pool; HP
+   mean 5% / max 15% of maxHP; no death; foreign ≤25%; drift <3% on spells ≥10% of spend;
+   ≥90% of spend modelled); mana/death/foreign/coverage disable Coach, one target's HP
+   failure only excludes it; `apiBase/apiCasting` recorded per mana sample.
+9. **Two recording tiers**: 8 full streams (≥20 s, ≥5 casts, 4,000 events; 3 most recent +
+   ≤2 pinned protected, evict lowest spend) and 200 summaries (≥15 s, ≥4 casts). Flat
+   parallel arrays. Cast target from `SPELL_CAST_SUCCESS`'s `destGUID`. Raids: subgroup +
+   main tanks (author default).
+10. **Labels in two classes**: plan-free (`overheal early utility shift prehot`) on every
+    summary, feeding habits; plan-relative (`fine rank spell stack late idle unclassified`)
+    from Coach only. Sum identity printed. HP-at-cast on every label.
+11. **Lexicographic score** (deaths → floor-seconds → mana → held-on-other-streams → binds →
+    sim overheal); coordinate descent only, 4 seeds, ≤300 evaluations, ≤8 ms/frame, Cancel;
+    mana headline + a "you had X headroom, nothing needed to change" verdict line; downtime
+    line only at n ≥ 4.
+12. **Causality invariant** (`Plan:Decide` never sees the event list; one derived input:
+    trailing-5 s damage), **cast commitment**, death → validate-only, overkill correction,
+    initial aura/form/buff snapshot at the pull.
+13. **Presets from recordings per target** (never pooled by role first); big hit = ≥15% of
+    maxHP within 1 s; "use as preset" = the fight's own joint timeline.
+14. **Binds fixed by default** (`db.simAllowRebinds` off); rank advice only via the existing
+    new-rank toast or a passive Review line — compliance evidence: 73–100% max-rank casts
+    against a standing downrank suggestion, 0 of 4 potion alerts acted on.
+15. **GCD** `max(castEnd, lastCastStart + 1.5)`; 0.5 s reaction post-idle only, zero when
+    chaining (log: p10/p25 inter-cast gap 1.50/1.52 s).
+16. **Delivery**: v0.7.0 HP-at-cast + habit line → v0.7.1 engine mana half + BF-1 fixture →
+    recorder → HP replay + gates → classifier/card/loop closure → search → Review tab →
+    SimWindow. The first win is one summary line built from one recorded field.
+
+**Additional rulings:** cast commitment; initial state at pull; form as stream events with a
+kit per form; utility mana as recorded lumps (the `utilityMp5` drip deleted); loop closure
+("since your last card: overheal 39% → 31%") ships with the card; provenance tooltips on
+every row and card; cancelled casts as busy intervals; baselines *you / max rank / HoTs only /
+best* on every card.
+
+**Corrections to the design the debate produced:** simulation cost 10–20 ms not 1 ms; the
+cast→first-heal heuristic replaced by CLEU `destGUID` (Details! reads it); `amount` on damage is
+post-absorb and the killing blow carries `overkill`; the 2 s-window 3×-mean pulse detector
+fires on ordinary melee; a blanket reaction delay contradicts the log; the `early` label was
+wrong for 68% of casts (Lifebloom refresh is the play).
+
+**Rejected, not to be re-proposed:** see `docs/SPEC-v0.7.md` §13.

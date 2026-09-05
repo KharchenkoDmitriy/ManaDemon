@@ -15,6 +15,10 @@ Guidance for Claude Code when working in this repository.
 
 Primary user is the author (Resto Druid); the TTO/advisor side is intentionally usable by any mana healer. Full design rationale and every debated decision live in **`docs/DECISIONS.md`** — read it before changing model behavior.
 
+**v0.7 (fight recording, replay, coaching, simulation) is specified in `docs/SPEC-v0.7.md`** —
+implement from it, not from `docs/DESIGN-v0.7.md`; the debate that produced it is in
+`docs/debates/v0.7-sim/` and its rulings in `docs/DECISIONS.md` §v0.7.
+
 **Session continuity:** past work sessions are logged in **`docs/HISTORY.md`** (what was done, project state, next steps). Read it at the start of a session to recover context, and append a dated entry when a session ends with meaningful progress — this is the project's memory across conversations. **`docs/PLAN.md`** is the agreed roadmap (Phase 1 druid verification + improvements, Phase 2 other classes) — tick items there as they land. **`docs/TESTING.md`** tells the author what to test in-game and how to report it.
 
 ## Repo structure and load order

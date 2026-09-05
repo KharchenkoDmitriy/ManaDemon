@@ -4,6 +4,11 @@ Find the cheapest healing strategy that keeps everyone alive in a situation — 
 foremost a situation that actually happened** — and say it in words a human can bind to
 five buttons. Then show the healer the gap between that and what they did.
 
+> **Superseded for implementation by `docs/SPEC-v0.7.md`** (2026-09-05). This document is the
+> design as debated; the two-party debate and the judge's verdicts are in
+> `docs/debates/v0.7-sim/`, the resulting decisions in `docs/DECISIONS.md` §v0.7. Where this
+> text and the spec differ, the spec wins.
+
 Status of every statement: **derived** = follows from code in the repo; **assumed** = a
 modelling choice that needs in-game data; **decision** = a design call, listed in §12 with
 the alternative.

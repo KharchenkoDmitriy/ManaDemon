@@ -674,3 +674,35 @@ material), engine + replay second, planner third, synthetic setup last.
 this client (assumed not; cast→first-heal matching with a reported match rate); whether
 `SWING_DAMAGE`'s amount is after absorbs; recording size in practice; the six labels'
 sufficiency. Eleven contested calls in §12 — the author's debate round is on offer.
+
+## 2026-09-05 (late) — v0.7 debated, decided, specified
+
+Author: run the debate, make every crucial decision, produce a spec a fresh Opus session can
+implement from. Also pointed at Details! for combat-log parsing.
+
+**Details settled two recorder questions before the debate:** `SPELL_CAST_SUCCESS` carries
+`destGUID` (the cast's target — no cast→first-heal matching), and `amount` on damage is HP
+actually lost, `absorbed` separate, full absorbs as `*_MISSED ABSORB`; exact arg layouts in
+`docs/SPEC-v0.7.md` §1.
+
+**The debate:** two Opus parties (theorycrafter / healer pragmatist), rebuttals, Fable judge —
+all six papers preserved in `docs/debates/v0.7-sim/`. The parties converged on most calls; the
+judge ruled the rest and verified both parties' log numbers (gates pass 18/25/13 of 30; median
+pull 24.6 s, 6 casts; LB→LB gap median 5.02 s; inter-cast gap p10/p25 1.50/1.52 s). The three
+corrections that mattered most: the planner must be **causal** (B — otherwise it sells
+prophecy as advice), **cast commitment** (B — the design's re-decide loop gave the sim a free
+option), and the design's simulation cost was **10× optimistic** (A). Two log-proven traps:
+HoTs ticking 19 s before the pull (initial state), and 10 form shifts = 3.3k mana plus a
+healing multiplier the sim was blind to. Everything else is in DECISIONS §v0.7.
+
+**Written:** `docs/SPEC-v0.7.md` (file-by-file: the `kind` enum, capture list, stream layout,
+retention, `SpellKit`, `Run` and its zero-allocation rule, the causality invariant text, the
+plan schema with parameter domains, the lexicographic score, the six gates with settings and
+provenance, the label rules and precedence, the card template, self-tests, `.toc` positions, a
+crosswalk to the judge's 28-item checklist) and **`Data/SimFixture_BF1.lua`**, generated from the
+log — 19 casts, 90 mana samples, 5 form events, initial state — so the engine's mana half can be
+validated before any fight is recorded.
+
+**State:** branch at the spec commit, fast-forwarded into local master, not pushed. **Next
+session:** implement v0.7.0 from `docs/SPEC-v0.7.md` §2; nothing in v0.7 re-opens a ruled call
+without new in-game evidence.
