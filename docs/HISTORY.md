@@ -645,3 +645,32 @@ unknown (TESTING §2b).
 
 **Still to test:** §0b, §2b, §12 roster in a group (the biggest unknown), §5, §9, §11 after
 a night, §13, §14. Committed as v0.6.8 and fast-forwarded into local master; not pushed.
+
+## 2026-09-05 (night) — v0.7 designed: combat simulation and fight review
+
+Author asked for a combat simulator: presets for party size, incoming damage and starting
+situation, overrides per target, and a search for the cheapest human-castable strategy that
+keeps everyone alive. Wrote `docs/DESIGN-v0.7.md` (published as a page for review).
+
+**Author's review reframed it.** Three points: (1) "wait" is a valid action — in a
+non-heroic 5-man the less you drink the faster the run; (2) **replay is the killer
+feature** — analysing real dungeon logs and suggesting improvements, so the healer
+self-improves with each iteration; (3) the made-up damage numbers get replaced by presets
+generated from recorded fights, and the hard-coded ones improved from logs over time.
+
+**Rev 2 of the design** puts recording first: `Engine/FightRecorder.lua` captures per fight
+every hit the group took, every heal anyone *else* landed (negative damage on the timeline
+— which dissolves the "other healers" problem for replays), the healer's own casts and mana,
+and HP snapshots; persisted, last 12 fights, capped at 4,000 events each. The simulator
+takes damage as a **timeline** (recorded) or **analytic** (rate + pulse), both just events.
+Review pane: **Validate** (real casts must reproduce the real mana and HP curves — the
+engine is proven before any planner work) and **Coach** (the search on the real damage, then
+each actual cast classified against the best plan's rules with six labels: fine / overheal /
+rank / spell / early / idle; summed over fights into **habits** with their mana). Presets
+from recordings carry provenance. Delivery: recording first (it needs runs to gather
+material), engine + replay second, planner third, synthetic setup last.
+
+**Open before implementation:** whether `UNIT_SPELLCAST_SUCCEEDED` carries the target on
+this client (assumed not; cast→first-heal matching with a reported match rate); whether
+`SWING_DAMAGE`'s amount is after absorbs; recording size in practice; the six labels'
+sufficiency. Eleven contested calls in §12 — the author's debate round is on offer.

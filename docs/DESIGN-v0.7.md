@@ -1,7 +1,8 @@
-# ManaDemon v0.7 — combat simulation: design and architecture
+# ManaDemon v0.7 — combat simulation and fight review: design and architecture
 
-Find the cheapest healing strategy that keeps everyone alive in a described situation, and
-say it in words a human can bind to five buttons.
+Find the cheapest healing strategy that keeps everyone alive in a situation — **first and
+foremost a situation that actually happened** — and say it in words a human can bind to
+five buttons. Then show the healer the gap between that and what they did.
 
 Status of every statement: **derived** = follows from code in the repo; **assumed** = a
 modelling choice that needs in-game data; **decision** = a design call, listed in §12 with
@@ -22,6 +23,17 @@ human-castable by construction, a **search** picks the cheapest one that keeps e
 above a comfort floor, and the result is a short **rotation card** with its mana cost, its
 time-to-OOM, and how it compares with "max rank everything".
 
+**The primary input is a recorded fight, not a preset.** `Engine/FightRecorder.lua`
+captures every hit the group took, every heal anyone else landed, the healer's own casts and
+mana, and the HP snapshots — the fight as a scenario. Replaying it does two things a preset
+cannot: it **validates the engine** against what really happened (the real casts must
+reproduce the real mana and HP curves), and it **coaches** — the optimizer runs on the real
+damage and the card reads *"you spent 6.2k; this would have spent 3.9k with nobody below
+30%; the difference was five Regrowths on people above 80%"*. Over many fights the habits
+accumulate into a short list. That loop — play, review, adjust, play — is the feature; the
+synthetic presets are how you rehearse a situation you have not recorded yet, and they are
+generated from recordings once those exist.
+
 Everything the simulator knows about a heal comes from `RankMath` — the same model
 `Engine/Calibration.lua` is checking against reality. **The simulator is exactly as
 trustworthy as the calibration table says the model is**, no more.
@@ -31,10 +43,15 @@ trustworthy as the calibration table says the model is**, no more.
 ## 1. Scope
 
 **In:**
+- **Fight recording**: damage taken and healing received per group member, the healer's
+  casts and mana, HP snapshots — per fight, persisted with caps (§3b).
+- **Review**: replay a recorded fight — validation (real casts, compare curves) and coaching
+  (optimized casts, compare cost and the habits behind the gap).
 - Party presets: solo · 2 · 3 · 5 · 10 · 25. Roles and HP by preset, from the live roster
   when in a group.
-- Damage presets: AoE · one steady target (tank) · two steady targets · dungeon (one steady
-  + one or two occasional). Per target: a constant rate and/or a periodic pulse.
+- Damage as a **timeline** (recorded, or synthesized from recordings) or **analytic** (a
+  constant rate and/or a periodic pulse per target). Presets: AoE · one steady target ·
+  two steady · dungeon (one steady + one or two occasional) · *from my last N fights here*.
 - Situation presets: everyone full · everyone low · tank half, DPS at 10% · spread.
 - Per-target overrides: max HP, current HP, damage rate, pulse.
 - Healer overrides (default live): +healing, crit, mp5 casting/resting, mana pool, form.
@@ -47,9 +64,15 @@ trustworthy as the calibration table says the model is**, no more.
   (triage → maintenance → filler).
 
 **Out, by the author's call**, to keep it tractable: party members' defensives; random
-damage spikes (pulses are periodic and deterministic); other healers' casts (assignment
-stands in for them); movement, interrupts, threat; deaths cascading into more damage.
-Crit is its **expected value**. §12 records what it would cost to bring each back.
+damage spikes in *synthetic* scenarios (pulses are periodic and deterministic — a recorded
+fight has its real spikes); other healers' casts in synthetic scenarios (assignment stands
+in; in a replay their heals are part of the recorded environment); movement, interrupts,
+threat; deaths cascading into more damage. Crit is its **expected value**. §12 records what
+it would cost to bring each back.
+
+"Wait" is a first-class action throughout: in a non-heroic 5-man the less you drink the
+faster the run goes, so not casting is often the *right* call, and the card says how much
+of the time it was.
 
 ---
 
@@ -59,13 +82,15 @@ Crit is its **expected value**. §12 records what it would cost to bring each ba
 
 | File | State | Role |
 |---|---|---|
-| `Data/SimPresets.lua` | **new** | Party / damage / situation presets, HP defaults per role and level |
+| `Engine/FightRecorder.lua` | **new** | Per-fight capture: damage taken and healing received per group member, own casts, mana, HP snapshots. Persisted with caps. |
+| `Data/SimPresets.lua` | **new** | Party / damage / situation presets, HP defaults per role and level, **presets synthesized from recordings** |
 | `Engine/SimModel.lua` | **new** | Scenario → event-driven simulation of one strategy → trace and score. **The only source of truth.** |
 | `Engine/SimPlanner.lua` | **new** | The rule library, plan generation, the search |
-| `UI/SimWindow.lua` | **new** | `/md sim`: Setup pane (presets + override table) and Result pane (rotation card, comparison, timeline) |
+| `UI/SimWindow.lua` | **new** | `/md sim`: **Review** pane (recorded fights → validate / coach), Setup pane (presets + override table), Result pane (rotation card, comparison, bars) |
 | `Engine/RankMath.lua` | **change** | `RankMath:SpellKit(ctx)` — per-spell numbers in the shape the simulator consumes; `Context(opts)` gains healer overrides |
 | `Core.lua` | **change** | `/md sim`, `/md simreplay` |
-| `Verify.lua` | **change** | `/md simreplay <fight>` — replay a logged fight's casts through the model (§8) |
+| `UI/Summary.lua` | **change** | The single combat-log handler forwards group damage/heal events to the recorder; fight start/end bracket a recording |
+| `Verify.lua` | **change** | `/md simreplay [n]` — replay recording *n* (or the last) through the model (§8) |
 
 ### 2.2 Load order
 
@@ -74,6 +99,7 @@ Crit is its **expected value**. §12 records what it would cost to bring each ba
 Engine\RankMath.lua
 Engine\Calibration.lua
 Engine\PullBudget.lua
+Engine\FightRecorder.lua    <- new: Core + Targets; fed by UI/Summary.lua's handler
 Data\SimPresets.lua         <- new
 Engine\SimModel.lua         <- new: reads RankMath, SpellData, RegenModel at call time
 Engine\SimPlanner.lua       <- new: reads SimModel
@@ -87,8 +113,9 @@ UI\SimWindow.lua            <- new
 ### 2.3 Data flow
 
 ```
-presets + overrides ----> Scenario ----------------------------+
-                                                               v
+combat log --> FightRecorder --> recording --+--> Scenario (replay) ---+
+presets + overrides ------------------------+--> Scenario (synthetic)  |
+                                                                       v
 RankMath:SpellKit(ctx) --> per-spell numbers ------------> SimModel:Run(scenario, plan)
 RegenModel (live/override) --> regen rates ---------------/         |
                                                                     v
@@ -131,9 +158,16 @@ scenario = {
 }
 ```
 
-**Damage.** `dps` is continuous and integrated exactly between events; `pulse` lands
-`amount` every `period` seconds from `offset`. That is the whole damage model; "occasional"
-is a pulse. **Deterministic by design** — §12.1.
+**Damage** is one of two shapes, both just events to the simulator:
+- **analytic** — `dps` is continuous and integrated exactly between events; `pulse` lands
+  `amount` every `period` seconds from `offset`. "Occasional" is a pulse. Deterministic —
+  §12.1.
+- **timeline** — `events = { {t, target, amount}, ... }`, negative amounts being heals from
+  *other* sources. This is what a recording is. It has the fight's real spikes, and other
+  healers are in it for free.
+
+A target's `hp` at t=0 comes from the recording's first HP snapshot, or the situation
+preset.
 
 **Party presets** (roles; HP defaults scale with the player's level, level-64 shown):
 
@@ -159,6 +193,37 @@ In a group the roster replaces the preset: real names, classes, roles and **max 
 | tank + aoe | tank 450, everyone else 90 dps |
 
 **Situation presets:** full · everyone at 30% · tank 50% / dps 10% · spread (100/70/40/20).
+
+### 3b. `Engine/FightRecorder.lua` — the fight as a scenario
+
+Recording runs between `PLAYER_REGEN_DISABLED` and `PLAYER_REGEN_ENABLED`, off the same
+combat-log handler everything else uses (`UI/Summary.lua`), which already unpacks every
+event once:
+
+| captured | from | stored as |
+|---|---|---|
+| damage taken by a group member | `SWING_DAMAGE`, `SPELL_DAMAGE`, `SPELL_PERIODIC_DAMAGE`, `RANGE_DAMAGE`, `ENVIRONMENTAL_DAMAGE` with `destGUID` in the roster | `{ t, target, amount }` (amount **after** absorbs/resists — what the HP actually lost) |
+| healing received from anyone but the player | `SPELL_HEAL`, `SPELL_PERIODIC_HEAL` with `sourceGUID ~= player`, effective part | `{ t, target, -effective }` |
+| the healer's own casts | `UNIT_SPELLCAST_SUCCEEDED` (the spend tracker already has spellID, cost, time) | `{ t, spellID, target }` |
+| mana | the `mana` category's own samples | `{ t, mana }` every 2s |
+| HP snapshots | `UnitHealth` / `UnitHealthMax` of every roster member at the pull, then every 5s and at the end | `{ t, hp = {...} }` |
+| roster | `Engine/Targets.lua` at the pull | name, class, role, roleSource, maxHP |
+
+Target of the player's own cast: `UNIT_SPELLCAST_SUCCEEDED` does not carry it on this
+client, so the cast's target is taken from the **first heal event of that spell** that
+follows within its cast time (+0.5s); unmatched casts are kept without a target and
+flagged. **assumed** — the match rate is reported per recording.
+
+**Caps.** A recording is kept only for fights ≥ 20s with ≥ 5 own casts (trash pulls are
+noise). `MD.cdb.recordings` keeps the **last 12**, each capped at 4,000 events (a 3-minute
+fight is ~1,500); older ones drop off. Numbers are stored as plain arrays, ~40 bytes an
+event, so the cap is ~2 MB of SavedVariables at the very worst and typically a few hundred
+KB. The recorder can be turned off (`db.recordFights`), and `/md export` gains a
+`# recording` section so a fight can leave the game as TSV.
+
+**What the BF-1 log cannot do.** It has casts and mana but no damage-taken lines (nothing
+logged them), so replaying it validates regen, costs and the 5SR against the real mana
+curve — but not HP. The first recorded fight is the first full replay.
 
 ---
 
@@ -278,12 +343,69 @@ Score: invalid plans (a death, or below the floor after grace) rank by *time of 
 violation*, latest first; valid plans rank by `manaSpent`, ties by fewer binds, then lower
 simulated overheal.
 
+### 5.4 Coaching: the difference between what you did and what it would have done
+
+On a recording, three runs happen:
+
+1. **Replay** — the real casts, on the real timeline. Must reproduce the real mana and HP
+   curves (§8). Also yields the *actual* score: mana spent, lowest HP, overheal.
+2. **Best plan** — the search, on the same timeline, same starting HP, same roster.
+3. **Classification of your actual casts** against the best plan's rules, one label each:
+
+| label | meaning |
+|---|---|
+| `fine` | the best plan would have cast the same spell, or one of the same rank, at about that time |
+| `overheal` | landed on a target that was above the plan's threshold and took no damage within the HoT's duration |
+| `rank` | right spell, a costlier rank than the plan binds |
+| `spell` | a direct heal where the plan uses a HoT (or vice versa) |
+| `early` | a HoT refreshed with ticks remaining |
+| `idle` | the plan casts here and you did not (someone was below the floor) |
+
+The card then reads:
+
+```
+Blood Furnace, pull 4 (0:40, 5 targets)                you: 6.2k   best plan: 3.9k   diff 2.3k
+  overheal   5 casts, 2.3k   Regrowth R9 on Alkandari / Trecoda above 80%
+  early      9 casts, 0.6k   Lifebloom refreshed with 2+ ticks left
+  rank       0
+  idle       0 -- you never left anyone under the floor
+  Lowest HP: you 36% (Dëstroyka at 0:31), best plan 44%.
+```
+
+Over the last N recordings the labels are summed into **habits** — the three most
+expensive, with their mana — and that list is what a healer can actually change between
+runs. It is the whole point of recording.
+
 ---
 
 ## 6. `UI/SimWindow.lua` — `/md sim`
 
 A separate Cell-style window (the dashboard is at 760px and five tabs; this needs its own
-room), two panes on the top edge: **Setup** and **Result**.
+room), three panes on the top edge: **Review**, **Setup**, **Result**.
+
+### 6.0 Review — the default pane
+
+```
++-[ Review ][ Setup ][ Result ]------------------------------------- ManaDemon Sim -- x -+
+| Recorded fights (last 12)                                            [x] record fights |
+| #  when          zone            dur    targets  casts  spent   lowest   replay          |
+| 1  today 21:14   Blood Furnace   0:40   5        19     6.2k    36%      mana ok, HP ok  |
+| 2  today 21:12   Blood Furnace   0:37   5        16     3.7k    52%      mana ok, HP ok  |
+| 3  today 20:58   Blood Furnace   2:47   5        42     8.2k    41%      mana +4%  HP ok |
+| ...                                                                                     |
+|                                              [ Validate ]  [ Coach ]  [ Use as preset ] |
+|                                                                                         |
+| Habits over these 12 fights (2.1 min healing):                                          |
+|   overheal   31 casts   9.4k    Regrowth on people above 80%                            |
+|   early      48 casts   3.1k    Lifebloom refreshed with ticks left                     |
+|   rank        6 casts   0.9k    Rejuvenation R12 where R9 would do                      |
++-----------------------------------------------------------------------------------------+
+```
+
+`Validate` runs the replay and shows the mana/HP deviation; `Coach` runs the search on the
+recording and opens Result with the diff card; `Use as preset` turns the recording into a
+synthetic scenario (its per-target rates and pulses summarized, §7) that Setup can then
+edit.
 
 ### 6.1 Setup
 
@@ -354,9 +476,19 @@ SP.hpByRole = { TANK = { [60] = 7400, [64] = 9200, [70] = 12500 }, DAMAGER = {..
 ```
 
 Damage presets are functions of the target list so "aoe" means "everyone" whatever the
-party size. HP defaults are per level bracket, **assumed** until "use my group" has been
-seen on a few real groups — the roster line from v0.6.1 already logs max HP, so the
-defaults can be tuned from the same logs.
+party size. HP defaults are per level bracket.
+
+**Presets from recordings.** The hard-coded numbers are starting points; the author's
+recordings replace them. `SP.FromRecordings(zone, n)` summarizes the last *n* recordings
+in a zone per **role**: mean damage rate outside pulses, and pulses detected as any 2s
+window taking more than 3× the mean (amount = the window's total, period = the mean gap).
+The result is a damage preset with provenance — *"dungeon (from 12 Blood Furnace pulls,
+2026-09-05)"* — and `Use as preset` on one recording does the same for one fight. The
+hard-coded presets are also **updated by hand** from the author's logs over time, with the
+date and source in the file, as the spell table is.
+
+The roster line and HP snapshots from recordings settle the per-role HP defaults the same
+way.
 
 ---
 
@@ -369,22 +501,26 @@ Three checks, in order of cost:
    self-test. **derived**, no in-game data needed.
 2. **Chain-cast to OOM.** The simulated cast count from full mana must equal the To OOM
    column and the `/md spamtest` measurement (13 for Regrowth R9 in the regression log).
-3. **Replay a real fight.** `/md simreplay` takes a logged fight's cast sequence (the
-   `spend` lines carry spell and time) and runs the model with the *real* casts as the plan,
-   then compares the simulated mana curve with the logged `mana` lines. The hard pull in
-   `dungeon-BF-1.txt` (6.2k spent in 40s) is the first candidate. If the curves agree, the
-   engine — regen, costs, 5SR — is right, independently of any strategy question. If they
-   do not, the gap says which piece is off.
+3. **Replay a real fight.** `/md simreplay` runs a recording with the *real* casts as the
+   plan and compares the simulated **mana** curve with the recorded one (regen, costs, 5SR)
+   and the simulated **HP** curves with the recorded snapshots (heal amounts, HoT timing,
+   the damage timeline itself). Reported as max and mean deviation per curve; the Review
+   pane shows `mana ok, HP ok` or the number. If mana agrees and HP does not, the heal
+   model is off (and calibration should be saying so too); if HP agrees and mana does not,
+   regen or a cost is. The hard pull in `dungeon-BF-1.txt` gives the mana half of this
+   before any new fight is recorded.
 
-Check 3 is the one that matters, and it needs no new play: the logs already exist.
+Check 3 is the one that matters. A coaching card on a fight the engine could not replay
+is not advice.
 
 ---
 
 ## 9. Data model and settings
 
-Nothing persisted by default. `MD.db.simPresets` holds user-saved scenarios ("Save as
-preset"): name → scenario, without healer overrides (those are always live unless typed).
-`MD.db.simFloor` (0.30), `MD.db.simReaction` (0.3) remember the two knobs.
+`MD.cdb.recordings` — the last 12 qualifying fights, capped as in §3b; `db.recordFights`
+(default on). `MD.db.simPresets` holds user-saved scenarios ("Save as preset"): name →
+scenario, without healer overrides (those are always live unless typed). `MD.db.simFloor`
+(0.30), `MD.db.simReaction` (0.3) remember the two knobs.
 
 ---
 
@@ -392,16 +528,18 @@ preset"): name → scenario, without healer overrides (those are always live unl
 
 | version | contents | verifiable by |
 |---|---|---|
-| **v0.7.0** | `RankMath:SpellKit`, `Engine/SimModel.lua`, `/md simrun` self-test with a built-in scenario and a fixed plan, text report | §8 checks 1 and 2 pass from the command line |
-| **v0.7.1** | `/md simreplay` on the BF-1 hard pull | §8 check 3: simulated vs logged mana curve, reported as max deviation |
-| **v0.7.2** | `Data/SimPresets.lua`, `Engine/SimPlanner.lua` rule library, the three baselines, text card | the card for the built-in dungeon scenario reads sensibly |
-| **v0.7.3** | the search (coroutine, coordinate descent, progress) | best plan beats both baselines on the built-in scenario |
-| **v0.7.4** | `UI/SimWindow.lua` Setup + Result, "use my group", Copy card | the author runs it |
-| **v0.7.5** | healer overrides, horizon "stable", `utilityMp5`, `minActivity`, Save as preset | — |
-| **v0.7.6** | docs, TESTING, DECISIONS | — |
+| **v0.7.0** | `Engine/FightRecorder.lua` + the handler forwarding + `/md export` section | a recorded fight appears in `/md export`; event counts and the cast→target match rate look sane |
+| **v0.7.1** | `RankMath:SpellKit`, `Engine/SimModel.lua` (timeline + analytic damage), `/md simrun` self-test, `/md simreplay` | §8 checks 1–2 from the command line; check 3 on the BF-1 mana curve, then on the first recording |
+| **v0.7.2** | `Engine/SimPlanner.lua` rule library, baselines, cast classification, text card | the coaching card for a recording reads sensibly |
+| **v0.7.3** | the search (coroutine, coordinate descent, progress); habits over N recordings | best plan beats both baselines on a recording |
+| **v0.7.4** | `UI/SimWindow.lua` Review pane (list, Validate, Coach) + Result | the author reviews a real pull |
+| **v0.7.5** | `Data/SimPresets.lua` hard-coded + `FromRecordings`, Setup pane, "use my group", healer overrides, Save as preset | a synthetic scenario runs |
+| **v0.7.6** | horizon "stable", `utilityMp5`, `minActivity`, docs, TESTING, DECISIONS | — |
 
-**v0.7.1 before any planner work is deliberate:** if the engine cannot reproduce a fight
-that actually happened, optimizing over it is theatre.
+**Recording first, engine second, planner third, synthetic last.** Recording needs a few
+dungeon runs to accumulate material, so it ships first and gathers while the rest is built.
+**The engine is validated before any planner work:** if it cannot reproduce a fight that
+actually happened, optimizing over it is theatre.
 
 ---
 
@@ -414,6 +552,9 @@ that actually happened, optimizing over it is theatre.
 | Swiftmend consumes which HoT when both are present? (modelled: Regrowth first, as the client prefers) | one Swiftmend with both up |
 | Realistic HP defaults per role and level | roster lines from the next groups |
 | Does the sim's mana curve match the BF-1 hard pull? | `/md simreplay`, v0.7.1 |
+| Does `UNIT_SPELLCAST_SUCCEEDED` carry the target on this client (it should not)? Match rate of cast→first-heal otherwise | the recorder reports it per fight |
+| Is `amount` on `SWING_DAMAGE` after absorbs on this client? | the first recording's HP replay: a systematic HP overshoot means absorbs are being double-counted |
+| Recording size in practice | `/md profile` reports the recordings' event counts |
 | Is a plan's `waitFraction` something the author will actually do? | ask, after seeing a few cards |
 
 ---
@@ -440,5 +581,14 @@ that actually happened, optimizing over it is theatre.
    the dashboard's row area.
 7. **"Wait" as a first-class action, reported not hidden.** The optimizer will idle; the
    card should say so rather than pad with casts. `minActivity` is the escape hatch.
-8. **Replay validation before the planner exists.** Cheap, uses logs already on disk, and
-   the only thing that makes "the simulator says" worth believing.
+8. **Replay validation before the planner exists.** Cheap, and the only thing that makes
+   "the simulator says" worth believing.
+9. **Other healers are environment in a replay, assignment in a synthetic scenario.** In a
+   recording their heals are just negative damage on the timeline, so the optimizer never
+   pretends to control them; the alternative — simulating their policies — is a different
+   project. The seam between the two modes is that both are "events on a timeline".
+10. **Recordings are capped hard (12 fights, 4,000 events each) rather than kept forever.**
+    Habits are computed over what is kept; a longer memory would need a summary format. A
+    fight can be exported before it drops off.
+11. **The coaching labels are a fixed small set**, not free-form. Six labels a healer can act
+    on beat a per-cast novel; if a real inefficiency does not fit one, the set grows by one.
