@@ -121,6 +121,11 @@ function Tip:Mana()
             r = string.format("%.1fs", RM:FSRRemaining()), c = WARN, rc = WHITE }
     end
 
+    -- Between pulls: how many more this pool affords (Engine/PullBudget.lua).
+    if MD.PullBudget then
+        for _, ln in ipairs(MD.PullBudget:Lines()) do lines[#lines + 1] = ln end
+    end
+
     -- What each mana source is worth right now, and what it buys on the clock.
     if MD.ManaCooldowns then
         local sources = MD.ManaCooldowns:All()

@@ -129,6 +129,9 @@ MD:OnTick(function(dt)
     if GetTime() - stillSince >= 5 then
         drinkArmed = false
         stillSince = nil
-        MD:Alert("Drink.")
+        -- "Drink." answers nothing; "2 more pulls, or 4 after a drink" is
+        -- the decision actually being made between pulls.
+        local line = MD.PullBudget and MD.PullBudget:Line()
+        MD:Alert(line and ("Drink? " .. line) or "Drink.")
     end
 end)
