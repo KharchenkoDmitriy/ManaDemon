@@ -16,6 +16,11 @@ local CATEGORY_COLORS = {
     other = "|cffcccccc",
 }
 
+-- Category filter grid: 5 per row at a fixed pitch wide enough for the
+-- longest label ("Combat"), so adding a category grows a row instead of
+-- overflowing the frame.
+local CATEGORY_COLUMNS, CATEGORY_COL_W, CATEGORY_ROW_H = 5, 84, 20
+
 local MIN_LINES, MAX_LINES, DEFAULT_LINES = 200, 20000, 1000
 local VIEW_LINES = 300       -- rendered in the window (newest)
 
@@ -143,7 +148,7 @@ end
 -- Console window
 --------------------------------------------------------------------------------
 local function CreateDebugConsoleFrame()
-    consoleFrame = UI.CreateMovableFrame("ManaDemon Debug Console", "ManaDemonDebugConsole", 580, 480, "DIALOG", 1, true)
+    consoleFrame = UI.CreateMovableFrame("ManaDemon Debug Console", "ManaDemonDebugConsole", 700, 560, "DIALOG", 1, true)
     consoleFrame:SetToplevel(true)
     tinsert(UISpecialFrames, "ManaDemonDebugConsole")
 
@@ -179,20 +184,21 @@ local function CreateDebugConsoleFrame()
         if MD.RunRegenTest then MD:RunRegenTest(30) end
     end)
 
+    -- Fixed grid, not a chained row: the labels are different widths, and
+    -- chaining them ran the last category off the frame and under the "keep
+    -- lines" box as soon as a ninth category (Cast) was added. Columns are a
+    -- fixed pitch so they line up, and the row count follows the category
+    -- count instead of being implied by the frame width.
     categoryCBs = {}
-    local prevCB
-    for _, category in ipairs(CATEGORY_ORDER) do
+    for i, category in ipairs(CATEGORY_ORDER) do
         local cb = UI.CreateCheckButton(consoleFrame, CATEGORY_LABELS[category], function(checked)
             MD.db.debug.categories[category] = checked
             RefreshLog()
         end)
-        if prevCB then
-            cb:SetPoint("LEFT", prevCB.label, "RIGHT", 12, 0)
-        else
-            cb:SetPoint("TOPLEFT", enableCB, "BOTTOMLEFT", 0, -12)
-        end
+        local col = (i - 1) % CATEGORY_COLUMNS
+        local row = math.floor((i - 1) / CATEGORY_COLUMNS)
+        cb:SetPoint("TOPLEFT", enableCB, "BOTTOMLEFT", col * CATEGORY_COL_W, -12 - row * CATEGORY_ROW_H)
         categoryCBs[category] = cb
-        prevCB = cb
     end
 
     countFS = consoleFrame:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
@@ -223,7 +229,8 @@ local function CreateDebugConsoleFrame()
     keepEB:SetScript("OnEditFocusLost", ApplyKeep)
     consoleFrame.keepEB = keepEB
 
-    UI.CreateScrollFrame(consoleFrame, -60, 5)
+    local categoryRows = math.ceil(#CATEGORY_ORDER / CATEGORY_COLUMNS)
+    UI.CreateScrollFrame(consoleFrame, -(46 + categoryRows * CATEGORY_ROW_H), 5)
     consoleFrame.scrollFrame:SetScrollStep(37)
     UI.StylizeFrame(consoleFrame.scrollFrame, { 0.1, 0.1, 0.1, 0.5 })
 
