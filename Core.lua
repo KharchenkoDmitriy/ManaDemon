@@ -20,6 +20,8 @@ local DEFAULTS = {
     showCooldown = true,  -- "inn 2:10" segment: the clock if you press your mana cooldown now
     treeAura = true,      -- count the Tree of Life aura (+25% Spirit as healing received by the party) in heal values
     naturesGrace = true,  -- average Nature's Grace into the dashboard's cast times
+    effectiveMode = false, -- dashboard shows overheal-adjusted heal/HPM/HPS/HP5
+    healAmountGross = nil, -- latched from the combat log: does SPELL_HEAL's "amount" include the overheal?
     firstRun = true,
     minimap = { hide = false, angle = 220 },
     debug = {

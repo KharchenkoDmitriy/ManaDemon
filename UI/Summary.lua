@@ -1,10 +1,40 @@
--- End-of-combat summary: one chat line per fight (>=15s) plus an in-memory
--- ring of the last 5 fights (feeds the dashboard recap and the pull-time
--- spend seed). No SavedVariables persistence in v1 by design.
+-- End-of-combat summary: one chat line per fight (>=15s) plus a ring of the
+-- last 20 fights, persisted per character in MD.cdb.fights so the pull-time
+-- spend seed and the "last time here" reference survive a /reload. The zone is
+-- recorded with each fight; Engine/SpendTracker.lua prefers same-zone fights
+-- when it seeds the estimator.
 local _, MD = ...
 
 MD.fightHistory = {}
-local MAX_HISTORY = 5
+local MAX_HISTORY = 20
+
+-- MD.cdb is not there until PLAYER_LOGIN, so bind (and adopt whatever was
+-- saved) at MD_READY. MD.fightHistory keeps its name and shape: everything
+-- else that reads it is unchanged.
+MD:RegisterCallback("MD_READY", function()
+    MD.cdb.fights = MD.cdb.fights or {}
+    MD.fightHistory = MD.cdb.fights
+    while #MD.fightHistory > MAX_HISTORY do
+        table.remove(MD.fightHistory, 1)
+    end
+    if #MD.fightHistory > 0 then
+        MD:Debug("combat", "loaded %d recorded fight(s) from this character's history", #MD.fightHistory)
+    end
+end)
+
+-- Recent fights in a zone, newest last. Used for the pull-time seed.
+function MD:FightsInZone(zone, n)
+    local out = {}
+    if not zone then return out end
+    for i = #MD.fightHistory, 1, -1 do
+        local f = MD.fightHistory[i]
+        if f.zone == zone then
+            table.insert(out, 1, f)
+            if #out >= (n or 5) then break end
+        end
+    end
+    return out
+end
 
 local fight = nil -- active fight state
 
@@ -23,13 +53,23 @@ MD:On("COMBAT_LOG_EVENT_UNFILTERED", function()
     if MD.Overheal then MD.Overheal:Record(spellID, amount, overheal) end
 
     if fight then
-        fight.healed = fight.healed + amount
-        fight.overhealed = fight.overhealed + overheal
+        -- one convention for the whole addon (Engine/Overheal.lua): whether
+        -- the log's "amount" already includes the overheal is a client
+        -- property, latched from the first full overheal seen.
+        local effective, gross
+        if MD.Overheal then
+            effective, gross = MD.Overheal:Split(amount, overheal)
+        else
+            effective, gross = amount, amount + overheal
+        end
+        fight.healed = fight.healed + effective
+        fight.overhealed = fight.overhealed + (gross - effective)
     end
 
-    -- Debug "heal": every heal and HoT tick the player lands (amount includes
-    -- overheal; overheal reported separately). This is how heal formulas get
-    -- verified in-game (Tree aura, Lifebloom bloom, relics).
+    -- Debug "heal": every heal and HoT tick the player lands, exactly as the
+    -- combat log reported it (whether "amount" already includes the overheal
+    -- is the client property Engine/Overheal.lua latches). This is how heal
+    -- formulas get verified in-game (Tree aura, Lifebloom bloom, relics).
     if MD.db and MD.db.debug and MD.db.debug.enabled and MD.db.debug.categories.heal then
         MD:Debug("heal", "%s (%d)%s on %s: %d%s%s%s", spellName or "?", spellID or 0,
             subevent == "SPELL_PERIODIC_HEAL" and " tick" or "", destName or "?", amount,
@@ -102,13 +142,22 @@ MD:On("PLAYER_REGEN_ENABLED", function()
 
     local summary = table.concat(parts, " || ") -- ASCII only; default WoW fonts lack many glyphs
     MD:Debug("combat", "end: %s (casts %d, healed %d, overhealed %d)", summary, ST.combat.casts, f.healed, f.overhealed)
+    if MD.Overheal then
+        for _, line in ipairs(MD.Overheal:Summary()) do
+            MD:Debug("combat", "  overheal %s", line)
+        end
+    end
     MD:Print(summary)
 
     MD.fightHistory[#MD.fightHistory + 1] = {
+        t = time(),
         duration = duration,
         avgSpendRate = avgSpendRate,
         netMp5 = netMp5,
         oomAt = f.oomAt,
+        healed = f.healed,
+        overhealed = f.overhealed,
+        zone = GetRealZoneText and GetRealZoneText() or nil,
         summary = summary,
     }
     if #MD.fightHistory > MAX_HISTORY then

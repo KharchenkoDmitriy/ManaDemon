@@ -7,7 +7,7 @@ local _, MD = ...
 local UI = MD.UI
 
 local WIDTH, HEIGHT = 760, 496
-local frame, statsFS, calloutFS, hintFS, recapFS, messageFS
+local frame, statsFS, calloutFS, hintFS, recapFS, messageFS, effectiveCB
 local rankTable, simStrip
 local currentFamily = "HealingTouch"
 local spellTabs, highlightTab = {}, nil
@@ -79,7 +79,16 @@ local function Refresh()
     end
 
     local tolNote = (MD:InTreeForm() and not res.tol) and "  |cffff4444(not castable in Tree form)|r" or ""
-    calloutFS:SetText("|cffffcc00" .. (res.callout or "") .. "|r" .. tolNote)
+    local ohNote = ""
+    if MD.Overheal then
+        local frac, n = MD.Overheal:FamilyFraction(currentFamily)
+        if frac then
+            ohNote = string.format("  |cff888888overheal %d%% measured over %d %s events%s|r",
+                frac * 100, n, res.label,
+                MD.db.effectiveMode and "" or " - tick Effective to apply it")
+        end
+    end
+    calloutFS:SetText("|cffffcc00" .. (res.callout or "") .. "|r" .. tolNote .. ohNote)
 
     rankTable:Render(res.rows)
 
@@ -129,6 +138,15 @@ local function CreateDashboard()
     settingsBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -10)
     settingsBtn:SetScript("OnClick", function() MD:ShowOptionsFrame("general") end)
 
+    effectiveCB = UI.CreateCheckButton(frame, "Effective", function(checked)
+        MD.db.effectiveMode = checked
+        Refresh()
+    end, "Overheal-adjusted values", "Heal, HPM, HPS and HP5 become value x (1 - measured overheal),",
+        "from your own combat log. Mana, Cast and To OOM never move.",
+        "A grey ? means that rank has no measurement of its own yet.")
+    effectiveCB:SetPoint("LEFT", settingsBtn, "LEFT", -80, 0) -- label runs right of the box
+    effectiveCB:SetShown(MD.player.isDruid)
+
     simStrip = MD.DashboardParts.CreateStrip(frame, 16, -42, Refresh)
 
     statsFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -161,7 +179,10 @@ local function CreateDashboard()
     recapFS:SetJustifyH("LEFT")
     recapFS:SetWidth(WIDTH - 32)
 
-    frame:SetScript("OnShow", Refresh)
+    frame:SetScript("OnShow", function()
+        effectiveCB:SetChecked(MD.db.effectiveMode and true or false)
+        Refresh()
+    end)
 
     -- The "To OOM" column follows your current mana: re-render every 2s while
     -- the frame is open (rendering only; the model is event-driven).

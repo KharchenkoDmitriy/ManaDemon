@@ -244,6 +244,21 @@ function Tip:Row(row)
             r = string.format("%d casts from %d mana (net %d each)", row.casts, c.mana, c.netPerCast), c = KEY }
     end
 
+    if row.overheal then
+        local oh = row.overheal
+        lines[#lines + 1] = {}
+        lines[#lines + 1] = { l = "Overheal",
+            r = string.format("%d%%  (%s, %d events)", oh.frac * 100,
+                oh.scope == "rank" and "measured on this rank" or "family average", oh.n), c = KEY }
+        lines[#lines + 1] = { l = "Effective",
+            r = string.format("%d heal, %.2f HPM, %d HPS", row.effHeal, row.effHpm, row.effHps), c = KEY }
+        if oh.scope == "family" then
+            lines[#lines + 1] = { l = "  A family average is the same factor on every rank, so it " ..
+                "cannot say whether downranking overheals less. That needs samples on this rank.",
+                c = MUTED, wrap = true }
+        end
+    end
+
     if row.virtual then
         lines[#lines + 1] = {}
         lines[#lines + 1] = { l = "Rolling stack: refreshed before it expires, so each cast is paid " ..

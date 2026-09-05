@@ -21,8 +21,17 @@ local COLS = {
 
 local ROW_HEIGHT = 16
 
+-- Columns whose values become overheal-adjusted in "Effective" mode. Mana,
+-- Cast and To OOM never move: mana spent is mana spent.
+local EFFECTIVE_COLS = { heal = true, hpm = true, hps = true, hp5 = true }
+
 local function Fmt(n, decimals)
     return string.format(decimals and ("%." .. decimals .. "f") or "%d", n)
+end
+
+local function AccentHex()
+    local a = MD.UI.accent
+    return string.format("|cff%02x%02x%02x", a[1] * 255, a[2] * 255, a[3] * 255)
 end
 
 function MD.DashboardParts.CreateTable(parent, width)
@@ -58,15 +67,20 @@ function MD.DashboardParts.CreateTable(parent, width)
         wipe(usedRows)
     end
 
-    -- rows come straight from RankMath:Compute()
+    -- rows come straight from RankMath:Compute(). In "Effective" mode the four
+    -- healing columns show value * (1 - measured overheal); their headers turn
+    -- the accent colour so it is never ambiguous which numbers moved.
     function api:Render(rows)
         api:Release()
+        local effective = MD.db and MD.db.effectiveMode and true or false
+        local accent = AccentHex()
         local y = -4
 
         local header = AcquireRow()
         header:SetPoint("TOPLEFT", pane, "TOPLEFT", 0, y)
         for _, col in ipairs(COLS) do
-            header.cells[col.key]:SetText("|cff888888" .. col.label .. "|r")
+            local hex = (effective and EFFECTIVE_COLS[col.key]) and accent or "|cff888888"
+            header.cells[col.key]:SetText(hex .. col.label .. "|r")
         end
         y = y - 18
 
@@ -84,13 +98,25 @@ function MD.DashboardParts.CreateTable(parent, width)
             else
                 c = "|cffffffff"
             end
+            -- In effective mode a row with no measurement of its own keeps its
+            -- raw value and gets a grey "?" so the two are never confused.
+            local heal, hpm, hps, hp5 = r.heal, r.hpm, r.hps, r.hp5
+            local unmeasured = ""
+            if effective then
+                if r.overheal then
+                    heal, hpm, hps, hp5 = r.effHeal, r.effHpm, r.effHps, r.effHp5
+                else
+                    unmeasured = "|cff777777?|r"
+                end
+            end
+
             row.cells.rank:SetText(c .. (r.rankLabel or ("R" .. r.rank)) .. (r.suggested and " *" or "") .. "|r")
             row.cells.level:SetText(c .. r.level .. "|r")
             row.cells.cost:SetText(c .. Fmt(r.cost) .. "|r")
-            row.cells.heal:SetText(c .. Fmt(r.heal) .. "|r")
-            row.cells.hpm:SetText(c .. Fmt(r.hpm, 2) .. "|r")
-            row.cells.hps:SetText(c .. Fmt(r.hps) .. "|r")
-            row.cells.hp5:SetText(c .. (r.hp5 and Fmt(r.hp5) or "-") .. "|r")
+            row.cells.heal:SetText(c .. Fmt(heal) .. "|r" .. unmeasured)
+            row.cells.hpm:SetText(c .. Fmt(hpm, 2) .. "|r")
+            row.cells.hps:SetText(c .. Fmt(hps) .. "|r")
+            row.cells.hp5:SetText(c .. (hp5 and Fmt(hp5) or "-") .. "|r")
             -- the grey "*" means the cast time is a Nature's Grace average
             row.cells.cast:SetText(c .. Fmt(r.cast, 1) .. "s|r" .. (r.ng and "|cff888888*|r" or ""))
             row.cells.casts:SetText(c .. (r.casts == math.huge and "inf" or Fmt(r.casts)) .. "|r")

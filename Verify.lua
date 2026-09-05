@@ -126,6 +126,25 @@ function MD:Snapshot()
     else
         add("relic: none equipped")
     end
+
+    if MD.Overheal then
+        local oh = MD.Overheal:Summary()
+        if #oh > 0 then
+            add("overheal (combat log, per character):")
+            for _, line in ipairs(oh) do add("  " .. line) end
+        else
+            add("overheal: no samples yet")
+        end
+        add("combat log 'amount' convention: %s", MD.db.healAmountGross == nil and "not yet latched"
+            or (MD.db.healAmountGross and "GROSS (includes overheal)" or "NET (excludes overheal)"))
+    end
+
+    local hist = MD.fightHistory or {}
+    add("recorded fights: %d", #hist)
+    for i = math.max(1, #hist - 4), #hist do
+        local f = hist[i]
+        add("  [%s] %s", f.zone or "?", (f.summary or "-"):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+    end
     return out
 end
 

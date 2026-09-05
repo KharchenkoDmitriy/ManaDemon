@@ -159,15 +159,26 @@ MD:On("PLAYER_REGEN_DISABLED", function()
     ST.combat.spent = 0
     local last = events[#events]
     if (not last or GetTime() - last[1] > 30) and MD.fightHistory and #MD.fightHistory > 0 then
+        -- "Last time here" beats "last time anywhere": the same zone usually
+        -- means the same content, and spend rate is content, not character.
+        -- Two fights are enough to prefer it; otherwise fall back to overall.
+        local zone = GetRealZoneText and GetRealZoneText() or nil
+        local pool, source = MD:FightsInZone(zone, 5), zone
+        if #pool < 2 then
+            pool, source = {}, "recent fights"
+            for i = math.max(1, #MD.fightHistory - 4), #MD.fightHistory do
+                pool[#pool + 1] = MD.fightHistory[i]
+            end
+        end
         local rates = {}
-        for i = 1, #MD.fightHistory do
-            rates[#rates + 1] = MD.fightHistory[i].avgSpendRate or 0
+        for i = 1, #pool do
+            rates[#rates + 1] = pool[i].avgSpendRate or 0
         end
         table.sort(rates)
         local m = rates[math.ceil(#rates / 2)]
         if m and m > 0 then
             seed = { rate = m, t = GetTime() }
-            MD:Debug("spend", "pull: seeded %.2f mana/s from %d recorded fight(s)", m, #rates)
+            MD:Debug("spend", "pull: seeded %.2f mana/s from %d fight(s) in %s", m, #rates, tostring(source))
         end
     end
 end)

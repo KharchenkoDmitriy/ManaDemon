@@ -183,7 +183,8 @@ end
 -- Row: { id, rank, level, cost, cast, heal, hpm, hps, hp5 (sustained healing
 -- per 5s at zero mana, regen-paced, 5SR-aware; nil without base regen), casts
 -- (chain-casts to OOM from current mana, math.huge when regen covers the
--- cost), known, isMax; dominated/suggested are set by Compute() }
+-- cost), known, isMax; overheal + effHeal/effHpm/effHps/effHp5 when the
+-- combat log has enough samples; dominated/suggested are set by Compute() }
 --------------------------------------------------------------------------------
 function RankMath:RowFor(spellID, ctx, variant, explain)
     local SD = MD.SpellData
@@ -310,6 +311,23 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
         row.rankLabel = "x" .. variant
         row.virtual = true
     end
+
+    -- Overheal calibration: what the spell is worth on the targets this player
+    -- actually heals. Carried alongside the raw numbers, never instead of them
+    -- -- the Pareto filter and the suggested rank stay on raw values so a noisy
+    -- measurement can never fire a "rebind?" toast (docs/DESIGN-v0.5.md F3).
+    if MD.Overheal then
+        local frac, n, scope = MD.Overheal:Fraction(spellID)
+        if frac then
+            local k = 1 - frac
+            row.overheal = { frac = frac, n = n, scope = scope }
+            row.effHeal = row.heal * k
+            row.effHpm = row.hpm * k
+            row.effHps = row.hps * k
+            row.effHp5 = row.hp5 and row.hp5 * k or nil
+        end
+    end
+
     if calc then
         calc.family = s.family
         calc.label = info.label
@@ -317,14 +335,15 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
         calc.cost = cost
         calc.costSource = costSource
         calc.castBase = castBase or castTime
-    calc.castNG = castTime
-    calc.ngCrit = ngCrit
-    calc.naturesGrace = ctx.naturesGrace
+        calc.castNG = castTime
+        calc.ngCrit = ngCrit
+        calc.naturesGrace = ctx.naturesGrace
         calc.sustainedInterval = T
         calc.mana = ctx.mana
         calc.castingRegen = ctx.castingRegen
         calc.baseRegen = ctx.baseRegen
         calc.netPerCast = cost - ctx.castingRegen * castTime
+        calc.overheal = row.overheal
         row.calc = calc
     end
     return row
