@@ -61,6 +61,29 @@ What remains in Phase 1 is §1a: the author's in-game logs (`docs/TESTING.md` §
 - [x] Split `UI/Dashboard.lua` into `_Rows` (columns, pool, rendering) and `_Simulate`
   (the what-if strip) — v0.5.0.
 
+## Phase 1.5 — from the first real dungeon log (v0.6)
+
+`dungeon-BF-1.txt` (Blood Furnace, 28.8 min, 30 pulls) produced both a bug and a change of
+emphasis: the author's mana problem is **waste, not running out** (38% overheal, 561 fully
+wasted ticks, never below 36% mana except once). Design and architecture:
+**`docs/DESIGN-v0.6.md`**; the calls are in `docs/DECISIONS.md` §v0.6.
+
+- [ ] **v0.6.0** HP5 redefined (chain-casting, in-5SR); the `OOM 0s` false alarm; digits
+  gated on `sigma/net`; default view from usage; advisor/clock name the same cooldown.
+- [ ] **v0.6.1** `Engine/Targets.lua` (roster: class + role, read not inferred) and richer
+  logs — snapshot on Copy, roster at each pull, shown-string changes, cooldown use.
+- [ ] **v0.6.2** `Engine/Calibration.lua` — the model checks itself against every heal
+  landed, and reports drift. **Top priority:** stats, content and spec all change.
+- [ ] **v0.6.3** Waste view — overheal by spell / role / class / target, wasted mana, and
+  the per-fight spend breakdown (~7% of mana is currently invisible).
+- [ ] **v0.6.4** Lifebloom rolling-vs-bloom economics; Life Tap detection.
+- [ ] **v0.6.5** `Engine/PullBudget.lua` — "2 more pulls, or 4 after a drink".
+- [ ] **v0.6.6** `/md export` (TSV), docs, TESTING for the new surface.
+- [ ] **D2** Cell integration — investigation brief only (`docs/DESIGN-v0.6.md` §13).
+
+**Caveat carried through all of it:** that log was a level 61 dungeon on a level 64 druid.
+Heroics and raids differ. No constant from it is hard-coded.
+
 ## Phase 2 — other classes (after 1 is green)
 
 Generic parts already work for any mana class: the OOM clock, widget, datatexts,

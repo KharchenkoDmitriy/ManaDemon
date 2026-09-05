@@ -475,3 +475,65 @@ and the log line that settles each. `CLAUDE.md`'s file table updated for the fou
 anything regress), §8 and §9 (turn two assumptions into measurements), §5 (`K_SIGMA` /
 `CV_STABLE`), §10 (overheal after a night). Then Phase 2, Priest first, on the seams
 `Engine/ManaCooldowns.lua` and `RankMath:Context()/RowFor()` now provide.
+
+## 2026-09-05 (later) — First real dungeon log analysed; v0.6 designed
+
+Author supplied `.logs/dungeon-BF-1.txt` — Blood Furnace, 28.8 min, 5600 lines, 30 pulls,
+355 casts, on a **v0.5.x** build (it carries `cast` lines and the v0.5.2 cooldown
+segment). **Caveat the author supplied and that runs through the whole design: it was a
+level 61 dungeon on a level 64 druid.** Heroics and raids differ in duration and damage
+pattern, so nothing from it is set in stone — which is itself the argument for
+self-calibration.
+
+**What the log proved**
+
+- **A real display bug.** `OOM 0s vv` in red at 72-97% mana, 9+ times. `hold` sets
+  `s.bound`, not `s.tto`; the mode latch holds `disp.mode == "oom"` for two ticks after the
+  state improves, so the display reads `state.tto`, gets nil, and `v = v or 0` fabricates
+  zero seconds straight into the critical band. v0.5.2's segment then appended `inn >10m`.
+- **The combat log's `amount` is GROSS.** 561 events with `amount == overheal`, zero with
+  `amount == 0`. So the pre-v0.5.3 fight-summary formula `o/(a+o)` understated: real
+  overheal for the run is **38.0%**, not 27.5%. The v0.5.3 detector would have latched
+  correctly within seconds. Detecting rather than assuming was the right call.
+- **Per-spell overheal spans 5x**: Regrowth direct 10.8%, Swiftmend 25.7%, Lifebloom tick
+  38.2%, Rejuv tick 45.0%, Lifebloom bloom 49.8%, Regrowth HoT tick 51.2%.
+- **Cast mix**: Lifebloom 69% of casts / 54% of mana; Healing Touch **one cast in 29
+  minutes** (Tree form). The dashboard opens on Healing Touch. ~7% of mana went to buffs,
+  dispels and form shifts, invisible to every view.
+- **The clock works when it matters.** My first read called it noise; the author corrected
+  me ("most fights were easy, but there was one where I went full out"). On that pull —
+  154 mana/s, -508 net mp5, 6.2k in 40s — it tracked `5:00 -> 3:00 -> 2:00 -> 1:00`
+  monotonically and showed `inn 3:30` at 49% mana / 80s. The v0.5.2 cooldown segment
+  validated in its first real test. `sigma/net` separates that pull (median 0.43) from
+  everything else (median 1.01), which is the whole fix: gate the digits, don't retune.
+- **Innervate never cast**, so its value model is still unverified; all four potion alerts
+  ignored. Nature's Grace inconclusive — 27 cast lines, all Regrowth at exactly 2.00s, and
+  Naturalist is 0 (the debug line would print 1.50s base otherwise).
+
+**A correction worth recording.** I claimed TBC exposes no role API, having checked
+`Cell/Utils.lua` and `Libs/LibGroupInfo.lua`. The author pushed back ("cell already renders
+role icons"). They were right: `RaidFrames/UnitButton_Vanilla.lua` — the file
+`Cell_TBC.toc` actually loads — calls `UnitGroupRolesAssigned(unit)` unguarded, and
+`roleIcon` ships enabled by default in `Layout_Defaults_TBC_Vanilla.lua`. Bad inference
+from absence: I checked the files I expected to hold it and stopped rather than following
+the feature to the file that draws it. Role is now **read, not inferred**, with
+`roleSource` carried into every report.
+
+**Shipped meanwhile:** v0.5.6, fixing the debug console's category filters — adding a
+ninth category (Cast) overflowed a chained single row (~603px in a 580px frame) and
+collided with the "keep lines" box at the same y. Now a fixed 5-column grid whose row count
+follows the category count, console 580x480 -> 700x560.
+
+**Written this session:** `docs/DESIGN-v0.6.md` (452 lines: architecture, the C1
+calibration design, the waste report's dimensions, delivery order v0.6.0-v0.6.6, open
+questions), `docs/DECISIONS.md` §v0.6 (nine calls with what would change my mind), and
+`docs/PLAN.md` Phase 1.5.
+
+**Priority, set by the author:** C1 self-calibration -> A waste report -> D1 logging -> B1
+pull budget -> D2 Cell (investigate; they have the upstream maintainer's ear). Logging
+(v0.6.1) ships before the waste view because the role dimension rests on
+`UnitGroupRolesAssigned` returning real values in the author's groups, and the roster log
+line is what proves it.
+
+**Next:** implement v0.6.0 (HP5 redefinition + the two clock fixes + small fixes). Nothing
+in v0.6 touches `K_SIGMA` / `CV_STABLE`, which remain `docs/PLAN.md` §1a.

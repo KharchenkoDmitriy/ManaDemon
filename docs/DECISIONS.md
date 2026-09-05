@@ -270,3 +270,74 @@ own.
 | Innervate's 400% is spirit-share only | `Engine/ManaCooldowns.lua` `InnervateValue` | `regen` line on buff gain/fade, TESTING §9 |
 | Overheal half-life 150 events, 40-event gate | `Engine/Overheal.lua` | one raid; counts visible in `/md profile` |
 | `K_SIGMA` / `CV_STABLE` | `Engine/TTO.lua` | TESTING §5 — **unchanged by v0.5** |
+
+
+## v0.6 (2026-09-05): calls made from the dungeon-BF-1 log
+
+Full design in `docs/DESIGN-v0.6.md`. The log was a **level 61 dungeon on a level 64
+druid** — a sample of how the author heals, not a specification. Every constant taken from
+it is a setting with recorded provenance, to be re-derived from heroic and raid data.
+
+**1. HP5 redefined to "sustained while chain-casting".** The author's intent was healing
+per 5s on regenerated mana *while still casting* — permanently inside the five-second
+rule. The old formula let you drop out of the FSR between casts and collect full regen, a
+more optimistic and different question. Now `T = max(cost/castingRegen, castTime)`. This
+simplifies to `HP5 = 5 x castingRegen x HPM` in the normal case, so the column rank-orders
+exactly like HPM — that is stated in the tooltip rather than left to imply independence.
+The old figure survives as a tooltip line ("if you let the 5SR lapse between casts"), being
+the honest ceiling.
+
+**2. `v = v or 0` is deleted from the clock.** It turned "no value yet" into "zero
+seconds", which lands in the red critical band. Seen 9+ times in one run at 72-97% mana,
+because the mode latch holds `disp.mode == "oom"` for two ticks after the state moves to
+`hold`, and `hold` sets `bound`, not `tto`. Now: keep the last shown value, or render
+`OOM --`.
+
+**3. Digits are gated on the projection's own error, not retuned.** `sigma/net` separated
+the one hard pull (median 0.43) from everything else (median 1.01) cleanly. Above
+`db.oomConfidence` (default 0.7) the clock shows the one-sided bound it already has for
+`hold` instead of a point estimate. `K_SIGMA` and `CV_STABLE` are deliberately NOT touched:
+the mode logic was right, only the decision to print digits was wrong. **Would change my
+mind:** heroic/raid logs where 0.7 hides a projection that was in fact actionable.
+
+**4. Calibration reads the model; the model never reads calibration.** Multiplying
+`RankMath`'s output by an observed drift ratio would make the dashboard agree with reality
+while `Data/SpellData.lua` stayed wrong, silently absorbing every real finding — a missing
+relic, a wrong coefficient, an unmodelled talent. Drift is a report to a human, who fixes
+the data. This is exactly how the Idol of Rejuvenation was found by hand, automated.
+
+**5. Calibration compares EVENTS, with crits separated, and does not decay.** A predicted
+`(1 + 0.5 x crit)` expected value cannot be compared against an individual event, so
+non-crit events are compared against the non-crit prediction and the crit *rate* becomes an
+independent second check. No decay because the statistic is a ratio and therefore
+gear-invariant: when +healing rises, observed and predicted rise together, so anything that
+accumulates is a model error. Reset on talent change only.
+
+**6. Role is READ, not inferred — correcting an earlier error in this session.** I first
+concluded TBC exposed no role API, having checked `Cell/Utils.lua` and `LibGroupInfo.lua`
+and stopped. Wrong: `RaidFrames/UnitButton_Vanilla.lua`, the file `Cell_TBC.toc` actually
+loads, calls `UnitGroupRolesAssigned(unit)` unguarded, and `roleIcon` ships enabled by
+default in `Layout_Defaults_TBC_Vanilla.lua`. Source order is
+`UnitGroupRolesAssigned` -> `GetPartyAssignment` -> class-implied -> unknown, and
+**`roleSource` travels with every report** so a guessed role is never presented like a read
+one. Talent-based inference was rejected outright: it cannot separate a feral tank from a
+feral cat.
+
+**7. Overheal gains an event-kind dimension (tick / direct / bloom).** Needed twice over:
+calibration compares per event kind, and Lifebloom's economics turn on the bloom
+overhealing 49.8% against the ticks' 38.2%. Shared plumbing.
+
+**8. Per-target overheal is session-only.** `u:<guid>` buckets are pruned on roster change
+so SavedVariables cannot grow with every stranger healed in a pug. Family, spell, kind,
+role and class buckets persist.
+
+**9. The pull is the unit of decision in 5-man content.** All four potion alerts in the log
+were ignored; the likely reason is that the alert answered "is this potion efficient?" when
+the question was "can I pull again?". Hence `Engine/PullBudget.lua`.
+
+### Priority, set by the author
+
+C1 self-calibration -> A waste report -> D1 logging -> B1 pull budget -> D2 Cell
+(investigate only). **F6 logging ships before F4 waste** because the waste report's role
+dimension rests on `UnitGroupRolesAssigned` returning real values in the author's groups,
+and the roster log line is what proves it.
