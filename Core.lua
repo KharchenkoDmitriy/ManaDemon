@@ -297,6 +297,7 @@ MD.COMMANDS = {
     { "/md rest",         "toggle the 'rest' segment (time to full if you stop casting)" },
     { "/md window N",     "spend estimator half-life in seconds (5-60, default 15)" },
     { "/md verify",       "check static spell data against the live client" },
+    { "/md profile",      "copyable dump of every model input - use this for bug reports" },
     { "/md fsrtest",      "log mana ticks for 15s (five-second-rule anchor test)" },
     { "/md regentest [N]", "idle regen check: observed mana gain vs GetManaRegen (N s, default 30)" },
     { "/md spamtest",     "arm, then chain-cast one spell to OOM: checks the dashboard's To OOM column" },
@@ -352,6 +353,8 @@ SlashCmdList.MANADEMON = function(msg)
         end
     elseif cmd == "verify" then
         if MD.RunVerify then MD:RunVerify() end
+    elseif cmd == "profile" then
+        if MD.RunProfile then MD:RunProfile() end
     elseif cmd == "fsrtest" then
         if MD.RunFSRTest then MD:RunFSRTest() end
     elseif cmd == "regentest" then

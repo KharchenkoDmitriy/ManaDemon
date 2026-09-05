@@ -44,6 +44,26 @@ function MD.DashboardParts.CreateTable(parent, width)
             row = CreateFrame("Frame", nil, pane)
             row:SetSize(width - 60, ROW_HEIGHT)
             row.cells = {}
+
+            -- Hover: a faint accent wash and the full breakdown of every
+            -- number in the row (RankMath:Explain rebuilds it on demand, so
+            -- the 2s re-render never allocates it).
+            row.highlight = row:CreateTexture(nil, "BACKGROUND")
+            row.highlight:SetAllPoints()
+            row.highlight:SetColorTexture(MD.UI.accent[1], MD.UI.accent[2], MD.UI.accent[3], 0.10)
+            row.highlight:Hide()
+
+            row:EnableMouse(true)
+            row:SetScript("OnEnter", function(self)
+                if not self.spellID then return end
+                self.highlight:Show()
+                MD.Tip:ShowAt(self, "TOPLEFT", pane:GetParent(), "TOPRIGHT", 4, 0,
+                    MD.Tip:Row(MD.RankMath:Explain(self.spellID, self.variant)))
+            end)
+            row:SetScript("OnLeave", function(self)
+                self.highlight:Hide()
+                MD.Tip:Hide()
+            end)
             for _, col in ipairs(COLS) do
                 local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
                 fs:SetPoint("LEFT", row, "LEFT", col.x, 0)
@@ -61,6 +81,8 @@ function MD.DashboardParts.CreateTable(parent, width)
 
     function api:Release()
         for _, row in ipairs(usedRows) do
+            row.spellID, row.variant = nil, nil
+            row.highlight:Hide()
             row:Hide()
             rowPool[#rowPool + 1] = row
         end
@@ -77,6 +99,7 @@ function MD.DashboardParts.CreateTable(parent, width)
         local y = -4
 
         local header = AcquireRow()
+        header.spellID = nil -- the header is a pooled row too: no tooltip on it
         header:SetPoint("TOPLEFT", pane, "TOPLEFT", 0, y)
         for _, col in ipairs(COLS) do
             local hex = (effective and EFFECTIVE_COLS[col.key]) and accent or "|cff888888"
@@ -87,6 +110,7 @@ function MD.DashboardParts.CreateTable(parent, width)
         for _, r in ipairs(rows) do
             local row = AcquireRow()
             row:SetPoint("TOPLEFT", pane, "TOPLEFT", 0, y)
+            row.spellID, row.variant = r.id, r.variant
 
             local c
             if not r.known then

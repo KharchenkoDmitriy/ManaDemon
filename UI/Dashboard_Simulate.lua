@@ -1,7 +1,18 @@
 -- The dashboard's "Simulate" strip: what-if inputs that only the rank math
 -- reads (MD.sim). A blank box means "use the live value", which is shown as a
--- grey placeholder inside the box. Split out of UI/Dashboard.lua; exports a
--- constructor on MD.DashboardParts.
+-- grey placeholder inside the box.
+--
+-- Two rows: stats on the first, form and Moonglow on the second. Form is a
+-- three-state group rather than a checkbox because "follow my real form" is a
+-- distinct answer from "caster". MD:InTreeForm() itself is never overridden --
+-- the clock, the advisor and the gear toast keep using the real form; only
+-- RankMath:Context() reads MD.sim.
+--
+-- Simulating a form or a Moonglow rank invalidates the client's live cost, so
+-- RankMath falls back to SD:StaticCost(id, ctx) for those; the dashboard says
+-- so on the stats line.
+--
+-- Split out of UI/Dashboard.lua; exports a constructor on MD.DashboardParts.
 local _, MD = ...
 local UI = MD.UI
 
@@ -16,7 +27,17 @@ local BOXES = {
     { "mana",    "mana",        "%d" },
 }
 
--- onChange() is called whenever an override is set or cleared.
+local FORMS = { { "live", "Live" }, { "caster", "Caster" }, { "tree", "Tree" } }
+
+local function FormID()
+    if MD.sim.tree == nil then return "live" end
+    return MD.sim.tree and "tree" or "caster"
+end
+
+-- onChange() is called whenever an override is set or cleared. The strip
+-- occupies two rows: y and y - ROW_GAP.
+local ROW_GAP = 18
+
 function MD.DashboardParts.CreateStrip(parent, x, y, onChange)
     local boxes = {}
 
@@ -69,20 +90,92 @@ function MD.DashboardParts.CreateStrip(parent, x, y, onChange)
         last = AddBox(def[1], def[2], def[3], last)
     end
 
+    ----------------------------------------------------------------------------
+    -- second row: form + Moonglow + Clear
+    ----------------------------------------------------------------------------
+    local formLabel = parent:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    formLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", x + 62, y - ROW_GAP)
+    formLabel:SetTextColor(0.7, 0.7, 0.7)
+    formLabel:SetText("form")
+
+    local formButtons, prev = {}, nil
+    for _, def in ipairs(FORMS) do
+        local btn = UI.CreateButton(parent, def[2], "accent-hover", { 48, 16 }, false, false, UI.FONT_SMALL, nil)
+        btn.id = def[1]
+        if prev then
+            btn:SetPoint("LEFT", prev, "RIGHT", -1, 0)
+        else
+            btn:SetPoint("LEFT", formLabel, "RIGHT", 6, 0)
+        end
+        formButtons[#formButtons + 1] = btn
+        prev = btn
+    end
+    local highlightForm = UI.CreateButtonGroup(formButtons, function(id)
+        if id == "live" then
+            MD.sim.tree = nil
+        else
+            MD.sim.tree = (id == "tree")
+        end
+        if onChange then onChange() end
+    end)
+
+    local mgLabel = parent:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    mgLabel:SetPoint("LEFT", prev, "RIGHT", 14, 0)
+    mgLabel:SetTextColor(0.7, 0.7, 0.7)
+    mgLabel:SetText("Moonglow")
+
+    local mgBox = UI.CreateEditBox(parent, 34, 16, false, false, false, UI.FONT_SMALL)
+    mgBox:SetPoint("LEFT", mgLabel, "RIGHT", 4, 0)
+    mgBox:SetTextInsets(3, 3, 0, 0)
+    local mgPh = parent:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    mgPh:SetPoint("LEFT", mgBox, "LEFT", 4, 0)
+    mgPh:SetTextColor(0.45, 0.45, 0.45)
+
+    local function ApplyMoonglow(self)
+        local text = strtrim(self:GetText() or "")
+        if text == "" then
+            MD.sim.moonglow = nil
+        else
+            local v = tonumber(text)
+            if v and v >= 0 and v <= 3 then
+                MD.sim.moonglow = math.floor(v)
+                self:SetText(tostring(MD.sim.moonglow))
+            else
+                self:SetText(MD.sim.moonglow and tostring(MD.sim.moonglow) or "")
+            end
+        end
+        mgPh:SetShown(strtrim(self:GetText() or "") == "")
+        self:HighlightText(0, 0)
+        if onChange then onChange() end
+    end
+    mgBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    mgBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    mgBox:SetScript("OnEditFocusGained", function() mgPh:Hide() end)
+    mgBox:SetScript("OnEditFocusLost", ApplyMoonglow)
+    UI.SetTooltips(mgBox, "ANCHOR_TOPLEFT", 0, 3, "Moonglow rank (0-3)",
+        "-3% mana per rank on Healing Touch, Regrowth and Rejuvenation.",
+        "Blank = your real talent. Simulated costs come from the static",
+        "table, since the client can only price the talents you have.")
+
     local clearBtn = UI.CreateButton(parent, "Clear", "red-hover", { 50, 16 }, false, false, UI.FONT_SMALL, nil,
-        "Clear simulation", "Back to your live stats.")
-    clearBtn:SetPoint("LEFT", last, "RIGHT", 10, 0)
+        "Clear simulation", "Back to your live stats and your real form.")
+    clearBtn:SetPoint("LEFT", mgBox, "RIGHT", 14, 0)
 
     local api = {}
 
-    -- live = RankMath.info.live
+    -- live = RankMath.info.live; also re-syncs the widgets with MD.sim, which
+    -- other code may have cleared (the Clear button, a fresh session).
     function api:SetPlaceholders(live)
-        if not live then return end
-        for key, box in pairs(boxes) do
-            if live[key] then
-                box.ph:SetText(string.format(box.fmt, live[key]))
+        if live then
+            for key, box in pairs(boxes) do
+                if live[key] then
+                    box.ph:SetText(string.format(box.fmt, live[key]))
+                end
             end
         end
+        highlightForm(FormID())
+        mgPh:SetText(tostring(MD:TalentRank("Moonglow")))
+        mgPh:SetShown(strtrim(mgBox:GetText() or "") == "")
     end
 
     function api:Clear()
@@ -91,6 +184,9 @@ function MD.DashboardParts.CreateStrip(parent, x, y, onChange)
             box.eb:SetText("")
             box.ph:Show()
         end
+        mgBox:SetText("")
+        mgPh:Show()
+        highlightForm("live")
         if onChange then onChange() end
     end
 

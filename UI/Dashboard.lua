@@ -6,7 +6,7 @@
 local _, MD = ...
 local UI = MD.UI
 
-local WIDTH, HEIGHT = 760, 496
+local WIDTH, HEIGHT = 760, 514 -- +18 for the Simulate strip's second row
 local frame, statsFS, calloutFS, hintFS, recapFS, messageFS, effectiveCB
 local rankTable, simStrip
 local currentFamily = "HealingTouch"
@@ -48,6 +48,11 @@ local function Refresh()
         simStrip:SetPlaceholders(info.live)
         if info.simulated then
             statsFS:SetText("|cffff9933SIMULATION|r  " .. statsFS:GetText())
+        end
+        if info.costCtx then
+            -- the client can only price the form and talents you actually have
+            statsFS:SetText(statsFS:GetText() ..
+                "   |cffff9933costs from the static table while simulating form/talents|r")
         end
     end
     if info and info.relic then
@@ -150,28 +155,28 @@ local function CreateDashboard()
     simStrip = MD.DashboardParts.CreateStrip(frame, 16, -42, Refresh)
 
     statsFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    statsFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -68)
+    statsFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -86)
     statsFS:SetJustifyH("LEFT")
     statsFS:SetWidth(WIDTH - 32)
 
     calloutFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    calloutFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -86)
+    calloutFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -104)
     calloutFS:SetJustifyH("LEFT")
     calloutFS:SetWidth(WIDTH - 32)
 
     hintFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    hintFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -102)
+    hintFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -120)
     hintFS:SetJustifyH("LEFT")
     hintFS:SetWidth(WIDTH - 32)
 
     messageFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    messageFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -126)
+    messageFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -144)
     messageFS:SetJustifyH("LEFT")
     messageFS:SetWidth(WIDTH - 32)
     messageFS:Hide()
 
     rankTable = MD.DashboardParts.CreateTable(frame, WIDTH)
-    rankTable.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -120)
+    rankTable.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -138)
     rankTable.frame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 40)
 
     recapFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")

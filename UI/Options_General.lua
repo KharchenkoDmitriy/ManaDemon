@@ -114,7 +114,7 @@ end
 -- Misc
 --------------------------------------------------------------------------------
 local function CreateMiscPane(anchor)
-    local pane = UI.CreateTitledPane(tab, "Misc", 205, 125)
+    local pane = UI.CreateTitledPane(tab, "Misc", 205, 147)
     pane:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -10)
 
     minimapCB = UI.CreateCheckButton(pane, "Show minimap button", function(checked)
@@ -143,6 +143,14 @@ local function CreateMiscPane(anchor)
     regenBtn:SetPoint("TOPLEFT", verifyBtn, "BOTTOMLEFT", 0, -5)
     regenBtn:SetScript("OnClick", function()
         if MD.RunRegenTest then MD:RunRegenTest(30) end
+    end)
+
+    local profileBtn = UI.CreateButton(pane, "Copy profile", "accent-hover", { 150, 17 }, false, false, nil, nil,
+        "Copy profile", "Same as /md profile: every model input, cost, clock state and",
+        "setting in one copyable box. Paste this into a bug report.")
+    profileBtn:SetPoint("TOPLEFT", regenBtn, "BOTTOMLEFT", 0, -5)
+    profileBtn:SetScript("OnClick", function()
+        if MD.RunProfile then MD:RunProfile() end
     end)
     return pane
 end

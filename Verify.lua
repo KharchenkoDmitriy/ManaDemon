@@ -149,6 +149,118 @@ function MD:Snapshot()
 end
 
 --------------------------------------------------------------------------------
+-- /md profile: every model input in one copyable block. This is the bug report
+-- -- chat-spamming forty lines is not one, a Ctrl+C box is, so it goes straight
+-- into the debug console's copy popup.
+--------------------------------------------------------------------------------
+function MD:Profile()
+    local SD = MD.SpellData
+    local out = {}
+    local function add(fmt, ...)
+        out[#out + 1] = select("#", ...) > 0 and string.format(fmt, ...) or fmt
+    end
+
+    local _, build, _, iface = GetBuildInfo()
+    add("=== ManaDemon v%s profile ===", MD.version)
+    add("client build %s, interface %s, ElvUI %s", tostring(build), tostring(iface),
+        ElvUI and "present" or "absent")
+    add("%s, %s level %d, form: %s, mana %d/%d", MD.player.charKey, MD.player.class,
+        MD.player.level, MD:InTreeForm() and "Tree of Life" or "caster / other",
+        UnitPower("player", 0) or 0, UnitPowerMax("player", 0) or 0)
+
+    add("")
+    add("--- inputs ---")
+    for _, line in ipairs(MD:Snapshot()) do add(line) end
+
+    add("")
+    add("--- costs of known max ranks ---")
+    if MD.player.isDruid then
+        for _, family in ipairs(SD.familyOrder) do
+            local id = SD.maxRank[family]
+            if id then
+                local spell = SD.spells[id]
+                local live = SD:LiveCost(id)
+                local static = SD:StaticCost(id)
+                add("%s R%d (%d): live %s, static %s, cast %.1fs",
+                    family, spell.rank, id, tostring(live), tostring(static), spell.cast or 1.5)
+            end
+        end
+    else
+        add("(druid-only)")
+    end
+
+    add("")
+    add("--- clock ---")
+    local st = MD:GetManaState()
+    if st then
+        add("mode %s, tto %s, ttf %s, rest %s, shown \"%s\"", st.mode,
+            st.tto and string.format("%.0fs", st.tto) or "-",
+            st.ttf and string.format("%.0fs", st.ttf) or "-",
+            st.rest and string.format("%.0fs", st.rest) or "-",
+            (MD:GetDisplayString():gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")))
+        add("spend %.2f +- %.2f mana/s (%d casts, cv %.2f, half-life %ds), regen %.2f/s (duty %d%%)",
+            st.spend, st.sigma, st.casts, st.cv, MD.db.halfLife or 15, st.regen, st.duty * 100)
+        if st.cd then
+            add("mana cooldown: %s worth %d mana%s", st.cd.name, st.cd.delta,
+                st.cd.tto and string.format(" -> OOM %.0fs", st.cd.tto) or "")
+        end
+    else
+        add("(no state yet)")
+    end
+    local unknown = {}
+    for id in pairs(MD.Spend.unknown) do unknown[#unknown + 1] = id end
+    if #unknown > 0 then
+        table.sort(unknown)
+        local names = {}
+        for _, id in ipairs(unknown) do
+            names[#names + 1] = (GetSpellInfo(id) or "?") .. " (" .. id .. ")"
+        end
+        add("unpriced spells this session: %s", table.concat(names, ", "))
+    end
+
+    add("")
+    add("--- settings ---")
+    local keys = {}
+    for k, v in pairs(MD.db) do
+        if k ~= "char" and k ~= "pos" and k ~= "optionsPos" and k ~= "debug" and type(v) ~= "table" then
+            keys[#keys + 1] = k
+        end
+    end
+    table.sort(keys)
+    local parts = {}
+    for _, k in ipairs(keys) do
+        parts[#parts + 1] = k .. "=" .. tostring(MD.db[k])
+    end
+    add(table.concat(parts, "  "))
+    local cats = {}
+    for k, v in pairs(MD.db.debug.categories) do
+        if v then cats[#cats + 1] = k end
+    end
+    table.sort(cats)
+    add("debug: enabled=%s, keep %d lines, categories: %s",
+        tostring(MD.db.debug.enabled), MD.db.debug.maxLines or 1000, table.concat(cats, " "))
+    if MD.sim and next(MD.sim) then
+        local sim = {}
+        for k, v in pairs(MD.sim) do sim[#sim + 1] = k .. "=" .. tostring(v) end
+        table.sort(sim)
+        add("SIMULATION ACTIVE: %s", table.concat(sim, " "))
+    end
+
+    return out
+end
+
+function MD:RunProfile()
+    local lines = MD:Profile()
+    if MD.ShowCopyPopup then
+        MD:ShowCopyPopup("ManaDemon profile", table.concat(lines, "\n"))
+        MD:Print("profile ready - Ctrl+C in the box to copy it.")
+    else
+        for _, line in ipairs(lines) do MD:Print(line) end
+    end
+    MD:Debug("other", "profile dumped (%d lines)", #lines)
+end
+
+--------------------------------------------------------------------------------
 -- FSR anchor test: log every player mana change with a timestamp for 15s.
 --------------------------------------------------------------------------------
 local fsrLogging = false

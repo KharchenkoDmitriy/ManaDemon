@@ -64,6 +64,19 @@ function Tip:Show(owner, anchor, ...)
     GameTooltip:Show()
 end
 
+-- Same, but pinned to a frame instead of following the owner: the dashboard's
+-- rows are narrow and centred, so ANCHOR_RIGHT would run off the screen edge.
+function Tip:ShowAt(owner, point, relFrame, relPoint, x, y, ...)
+    GameTooltip:SetOwner(owner, "ANCHOR_NONE")
+    GameTooltip:ClearAllPoints()
+    GameTooltip:SetPoint(point, relFrame, relPoint, x, y)
+    GameTooltip:ClearLines()
+    for i = 1, select("#", ...) do
+        Tip:Render(GameTooltip, (select(i, ...)))
+    end
+    GameTooltip:Show()
+end
+
 function Tip:Hide()
     GameTooltip:Hide()
 end
