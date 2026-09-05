@@ -177,6 +177,12 @@ function MD.DashboardParts.CreateWaste(parent, width)
                 local st = OH.session[r.key]
                 row.cells.role:SetText((r.guessed and "|cffbbbbbb" or c) .. (st and st.role or "?") ..
                     (r.guessed and " ?|r" or "|r"))
+                local guid = r.key:match("^u:(.+)$")
+                local taps = MD.Targets and MD.Targets:LifeTaps(guid) or 0
+                if taps > 0 then
+                    -- overheal on a tapping warlock is partly the HoT doing its job
+                    row.cells.sub:SetText("|cff888888" .. (r.sub or "") .. "|r |cff9482c9Life Tap x" .. taps .. "|r")
+                end
             end
             row.cells.healed:SetText(c .. K(r.healed + r.overhealed) .. "|r")
             local fc = r.frac >= 0.45 and "|cffff6666" or r.frac >= 0.30 and "|cffffcc66" or "|cff99dd99"

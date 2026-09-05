@@ -253,6 +253,7 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
         local bloomBonus = bonus * SD.lifebloomBloomCoef * pen * ctx.empRejuv
         local hot = (s.hotTotal + 7 * relicTick + hotBonus) * ctx.goN
         local bloom = (s.bloom + bloomBonus) * ctx.goN
+        lbHot, lbBloom = hot, bloom
         if variant then
             -- Rolling stacks: each refresh cast is paid for with 6 ticks at the
             -- stack's multiplier (one tick is lost to the refresh) and never a
@@ -298,13 +299,39 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
     -- -- the Pareto filter and the suggested rank stay on raw values so a noisy
     -- measurement can never fire a "rebind?" toast (docs/DESIGN-v0.5.md F3).
     if MD.Overheal then
-        local frac, n, scope = MD.Overheal:Fraction(spellID)
-        if frac then
-            local k = 1 - frac
-            row.overheal = { frac = frac, n = n, scope = scope }
-            row.effHeal = row.heal * k
-            row.effHpm = row.hpm * k
-            row.effHps = row.hps * k
+        local done = false
+        -- Lifebloom: ticks and the bloom overheal very differently (38% vs 50%
+        -- in the first dungeon log), and a rolling stack has no bloom at all.
+        -- So the single cast is weighted portion by portion and the rolling
+        -- rows by the tick fraction only -- which is what finally makes the
+        -- "roll it or let it bloom" question answerable for THIS player.
+        if info.type == "lifebloom" and lbHot then
+            local tf, tn, tscope = MD.Overheal:KindFraction(spellID, "tick")
+            local bf, bn, bscope = MD.Overheal:KindFraction(spellID, "bloom")
+            if tf and tscope == "kind" and (variant or (bf and bscope == "kind")) then
+                local eff
+                if variant then
+                    eff = row.heal * (1 - tf)
+                else
+                    eff = lbHot * (1 - tf) + lbBloom * (1 - bf)
+                end
+                row.overheal = { frac = 1 - eff / row.heal, n = math.min(tn, bn or tn), scope = "kind",
+                                 tick = tf, bloom = (not variant) and bf or nil }
+                row.effHeal = eff
+                row.effHpm = row.cost > 0 and eff / row.cost or 0
+                row.effHps = eff / castTime
+                done = true
+            end
+        end
+        if not done then
+            local frac, n, scope = MD.Overheal:Fraction(spellID)
+            if frac then
+                local k = 1 - frac
+                row.overheal = { frac = frac, n = n, scope = scope }
+                row.effHeal = row.heal * k
+                row.effHpm = row.hpm * k
+                row.effHps = row.hps * k
+            end
         end
     end
 
@@ -425,6 +452,23 @@ function RankMath:Compute()
             if suggested then suggested.suggested = true end
 
             local callout
+            -- Lifebloom: with tick and bloom overheal measured separately, say
+            -- which way of using the max rank is worth more on THIS player's
+            -- targets. Kept out of the Pareto filter (a different activity).
+            local lbNote
+            if info.type == "lifebloom" and maxRow and maxRow.overheal and maxRow.overheal.scope == "kind" then
+                local roll
+                for i = 1, #rows do
+                    if rows[i].id == maxRow.id and rows[i].variant == 3 then roll = rows[i] end
+                end
+                if roll and roll.effHpm and maxRow.effHpm then
+                    local better = roll.effHpm > maxRow.effHpm
+                    lbNote = string.format(" Measured overheal (ticks %d%%, bloom %d%%): %s - rolling x3 %.2f vs single cast %.2f effective HPM.",
+                        maxRow.overheal.tick * 100 + 0.5, (maxRow.overheal.bloom or 0) * 100 + 0.5,
+                        better and "keep the stack rolling" or "let it bloom",
+                        roll.effHpm, maxRow.effHpm)
+                end
+            end
             if suggested and maxRow and suggested ~= maxRow then
                 callout = string.format(
                     "R%d: %d heal for %d mana (%.2f HPM). R%d costs %.1fx the mana for %.1fx the heal.",
@@ -439,7 +483,7 @@ function RankMath:Compute()
                 tol = info.tol,
                 rows = rows,
                 suggestedID = suggested and suggested.id or nil,
-                callout = callout,
+                callout = (callout or "") .. (lbNote or ""),
             }
         end
     end

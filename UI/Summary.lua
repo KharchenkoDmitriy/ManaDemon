@@ -46,6 +46,10 @@ local fight = nil -- active fight state
 MD:On("COMBAT_LOG_EVENT_UNFILTERED", function()
     local _, subevent, _, sourceGUID, _, _, _, destGUID, destName, _, _,
         spellID, spellName, _, amount, overheal, _, critical = CombatLogGetCurrentEventInfo()
+    -- group members' own casts (Life Tap) before the player-only gate
+    if subevent == "SPELL_CAST_SUCCESS" and MD.Targets then
+        MD.Targets:NoteCast(sourceGUID, spellName)
+    end
     if sourceGUID ~= MD.player.guid then return end
     if subevent ~= "SPELL_HEAL" and subevent ~= "SPELL_PERIODIC_HEAL" then return end
     amount, overheal = amount or 0, overheal or 0

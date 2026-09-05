@@ -112,6 +112,22 @@ function Targets:Lookup(guid, name)
     return e
 end
 
+-- A warlock who Life Taps makes room for a HoT on purpose; overheal on them
+-- is partly the plan working. Counted from the combat log per session, so the
+-- Waste view can say "Life Tap x12" next to the name instead of assuming.
+Targets.lifeTaps = {}   -- guid -> count (session)
+local LIFE_TAP = GetSpellInfo(1454) or "Life Tap"
+
+function Targets:NoteCast(sourceGUID, spellName)
+    if spellName == LIFE_TAP and sourceGUID then
+        Targets.lifeTaps[sourceGUID] = (Targets.lifeTaps[sourceGUID] or 0) + 1
+    end
+end
+
+function Targets:LifeTaps(guid)
+    return guid and Targets.lifeTaps[guid] or 0
+end
+
 function Targets:IsSelf(guid)
     return guid ~= nil and guid == MD.player.guid
 end

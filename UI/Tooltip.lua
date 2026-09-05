@@ -259,6 +259,11 @@ function Tip:Row(row)
                 oh.scope == "rank" and "measured on this rank" or "family average", oh.n), c = KEY }
         lines[#lines + 1] = { l = "Effective",
             r = string.format("%d heal, %.2f HPM, %d HPS", row.effHeal, row.effHpm, row.effHps), c = KEY }
+        if oh.tick then
+            lines[#lines + 1] = { l = "  ticks / bloom overheal",
+                r = string.format("%d%% / %s", oh.tick * 100 + 0.5, oh.bloom and string.format("%d%%", oh.bloom * 100 + 0.5) or "no bloom"),
+                c = SUB, rc = SUB }
+        end
         if oh.scope == "family" then
             lines[#lines + 1] = { l = "  A family average is the same factor on every rank, so it " ..
                 "cannot say whether downranking overheals less. That needs samples on this rank.",
