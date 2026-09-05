@@ -1,333 +1,451 @@
 # ManaDemon v0.6 — design and architecture
 
 Detailed design for the v0.6 line: the fixes and features chosen after analysing
-`dungeon-BF-1.txt` (Blood Furnace, 28.8 min, 5600 lines, 30 pulls, 355 casts).
+`.logs/dungeon-BF-1.txt` (Blood Furnace, 28.8 min, 5600 lines, 30 pulls, 355 casts, on a
+v0.5.x build).
 
-Priority agreed with the author: **C1 self-calibration -> A waste report -> D1 logging
--> B1 pull budget -> D2 Cell**, with the P0 fixes from the log going first because they
-are cheap and one of them is a visible bug.
+Priority set by the author: **C1 self-calibration -> A waste report -> D1 logging -> B1
+pull budget -> D2 Cell (investigate)**, with the P0 fixes from the log first because they
+are cheap and one is a visible bug.
 
-Status of every statement: **measured** = read out of the log; **derived** = follows
-from code in the repo; **assumed** = a modelling choice that needs in-game data.
+Status of every statement: **measured** = read out of the log; **derived** = follows from
+code in the repo; **assumed** = a modelling choice that needs in-game data (listed in §12).
 
 ---
 
-## 0. What the log established, and what it does NOT
+## 0. What the log established — and what it does not
 
 The run was a **level 61 dungeon on a level 64 druid**. Heroics and raids have longer
-encounters and different damage patterns. Nothing tuned from this log is settled — it is
-a *sample of how the author heals*, not a specification. Two consequences run through
-this whole document:
+encounters and different damage patterns. Nothing tuned from this log is settled; it is a
+*sample of how the author heals*, not a specification. Two consequences run through the
+whole document:
 
 1. **No constant derived from this log is hard-coded.** Anything tuned from it becomes a
-   setting with its provenance recorded, to be revisited against heroic and raid data.
-2. **This is the argument for C1.** Stats, content and spec all change; a model that
+   setting with its provenance recorded, to be re-derived against heroic and raid data.
+2. **This is the argument for C1.** Stats, content and spec all change. A model that
    verifies itself against what actually happened is worth more than a model tuned once.
 
-**Measured:**
+### Measured
 
 | | |
 |---|---|
-| Overheal | **38.0%** of gross healing; 561 events were 100% wasted |
+| Overheal | **38.0%** of gross healing; **561 events were 100% wasted** (~19k of 79.7k mana, ~24%) |
 | Per-spell overheal | Regrowth direct 10.8% · Swiftmend 25.7% · Lifebloom tick 38.2% · Rejuv tick 45.0% · Lifebloom bloom 49.8% · Regrowth HoT tick 51.2% |
-| Cast mix | Lifebloom **69%** of casts / 54% of mana · Rejuv 12% / 16% · Regrowth 6% / 11.5% · Healing Touch 1 cast in 29 min |
+| Per-target overheal | tank 40.6% · the author (self) 46.4% · two DPS 21–22% · a third 42.9% · a mage's Water Elemental **100%** |
+| Cast mix | Lifebloom **69%** of casts / 54% of mana · Rejuv 12% / 16% · Regrowth 6% / 11.5% · Healing Touch **1 cast in 29 min** |
 | Utility spend | ~7% of mana (Mark of the Wild, Thorns, dispels, form shifts) — invisible to every current view |
-| Fight lengths | 17–45s, one 2:47 |
-| Mana floor | 36%, reached once |
-| Combat log convention | **GROSS** — `amount` includes overheal (561 events with `amount == overheal`, 0 with `amount == 0`) |
+| Fights | 17–45s, one 2:47; mana floor 36%, reached once |
+| Combat-log convention | **GROSS** — `amount` includes overheal (561 events `amount == overheal`, 0 events `amount == 0`) |
+| Regen | 346 mp5 out of the 5SR, 142 mp5 casting; pool 7009 |
 
-**The clock, on the one hard pull** (154 mana/s, −508 net mp5, 6.2k in 40s): tracked
-`5:00 -> 3:00 -> 2:00 -> 1:00` monotonically as the fight escalated, showed `inn 3:30` at
-49% mana / 80s to OOM, no flapping. **The projection works when there is pressure.** It is
-only noisy when there is not, and the two separate cleanly on the projection's own
-relative error:
+### The clock, on the one hard pull
+
+154 mana/s, −508 net mp5, 6.2k in 40s, ending at the run's floor:
+
+```
++2154  hold  OOM >10m    rest 5s    97%   net  -5.4/s
++2164  hold  OOM >5:30   rest 18s   84%   net  +8.5/s
++2166  oom   OOM ~5:00   rest 28s   75%   net +19.3/s   <- warm-up, marked ~
++2171  oom   OOM 3:00    rest 35s   70%   net +25.8/s
++2174  ALERT Major Mana Potion now - down 2400, none wasted
++2176  oom   OOM 2:00 v  rest 35s   66%   net +31.1/s
++2181  oom   OOM 2:00    rest 45s   56%   net +38.8/s
++2186  oom   OOM 1:00    inn 3:30   49%   net +43.3/s   <- v0.5.2 segment, first real test
++2191  oom   OOM 2:00    rest 55s   50%   net +35.3/s
++2194  fight ends at 39%
+```
+
+Monotone descent, no flapping. **The projection works when there is pressure.** It is only
+noisy when there is not — and the two separate cleanly on the projection's own relative
+error:
 
 | | sigma / net |
 |---|---|
-| The hard pull | median **0.43** (0.34–0.66 after warm-up) |
-| Every other in-combat sample | median **1.01** |
+| the hard pull (after warm-up) | median **0.43**, range 0.34–0.66 |
+| every other in-combat sample | median **1.01** |
+
+Everywhere else: 181 mode transitions in 28 minutes, shown value changed on 79% of
+consecutive samples, `rest` was the stable and useful number (median 13s).
 
 ---
 
 ## 1. Architecture
 
-### 1.1 New and changed files
+### 1.1 Current shape and what changes
+
+```
+COMBAT_LOG_EVENT_UNFILTERED (one handler, UI/Summary.lua, since v0.5.0)
+  |
+  |-- fight totals                     (today)
+  |-- Overheal:Record(id, amount, oh)  (today: family + spell)
+  `-- "heal" debug line                (today)
+
+v0.6:
+  |-- Targets:Lookup(destGUID) ---------------> class, role, roleSource
+  |-- Overheal:Record(id, KIND, amount, oh, destGUID)
+  |       `-- buckets: family, spell, spell:kind, role, class, target
+  |-- Calibration:Observe(id, kind, amount, crit)
+  |       `-- RankMath:EventPrediction(id) -> ratio observed / predicted
+  |-- fight totals + per-spell spend
+  `-- "heal" debug line
+```
+
+### 1.2 New and changed files
 
 | File | State | Role |
 |---|---|---|
-| `Engine/Targets.lua` | **new** | Group roster: name/GUID -> class, role, roleSource. The single source of "who was that heal on". |
-| `Engine/Calibration.lua` | **new** | Model vs reality per spell/rank/event-kind. Reports drift; never feeds back into the model. |
+| `Engine/Targets.lua` | **new** | Group roster: GUID -> name, class, role, roleSource. The single source of "who was that heal on". |
+| `Engine/Calibration.lua` | **new** | Model vs reality per spell / event kind. Reports drift; **never feeds back** into the model. |
 | `Engine/PullBudget.lua` | **new** | "How many more pulls before I drink", from persisted fight history. |
-| `UI/Dashboard_Waste.lua` | **new** | The waste view: where mana went and where healing was wasted. |
-| `Engine/Overheal.lua` | **change** | Gains event-kind (tick / direct / bloom), role, class and per-target dimensions; wasted-mana accounting. |
-| `Engine/RankMath.lua` | **change** | HP5 redefined; `EventPrediction()` for calibration; Lifebloom rolling rows use the tick-scope overheal. |
-| `Engine/TTO.lua` | **change** | The `OOM 0s` fix; a confidence gate on the point estimate. |
-| `UI/Summary.lua` | **change** | Per-spell spend breakdown per fight; roster line at the pull. |
-| `UI/Dashboard.lua` | **change** | `currentFamily` -> `currentView`; a "Waste" tab; default view from actual usage. |
+| `UI/Dashboard_Waste.lua` | **new** | The Waste view: where mana went, where healing was wasted. |
+| `Engine/Overheal.lua` | **change** | Event-kind, role, class and per-target buckets; wasted-mana accounting. |
+| `Engine/RankMath.lua` | **change** | HP5 redefined; `EventPrediction()`; Lifebloom rolling rows use tick-scope overheal. |
+| `Engine/TTO.lua` | **change** | The `OOM 0s` fix; confidence gate on the point estimate. |
+| `UI/Summary.lua` | **change** | Per-spell spend per fight; roster line at the pull; passes kind + destGUID. |
+| `UI/Dashboard.lua` | **change** | `currentFamily` -> `currentView`; Waste tab; default view from usage. |
 | `UI/DebugConsole.lua` | **change** | Copy prepends `MD:Snapshot()`; shown-string-change logging. |
+| `UI/Advisor.lua` | **change** | Names the same cooldown the clock names; says why a cheaper one fires first. |
+| `Engine/SpendTracker.lua` | **change** | `cast` debug line: Naturalist only on Healing Touch; adds the Nature's Grace rank. |
 | `Verify.lua` | **change** | `/md calibrate`, `/md export`. |
-| `Engine/SpendTracker.lua` | **change** | The `cast` debug line's Naturalist bug. |
-| `UI/Advisor.lua` | **change** | Name the same cooldown the clock names, and say why a cheaper one fires first. |
 
-### 1.2 Load order (`ManaDemon.toc`)
+### 1.3 Load order (`ManaDemon.toc`)
 
 ```
 Core.lua
 Data\SpellData.lua
 Engine\RegenModel.lua
 Engine\SpendTracker.lua
-Engine\Targets.lua          <- new: needs Core only
+Engine\Targets.lua          <- new: Core only
 Engine\Overheal.lua         <- now reads Targets
 Engine\ManaCooldowns.lua
 Engine\TTO.lua
 Engine\RankMath.lua
-Engine\Calibration.lua      <- new: reads RankMath + Overheal, AFTER both
-Engine\PullBudget.lua       <- new: reads Summary's history at call time
+Engine\Calibration.lua      <- new: reads RankMath and Overheal, so after both
+Engine\PullBudget.lua       <- new: reads MD.fightHistory at call time
 UI\Style.lua
 UI\Tooltip.lua
 UI\Widget.lua
 UI\Dashboard_Rows.lua
 UI\Dashboard_Simulate.lua
-UI\Dashboard_Waste.lua      <- new
+UI\Dashboard_Waste.lua      <- new: exports MD.DashboardParts.CreateWaste
 UI\Dashboard.lua
-...unchanged...
+UI\OptionsFrame.lua ... Verify.lua   (unchanged order)
 ```
 
-### 1.3 The one architectural rule for C1
+### 1.4 The one architectural rule for C1
 
 **Calibration reads the model; the model never reads calibration.**
 
 It would be easy to have `RankMath` multiply its output by the observed drift ratio and
 call the numbers "corrected". That would be wrong: the dashboard would then always agree
-with reality while the underlying `Data/SpellData.lua` stayed wrong, and every real
-finding (a missing relic, a wrong coefficient, an unmodelled talent) would be silently
-absorbed instead of surfaced. Drift is a **report to a human**, who fixes the data. This
-is what turned the Idol of Rejuvenation from "Rejuv runs 3% high" into a table entry.
-
-### 1.4 Data flow after v0.6
-
-```
-COMBAT_LOG (one handler, UI/Summary.lua)
-  |-- Overheal:Record(spellID, kind, amount, overheal, destGUID)
-  |     `-- Targets:Lookup(destGUID) -> class, role      -> per role/class/target buckets
-  |-- Calibration:Observe(spellID, kind, amount, crit)
-  |     `-- RankMath:EventPrediction(spellID)            -> ratio observed/predicted
-  |-- fight totals + per-spell spend
-  `-- "heal" debug category
-```
+with reality while `Data/SpellData.lua` stayed wrong, and every real finding — a missing
+relic, a wrong coefficient, an unmodelled talent — would be silently absorbed instead of
+surfaced. Drift is a **report to a human**, who fixes the data. This is how the Idol of
+Rejuvenation went from "Rejuv runs 3% high" to a table entry; C1 automates the noticing,
+not the fixing.
 
 ---
 
 ## 2. F1 — HP5 redefined: sustained while chain-casting
 
 **Author's definition:** healing per 5s sustainable on regenerated mana alone **while
-still casting**, i.e. permanently inside the five-second rule.
+still casting** — permanently inside the five-second rule.
 
-Today's formula lets you drop out of the FSR between casts and collect full regen — a
-different and more optimistic question. Replace it:
+Today's formula lets you drop out of the FSR between casts and collect full regen: a
+different, more optimistic question. Replace it:
 
 ```
 T    = max(cost / castingRegen, castTime)
 HP5  = 5 * heal / T
 ```
 
-In the normal case (a spell costs more than regen delivers during its own cast) this is
+In the normal case — a spell costs more than regen delivers during its own cast — this is
 
 ```
 HP5 = 5 * castingRegen * HPM
 ```
 
-so **HP5 rank-orders exactly like HPM**. That is not a defect — it converts HPM into
-interpretable units — but the tooltip must say it, or the column implies information it
-does not carry. When regen outruns the spell's cost rate the cast time binds instead and
-HP5 = 5 x HPS (you are mana-positive).
+so **HP5 rank-orders exactly like HPM.** That is not a defect (it converts HPM into
+interpretable units) but the tooltip must say it, or the column implies information it does
+not carry. When regen outruns the spell's cost rate, cast time binds and HP5 = 5 x HPS.
 
-At the log's 142 mp5 casting regen:
+**Worked values** at the log's 142 mp5 casting regen (28.33/s), heal figures illustrative:
 
-| | today | new |
-|---|---|---|
-| Lifebloom (176) | T 5.5s | **T 6.2s** |
-| Rejuvenation (296) | T 7.2s | **T 10.4s** (−30% HP5) |
+| spell | cost | today's T | new T | change |
+|---|---|---|---|---|
+| Lifebloom | 176 | 5.5s | **6.2s** | −11% HP5 |
+| Swiftmend | 217 | 6.1s | **7.7s** | −21% |
+| Rejuvenation | 296 | 7.2s | **10.4s** | −30% |
+| Regrowth | 460 | 9.6s | **16.2s** | −41% |
+
+The expensive spells lose most — correct, since chain-casting them in the 5SR is exactly
+where the old formula's out-of-FSR regen was doing the heavy lifting.
 
 `ctx.SustainedInterval` becomes `ctx.ChainInterval`; the old formula survives as
-`ctx.LapsedInterval`, shown in the row tooltip as "if you let the 5SR lapse between
-casts: X" — the honest ceiling.
+`ctx.LapsedInterval`, both in `row.calc`. Row tooltip:
+
+```
+| HP5   sustained, chain-casting in the 5SR      186  (one cast per 10.4s)     |
+|       = 5 x 142 mp5 x 4.21 HPM / 5 -- HP5 orders exactly like HPM            |
+|       if you let the 5SR lapse between casts:  270  (one per 7.2s)           |
+```
 
 ---
 
 ## 3. F2 — The clock: stop fabricating zero, stop fabricating precision
 
-### 3a. The `OOM 0s vv` false alarm (bug, seen 9+ times at 72–97% mana)
+### 3a. The `OOM 0s vv` false alarm
 
-`hold` sets `s.bound`, not `s.tto`. The mode latch deliberately holds `disp.mode == "oom"`
-for two ticks when news improves, so during that window the display layer reads
-`state.tto`, gets `nil`, and `Engine/TTO.lua`'s `v = v or 0` turns "no value" into "zero
-seconds" — straight into the `< 20s` critical band, in red, on every surface. v0.5.2's
-cooldown segment then appended `inn >10m` to it.
+**Bug, measured:** red `OOM 0s vv` at 72–97% mana, 9+ times in one run, always on an
+`oom -> hold` transition.
 
-Fix, in two places:
+```
+09:00:00 [tto] mode oom -> hold (shown: OOM 0s vv  inn >10m)  | mana 5518/7009
+```
+
+**Mechanism, derived:** `hold` sets `s.bound`, not `s.tto`. The mode latch deliberately
+holds `disp.mode == "oom"` for two ticks when news *improves*, so during that window the
+display layer reads `state.tto`, gets `nil`, and `Engine/TTO.lua`'s `v = v or 0` turns "no
+value" into "zero seconds" — into the `< 20s` critical band, red, on every surface.
+v0.5.2's cooldown segment then appended `inn >10m` because `v <= 90` is true of 0.
+
+**Fix, two places:**
 * The tick keeps the previous shown value when the latched mode has no value in the
-  current state, instead of nil-ing it (`disp.stale = true`).
-* `GetDisplayString` renders `GREY "OOM --"` when there is genuinely no value, matching
-  the existing `FULL --` idiom. **`v or 0` is deleted.**
+  current state (`disp.stale = true`) instead of nil-ing it.
+* `GetDisplayString` renders grey `OOM --` when there is genuinely no value, matching the
+  existing `FULL --` idiom. **`v or 0` is deleted.**
 
 ### 3b. Confidence gate on the point estimate
 
-`Compute()` gains
-
 ```
-s.rel       = sigma / net           -- relative error of the projection (net > 0)
-s.confident = s.rel <= db.oomConfidence
+s.rel       = sigma / net                 -- relative error of the projection (net > 0)
+s.confident = s.rel <= db.oomConfidence   -- default 0.7
 ```
 
-When not confident, the display shows the one-sided bound (`OOM >Nm`, already implemented
-for `hold`) instead of a point estimate, and `rest` is shown unconditionally rather than
-only when it differs from the primary by 25%.
+| state | today | v0.6 |
+|---|---|---|
+| oom, confident | `OOM 2:00 v  rest 35s` | unchanged |
+| oom, **not** confident | `OOM 8:00 =  rest 22s` (the 8:00 is ±100%) | `OOM >5m =  rest 22s` |
+| oom, not confident, cooldown ready & worth it | `OOM 1:00 =  inn 3:30` | unchanged — the `inn` gate already requires `v <= 90`, which implies confidence in practice |
+| hold | `OOM >10m =  rest 8s` | unchanged |
+| latched oom, state moved on, no value | **`OOM 0s vv`** | `OOM --  rest 22s` |
 
-`db.oomConfidence` default **0.7**, *derived from a single level-61 dungeon* — recorded as
-provenance, not truth. At 0.7 the hard pull keeps 6 of its 7 samples (the one it drops is
-the warm-up `~5:00`, already marked `~`) and 80% of the quiet chatter goes away.
+When not confident, `rest` shows **unconditionally** rather than only when it differs from
+the primary by 25% — the primary is a bound now, not a number to compare against.
+
+`db.oomConfidence` default **0.7** is *derived from a single level-61 dungeon* and is
+recorded as provenance, not truth. At 0.7 the hard pull keeps 6 of its 7 samples (the one it
+drops is the warm-up `~5:00`, already marked `~`) and 80% of the quiet chatter goes away.
 **Re-derive from the first heroic and raid logs.**
 
-This is deliberately *not* a change to `K_SIGMA` or `CV_STABLE`, which stay open (§1a of
-`docs/PLAN.md`): the mode logic is fine, only the decision to print digits was wrong.
+Deliberately *not* a change to `K_SIGMA` or `CV_STABLE` (`docs/PLAN.md` §1a stays open):
+the mode logic was right; only the decision to print digits was wrong.
 
 ---
 
 ## 4. F3 — C1: continuous self-calibration
 
-### 4.1 What is compared
+### 4.1 What is compared, and why per event
 
 The combat log reports the amount the server actually computed. `RankMath` predicts it.
-Compare per **event**, not per cast, split three ways so nothing is averaged that should
-not be:
+Compare per **event**, split three ways so nothing is averaged that should not be:
 
-| kind | source | predicted by |
+| kind | combat-log source | predicted by |
 |---|---|---|
-| `direct` | `SPELL_HEAL` from a direct/hybrid spell | direct portion, **crit stripped** |
+| `direct` | `SPELL_HEAL` from a direct or hybrid spell | direct portion, **crit stripped** |
 | `tick` | `SPELL_PERIODIC_HEAL` | HoT total / tick count |
-| `bloom` | `SPELL_HEAL` from Lifebloom | bloom portion |
+| `bloom` | `SPELL_HEAL` whose spellID is Lifebloom | bloom portion |
 
 Crits are separated rather than averaged: `RankMath`'s direct heal carries an expected
-`(1 + 0.5 x crit)` factor, which cannot be compared to an individual event. So non-crit
-events are compared against the non-crit prediction, and the **crit rate itself** becomes
-a second, independent check against `GetSpellCritChance(4)`.
+`(1 + 0.5 x crit)` factor, which cannot be compared to an individual event. Non-crit events
+go against the non-crit prediction; the **crit rate** itself becomes an independent second
+check against `GetSpellCritChance(4)`.
 
 ### 4.2 `RankMath:EventPrediction(spellID)`
 
-Sits on the Context/RowFor split from v0.5.0 — the terms already exist in `row.calc`:
+Sits on the v0.5.0 Context/RowFor split — every term already exists in `row.calc`:
 
 ```lua
--- { direct = <non-crit direct heal>, tick = <per-tick>, bloom = <bloom>,
---   ticks = <n>, critMult = <1 + 0.5*crit> }
+-- returns { direct = <non-crit direct>, tick = <per tick>, bloom = <bloom>,
+--           ticks = <n>, critMult = <1 + 0.5 * crit>, stacks = <Lifebloom stack count or nil> }
 function RankMath:EventPrediction(spellID)
 ```
+
+**Lifebloom ticks scale with stack count** (the log shows 99 and 198 on the same target —
+x1 and x2). The stack count is not in the combat log, so Lifebloom ticks are calibrated
+per-target using the last observed tick as a stack estimate, or skipped when ambiguous.
+This is the one messy case, and it is called out rather than smoothed over.
 
 ### 4.3 `Engine/Calibration.lua`
 
 ```lua
-CAL.stats[key] = { n, obs, pred, obsSq }   -- key = "<spellID>:<kind>"
-function CAL:Observe(spellID, kind, amount, crit)   -- crit events skipped for amounts
-function CAL:Ratio(spellID, kind)                   -- -> ratio, n
-function CAL:Report()                               -- lines for /md calibrate and /md profile
+CAL.stats["<spellID>:<kind>"] = { n = 44, obs = 19580, pred = 18964, obsSq = ... }
+CAL.crit["<spellID>"]         = { events = 20, crits = 13 }
+
+function CAL:Observe(spellID, kind, amount, crit)   -- crits counted, not compared
+function CAL:Ratio(spellID, kind)                   -- -> ratio, n, sigma
+function CAL:Report()                               -- lines: /md calibrate, /md profile
 ```
 
 **No decay.** The statistic is a *ratio*, so it is gear-invariant: when +healing rises,
-both observed and predicted rise together. Drift therefore means a model error, which is
+observed and predicted rise together. Anything that accumulates is therefore a model error —
 exactly what should accumulate. Reset on `TALENTS_CHANGED` (the model itself changed) and
 by hand.
 
-**Known noise sources, documented not hidden:**
+**Known noise, documented not hidden:**
 * A HoT tick lands up to 21s after the cast; the prediction is made at *event* time. Tree
-  of Life's aura is dynamic (measured), so this is usually right — but events within 2s of
-  a `FORM_CHANGED` are **excluded**.
-* External +healing buffs the client does not report would show as uniform drift across
-  every spell, which is itself a useful signal.
+  of Life's aura is dynamic (measured), so this is usually right, but events within 2s of a
+  `FORM_CHANGED` are **excluded**.
+* An external +healing buff the client does not report shows as uniform drift across every
+  spell — which is itself the useful signal.
 
-### 4.4 Output
+### 4.4 Worked example: how this would have found the relic
 
-* `/md calibrate` — per spell/rank/kind: n, observed mean, predicted mean, ratio, verdict.
-* A section in `/md profile` and a `calib` debug category.
-* **A drift alert**: ratio off by >5% with n >= 30 fires once per session per spell —
-  *"Rejuvenation R12 is healing 3% above the model over 44 ticks (check SpellData / relic)."*
-  This is the mechanism that would have found the Idol of Rejuvenation without a
-  hand-run test, and it is the project's answer to "verification needs the author".
+```
+Rejuvenation R12, tick, +450 healing, Tree form, Gift of Nature 5, Imp Rejuv 3:
+  predicted per tick   (932 + 450 x 0.8 x 1.20) x 1.10 x 1.15 / 4   = 431
+  observed mean, 44 ticks                                            = 445
+  ratio 1.032   n = 44   -> drift alert (threshold 5%? no -- see below)
+```
+
+At 3.2% this sits under the 5% alert line — so the alert threshold is **3%**, with n >= 30,
+and it fires once per session per spell:
+
+> *Rejuvenation R12 is healing 3.2% above the model over 44 ticks. Check SpellData, the
+> relic table, or an unmodelled buff — `/md calibrate` for the table.*
+
+### 4.5 Output
+
+```
+/md calibrate
+  spell                kind    n     observed   predicted   ratio   verdict
+  Lifebloom R1         tick    1624       97.3        97.0   1.003   ok
+  Lifebloom R1         bloom     18      993.9       991.2   1.003   ok
+  Rejuvenation R12     tick     151      481.2       466.0   1.033   HIGH  <- check relic / data
+  Regrowth R9          direct    20     1921.4      1904.7   1.009   ok    (7 crits of 20 = 35%; API says 24%)
+  Regrowth R9          tick     133      242.5       243.0   0.998   ok
+  Swiftmend            direct    12     1925.8      1918.3   1.004   ok
+  Healing Touch R11    direct     1        -           -       -     too few
+```
+
+Plus a `calib` debug category and a section in `/md profile`.
 
 ---
 
-## 5. F4 — A: where the mana went and where the healing was wasted
+## 5. F4 — A: where the mana went, where the healing was wasted
 
 ### 5.1 `Engine/Targets.lua` — who was that heal on
 
-Role is **read, not inferred**. `UnitButton_Vanilla.lua` (the file `Cell_TBC.toc` actually
-loads) calls `UnitGroupRolesAssigned(unit)` unguarded, and `roleIcon` ships enabled by
-default in `Layout_Defaults_TBC_Vanilla.lua` — Cell would not do that if the API returned
-nothing on this client. Source order:
+Role is **read, not inferred.** `RaidFrames/UnitButton_Vanilla.lua` — the file
+`Cell_TBC.toc` actually loads — calls `UnitGroupRolesAssigned(unit)` unguarded, and
+`roleIcon` ships **enabled by default** in `Layout_Defaults_TBC_Vanilla.lua`. Cell would not
+do that if the API returned nothing on this client. Source order:
 
-1. `UnitGroupRolesAssigned(unit)` — exact, and it solves feral druids outright because it
-   is the player's own assignment, not a reading of their talents.
-2. `GetPartyAssignment("MAINTANK" / "MAINASSIST", unit)` — the raid-side signal; Cell
-   ships a "Party Assignment Icon" next to the role icon for exactly this.
-3. Class-implied, for the classes with only one option (Mage, Warlock, Rogue, Hunter).
-4. `UNKNOWN`.
+| # | source | covers | roleSource |
+|---|---|---|---|
+| 1 | `UnitGroupRolesAssigned(unit)` | the player's own selection; solves ferals outright | `assigned` |
+| 2 | `GetPartyAssignment("MAINTANK" / "MAINASSIST", unit)` | raid-side; Cell ships a "Party Assignment Icon" for exactly this | `partyassign` |
+| 3 | class-implied | Mage, Warlock, Rogue, Hunter -> DAMAGER | `class` |
+| 4 | — | everything else | `unknown` |
 
 ```lua
-Targets.byGUID[guid] = { name, class, role, roleSource }  -- "assigned"|"partyassign"|"class"|"unknown"
-function Targets:Lookup(guid)      -- also resolves the player and pets
+Targets.byGUID[guid] = { name = "Dëstroyka", class = "WARRIOR", role = "TANK", roleSource = "assigned" }
+function Targets:Lookup(guid)      -- also resolves the player and pets (pet -> owner's role, class "PET")
 ```
 
-Rebuilt on `GROUP_ROSTER_UPDATE` / `PLAYER_ENTERING_WORLD`. **`roleSource` is carried into
-every report**: a role that was guessed must never be presented like one that was read.
+Rebuilt on `GROUP_ROSTER_UPDATE` / `PLAYER_ENTERING_WORLD`. **`roleSource` travels into
+every report:** a guessed role is never presented like a read one.
 
 `UnitGroupRolesAssigned` returns what someone *selected*, so a guild premade may be all
-`NONE`. How often that happens is unknown — `Targets` logs the roster with class, role and
-source at each pull (F6), and one night of logs settles whether the fallback is an edge
-case or the common path. **This is why F6 ships before this feature.**
+`NONE`. How often that happens in the author's groups is unknown — `Targets` logs the roster
+at each pull (F6), and one night of logs settles whether the fallback is an edge case or the
+common path. **This is why F6 ships before this feature.**
+
+Talent-based inference was rejected outright: it cannot separate a feral tank from a feral
+cat, and the author raised exactly that case.
 
 ### 5.2 `Engine/Overheal.lua` — new dimensions
 
-Existing keys (`f:<family>`, `s:<spellID>`) keep working; saved data stays valid.
+Existing keys keep working; saved data stays valid.
 
-| key | dimension | persisted |
-|---|---|---|
-| `f:<family>`, `s:<id>` | as today | yes |
-| `k:<id>:<kind>` | tick vs direct vs bloom | yes |
-| `r:<role>` | tank / healer / damager / unknown | yes |
-| `c:<class>` | target class | yes |
-| `u:<guid>` | individual target | **session only** (pruned at each roster change) |
+| key | dimension | persisted | needed by |
+|---|---|---|---|
+| `f:<family>`, `s:<id>` | as today | yes | effective mode (v0.5.3) |
+| `k:<id>:<kind>` | tick / direct / bloom | yes | **calibration (F3) and Lifebloom economics (F5)** |
+| `r:<role>` | TANK / HEALER / DAMAGER / UNKNOWN | yes | Waste by role |
+| `c:<class>` | target class | yes | Waste by class |
+| `u:<guid>` | one target | **session only**, pruned on roster change | Waste by target |
 
-Plus wasted-mana accounting: an event with `gross > 0` and `effective == 0` is fully
-wasted, and its share of the cast's mana is `cost / ticks`. Per fight and per spell.
+**Wasted-mana accounting.** An event with `gross > 0` and `effective == 0` is fully wasted;
+its share of the cast's mana is attributed:
 
-Why the author asked for role and class: overhealing a tank is usually fine, a DPS is
-not, yourself is a judgement call — and some classes self-heal while a warlock's Life Tap
-makes a pre-emptive HoT *correct*. That last one is measurable rather than assumed:
-Life Tap is a visible combat-log event, so "targets that reliably make room" is a
-statistic, not a rule of thumb. **Deferred to v0.6.4** — it needs the rest first.
+```
+single-target HoT tick :  cost / ticks                 Lifebloom 176 / 7 = 25 mana per wasted tick
+direct heal            :  cost
+AoE tick (Tranquility) :  cost / (ticks x targets)      780 / (4 x 5) = 39 per wasted tick-on-a-target
+Lifebloom bloom        :  0  (the cast's mana is already on its ticks)
+```
+
+Measured in the log: 431 wasted Lifebloom ticks ≈ 10.8k, 64 Regrowth ticks ≈ 4.2k, 50
+Rejuvenation ticks ≈ 3.7k — **~19k of 79.7k mana (24%) went into targets at full health.**
+
+**Why role and class, in the author's words:** overhealing a tank is usually fine, a DPS is
+not, yourself is a judgement call; some classes self-heal, while a warlock's Life Tap makes a
+pre-emptive HoT *correct*. That last one is measurable rather than assumed — Life Tap is a
+visible combat-log event, so "targets that reliably make room" becomes a statistic. Deferred
+to **v0.6.4**.
 
 ### 5.3 `UI/Dashboard_Waste.lua` — the view
 
-The dashboard's tab row currently switches spell families. It becomes a **view** switch,
-with `Waste` after the four families. Reuses the frame, the tab group and the row pool.
+The dashboard's tab row switches spell families today. It becomes a **view** switch, with
+`Waste` after the four families; reuses the frame, the tab group and the row pool.
+`currentFamily` becomes `currentView`.
 
 ```
-+-[ Healing Touch ][ Lifebloom ][ Rejuvenation ][ Regrowth ][ Waste ]-----[ Settings ]-+
-| by:  [ Spell ][ Role ][ Class ][ Target ]          this session / last 20 fights     |
-|                                                                                      |
-| Spell            Casts   Mana    Healing   Overheal   Wasted mana   Fully wasted     |
-| Lifebloom          245  43296     277044      38.2%         16535          412 ticks |
-| Rejuvenation        44  13024     105370      45.0%          5860           98 ticks |
-| Regrowth (direct)   20   9200      38427      10.8%           994            3 casts |
-| Regrowth (hot)       -      -      32258      51.2%          4712           61 ticks |
-+--------------------------------------------------------------------------------------+
++-[ Healing Touch ][ Lifebloom ][ Rejuvenation ][ Regrowth ][ Waste ]--------[ Settings ]-+
+| by:  [ Spell ][ Role ][ Class ][ Target ]                  scope: [ session ][ 20 fights ] |
+|                                                                                          |
+| Spell               Casts    Mana   Healing  Overheal   Wasted mana   Fully wasted        |
+| Lifebloom (ticks)     245   43296    259154     38.2%        10837     431 ticks           |
+| Lifebloom (bloom)       -       -     17890     49.8%            -       7 blooms          |
+| Rejuvenation           44   13024     72654     45.0%         3700      50 ticks           |
+| Regrowth (direct)      20    9200     38427     10.8%            0       0 casts           |
+| Regrowth (HoT)          -       -     32258     51.2%         4206      64 ticks           |
+| Swiftmend              12    2604     23110     25.7%            0       0                 |
+| Tranquility             1     780     20372     50.6%          351       9 tick-targets    |
+|                                                                                          |
+| 79.7k spent this session, ~19.1k (24%) into targets at full health.                       |
++------------------------------------------------------------------------------------------+
 ```
 
-`by: Role` and `by: Class` swap the first column and drop Casts/Mana (a heal's mana is
-attributed to the spell, not the target). `by: Target` lists individuals with their role
-and a marker when the role was guessed.
+`by: Role` and `by: Class` drop Casts and Mana (mana belongs to the spell, not the target):
 
-**Also here:** the per-fight spend breakdown, so the ~7% spent on Mark of the Wild,
-Thorns, dispels and form shifts stops being invisible.
+```
+| Role                Healing  Overheal   Wasted mana   Targets                             |
+| TANK                 318355     40.6%        11.2k    Dëstroyka                            |
+| DAMAGER               85394     22.5%         3.1k    Alkandari, Abufaisall  (+1 guessed) |
+| HEALER (you)          44825     46.4%         4.4k    Penek                               |
+| UNKNOWN               20444     44.7%         0.4k    Trécoda, Water Elemental             |
+```
+
+```
+| Target              Class      Role          Healing  Overheal   Wasted mana              |
+| Dëstroyka           Warrior    TANK           318355     40.6%        11.2k                |
+| Alkandari           Mage       DAMAGER         65629     22.0%         2.3k                |
+| Penek               Druid      HEALER          44825     46.4%         4.4k                |
+| Trécoda             Paladin    DAMAGER?        19765     42.9%         0.3k   role guessed |
+| Abufaisall          Warlock    DAMAGER         17970     21.0%         0.8k                |
+| Water Elemental     pet        (Alkandari)       679    100.0%         0.1k                |
+```
+
+The `?` and *role guessed* markers are `roleSource ~= "assigned"` made visible.
+
+**Also here:** the per-fight spend breakdown, so the ~7% on Mark of the Wild, Thorns,
+dispels and form shifts stops being invisible. Fight summary line gains a `top:` clause:
+
+```
+0:40 || net -508 mp5 || spent 6.2k (LB 52%, RG 22%, RJ 14%, other 12%) || overheal 21% || ...
+```
 
 ---
 
@@ -338,115 +456,193 @@ Thorns, dispels and form shifts stops being invisible.
 it bloom may beat letting it bloom — the opposite of the usual advice.
 
 The rolling-stack rows already exist in `RankMath` but are excluded from comparison as
-"informational". With the `k:<id>:<kind>` overheal split from §5.2 they become answerable:
+"informational". With `k:<id>:<kind>` from §5.2 they become answerable:
 
-* single application -> tick overheal on the HoT portion, bloom overheal on the bloom
-* rolling xN -> tick overheal only
+```
+single application  : 7 ticks x (1 - 0.382) + bloom x (1 - 0.498)     effective per 176 mana
+rolling x1 refresh  : 6 ticks x (1 - 0.382)                           effective per 176 mana
+rolling x3 refresh  : 6 ticks x 3 x (1 - 0.382)                       effective per 176 mana
+```
 
-and both get honest effective HPM. They stay out of the Pareto filter (they are a
-different activity from a single cast) but the callout line can finally state which is
-better **for this player's measured overheal**, which is the whole point.
+Worked, with the log's tick 99 and bloom 994 at x1:
+
+| mode | raw heal / cast | effective / cast | eff HPM |
+|---|---|---|---|
+| single (7 ticks + bloom) | 1687 | 428 + 499 = **927** | 5.27 |
+| rolling x1 (6 ticks, no bloom) | 594 | **367** | 2.09 |
+| rolling x3 (18 ticks) | 1782 | **1101** | 6.26 |
+
+So at the author's measured overheal, a maintained 3-stack beats a single cast on effective
+HPM, and a 1-stack roll is a poor use of mana. The callout line states it for **this
+player's measured overheal**; the rows stay out of the Pareto filter (a different activity
+from a single cast).
 
 ---
 
 ## 7. F6 — D1: logs that answer next time's questions
 
 Analysing `dungeon-BF-1.txt` needed regex over prose, and three questions were
-unanswerable: was Nature's Grace even talented, was the potion actually drunk, and how
-often did the *shown* string really change. So:
+unanswerable: was Nature's Grace even talented, was the potion actually drunk, how often did
+the *shown* string really change.
 
-1. **Copy prepends `MD:Snapshot()`** — every pasted log becomes self-describing (version,
-   talents, stats, relic, form, settings). Single highest-value change here.
-2. **Roster line at each pull**: name, class, role, roleSource for the whole group.
-3. **Log the shown string when it changes**, not only every 5s — jumpiness becomes
-   measurable instead of estimated.
-4. **Log cooldown consumption** (potion / Innervate actually used).
-5. **`cast` line carries the Nature's Grace talent rank**, and stops subtracting
-   Naturalist from every spell — it only applies to Healing Touch (harmless today at rank
-   0, wrong the moment the author respecs).
-6. **`/md export`** — TSV, no quoting problems: fights, per-spell overheal, calibration,
-   roster. For analysis rather than reading.
+| # | change | line format |
+|---|---|---|
+| 1 | **Copy prepends `MD:Snapshot()`** — every pasted log becomes self-describing | the existing snapshot block, then `--- log ---` |
+| 2 | roster at each pull | `[combat] roster: Dëstroyka WARRIOR TANK(assigned), Alkandari MAGE DAMAGER(class), Trécoda PALADIN UNKNOWN, ...` |
+| 3 | shown string on **change**, not only every 5s | `[tto] shown: 'OOM 2:00 v  rest 35s' (was 'OOM 3:00 =  rest 35s', 4.9s)` |
+| 4 | cooldown consumption | `[spend] cooldown used: Major Mana Potion (+2250 -> 5891/7009)` |
+| 5 | `cast` line: Naturalist only on Healing Touch, Nature's Grace rank shown | `[cast] Regrowth R9: live 2.00s - model 2.00s (NG rank 0: no reduction expected)` |
+| 6 | `/md export` — TSV, no quoting problems | see below |
+
+```
+/md export
+# manademon 0.6.x  Penek-Realm  DRUID 64  2026-09-05 09:21
+# fights
+t	zone	dur	spent	netMp5	overheal	oomAt
+1757062360	Hellfire Citadel	40.3	6198	-508	0.216	
+...
+# overheal
+key	n	healed	overhealed
+f:Lifebloom	1642	176106	107856
+k:33763:tick	1624	160216	98938
+r:TANK	...
+# calibration
+spell	kind	n	obs	pred
+...
+```
+
+The `cast` Naturalist bug is real: the debug line subtracts Naturalist from every spell,
+but the talent only affects Healing Touch. Harmless today at rank 0, wrong the moment the
+author respecs.
 
 ---
 
 ## 8. F7 — B1: pull budget
 
-`Engine/PullBudget.lua`, from the persisted `MD.cdb.fights` (zone-preferred, as the seed
-already is): median mana cost per pull, and how many the current pool affords.
+`Engine/PullBudget.lua`, from the persisted `MD.cdb.fights` (zone-preferred, as the pull
+seed already is):
 
-> *62% — recent pulls here cost ~2.3k — 2 more, or 4 after a drink.*
+```
+perPull  = median(spent) over the last 5 fights in this zone (>= 2), else overall
+afford   = floor(mana / perPull)
+afterDrink = floor(manaMax / perPull)
+```
 
-Shown in the widget tooltip and as the out-of-combat line. **Rationale:** the author
-ignored all four potion alerts in the log, and the likely reason is that the alert
-answered "is this potion efficient?" when the question being asked was "can I pull
-again?". Fights are 17–45s with drinking between; the pull is the unit of decision.
+Out of combat, replacing the bare mana readout in the widget tooltip and — when below the
+drink threshold — the drink reminder's text:
+
+```
+62% -- recent pulls here cost ~2.3k -- 2 more, or 4 after a drink.
+```
+
+**Rationale, measured:** all four potion alerts in the log went unanswered. The likely reason
+is that the alert answered "is this potion efficient?" when the question being asked was
+"can I pull again?". Fights are 17–45s with drinking between; **the pull is the unit of
+decision** in 5-man content. This does not replace the OOM clock — it sits beside it, for
+the 90% of time the clock (rightly) has nothing to say.
 
 ---
 
 ## 9. F8 — small fixes (v0.6.0)
 
-* **Default dashboard view from actual usage** — it opens on Healing Touch, cast once in
-  29 minutes. Pick the most-cast family from the spend tracker instead.
-* **Advisor / clock name the same cooldown.** On the hard pull the clock advertised
-  `inn 3:30` while the advisor alerted the potion. Both were defensible (the clock shows
-  the richest ready source, the advisor fires when nothing would be wasted), but the
-  messages contradict. The advisor should say *why* the cheaper source fires first.
+* **Default dashboard view from actual usage.** It opens on Healing Touch, cast once in 29
+  minutes. Pick the most-cast family from the spend tracker's session counts; fall back to
+  the max-rank family with the most casts in persisted history; then Healing Touch.
+* **Advisor and clock name the same cooldown.** On the hard pull the clock advertised
+  `inn 3:30` while the advisor alerted the potion. Both were defensible — the clock shows the
+  richest *ready* source, the advisor fires when nothing would be *wasted* — but the messages
+  contradict. The advisor says why:
+
+  > *Major Mana Potion now — you're down 2400 (worth ~2250, none wasted). Innervate is
+  > ready too but worth ~5400: hold it until you're down that far.*
 
 ---
 
-## 10. Data model
+## 10. Settings and data
 
-New `MD.cdb`: `calibration` (map), and `overheal` gains the key families in §5.2.
-New `MD.db`: `oomConfidence` (0.7).
+New `MD.db`:
 
-`u:<guid>` overheal buckets are session-only and pruned on roster change, so
-SavedVariables cannot grow with every stranger healed in a pug.
+| key | default | where | provenance |
+|---|---|---|---|
+| `oomConfidence` | `0.7` | Options > Model, slider 0.3–1.5 | dungeon-BF-1, **re-derive** from heroic/raid |
+| `calibAlert` | `0.03` | Options > Model | the Idol case was 3.2% |
+| `wasteScope` | `"session"` | Waste view toggle | — |
+| `debug.categories.calib` | `true` | Debug Console | — |
+
+New `MD.cdb`: `calibration` (map, see §4.3). `overheal` gains the key families in §5.2;
+`u:<guid>` buckets are session-only so SavedVariables cannot grow with every stranger
+healed in a pug.
+
+Options > Model grows by a slider and a checkbox; General tab height 350 -> ~400.
 
 ---
 
 ## 11. Delivery order
 
-| Version | Contents | Visible change |
+| version | contents | visible change |
 |---|---|---|
-| **v0.6.0** | F1 HP5, F2 clock (both halves), F8 small fixes | no more red `OOM 0s`; quiet fights stop showing invented digits; HP5 drops ~10–30% |
-| **v0.6.1** | F6 logging + `Engine/Targets.lua` | richer logs; roster visible at each pull |
+| **v0.6.0** | F1 HP5, F2 both halves, F8 | no red `OOM 0s`; quiet fights stop showing invented digits; HP5 drops 10–40%; dashboard opens on Lifebloom |
+| **v0.6.1** | F6 logging + `Engine/Targets.lua` | richer logs; roster at each pull; `/md export` |
 | **v0.6.2** | F3 `Engine/Calibration.lua`, `/md calibrate`, drift alerts | the model starts checking itself |
 | **v0.6.3** | F4 Overheal dimensions, wasted mana, `UI/Dashboard_Waste.lua`, spend breakdown | the Waste view |
-| **v0.6.4** | F5 Lifebloom economics; Life Tap detection | rolling-vs-bloom finally answered |
+| **v0.6.4** | F5 Lifebloom economics; Life Tap detection | rolling-vs-bloom answered |
 | **v0.6.5** | F7 pull budget | the between-pulls readout |
-| **v0.6.6** | `/md export`, docs, TESTING for the new surface | — |
+| **v0.6.6** | docs, TESTING for the new surface | — |
 
-**F6 before F4** is deliberate: the waste report's role dimension rests on
-`UnitGroupRolesAssigned` returning real values in the author's groups, and the roster log
-line is what proves it.
+**F6 before F4 is deliberate:** the waste report's role dimension rests on
+`UnitGroupRolesAssigned` returning real values in the author's groups, and the roster line
+is what proves it. **F3 before F4** is the author's priority.
 
 ---
 
-## 12. Open questions and what settles each
+## 12. Open questions, and what settles each
 
-| Question | Settled by |
+| question | settled by |
 |---|---|
-| Does `UnitGroupRolesAssigned` return non-`NONE` in the author's groups, and how often? | F6's roster line, one night |
+| Does `UnitGroupRolesAssigned` return non-`NONE` in the author's groups, how often? | F6 roster line, one night |
 | `db.oomConfidence` = 0.7 | re-derive from the first heroic and raid logs |
+| Lifebloom stack count for per-tick calibration | per-target last-tick estimate; ambiguous ticks skipped — check the skip rate in `/md calibrate` |
 | `K_SIGMA` / `CV_STABLE` | still `docs/PLAN.md` §1a — **untouched by v0.6** |
-| Nature's Grace 0.5s; Naturalist | the `cast` category, once a Healing Touch is cast in caster form |
-| Innervate's 400% = spirit share only | one Innervate with the `regen` category on — never cast in this log |
-| Is haste modelled anywhere? | **No.** The `cast` category will expose it if the live cast time ever undercuts the model |
+| Nature's Grace 0.5s; Naturalist | `cast` category, once Healing Touch is cast in caster form |
+| Innervate = spirit share only | one Innervate with `regen` on — never cast in this log |
+| Haste | **not modelled anywhere.** The `cast` category exposes it if live undercuts the model |
 
 ---
 
-## 13. D2 — Cell integration: investigation brief
+## 13. Calls worth arguing about before implementing
 
-Not code. The author maintains a Cell fork and has the upstream maintainer's ear, so the
-questions worth asking before any work:
+1. **Calibration per event, not per cast.** Per cast would match `RankMath`'s row directly
+   but needs cast->tick attribution across overlapping HoTs on several targets. Per event is
+   simpler and honest, at the cost of the Lifebloom stack wrinkle (§4.2).
+2. **Calibration never decays.** Gear-invariant because it is a ratio — but a *model* change
+   that is not a talent change (a new relic the table does not know) would accumulate as
+   permanent drift. That is the intended behaviour; the alert is the fix.
+3. **Role falls back to class, then unknown — not to combat-log inference.** Inference
+   (who eats boss melee) would fill the gaps but adds a mechanism that can be wrong quietly.
+   Decision: start without it, let F6 measure how often `NONE` actually happens.
+4. **F6 before F4** inverts the author's stated order by one step, for the reason in §11.
+5. **HP5 now duplicates HPM's ordering.** Keep it (interpretable units) or replace the column
+   with something carrying new information — e.g. *effective* HPM as a permanent column?
+6. **`oomConfidence` as a user-facing slider** vs an internal constant. A slider invites
+   fiddling; a constant invites being forgotten. Slider, with the provenance in its tooltip.
+7. **Per-target overheal session-only.** Persisting it would enable "Dëstroyka always eats
+   40%" across nights, at the cost of SavedVariables growing with every pug.
+
+---
+
+## 14. D2 — Cell integration: investigation brief
+
+Not code. The author maintains a Cell fork and has the upstream maintainer's ear; the
+questions to ask before any work:
 
 1. Is Cell's **indicator API** stable enough for a third-party addon to register a custom
    indicator, or is `Indicators/Custom.lua` the only supported route?
-2. Could **`LibGroupInfo` be made loadable on TBC**? It is absent from `Cell_TBC.toc`. If
-   it worked there, spec (not just role) would be available, and §5.1's fallback chain
+2. Could **`LibGroupInfo` be made loadable on TBC**? It is absent from `Cell_TBC.toc`. If it
+   worked there, *spec* (not just role) would be available, and §5.1's fallback chain
    mostly disappears.
-3. Would an **overheal-risk indicator** — "this target has taken 90% overheal from your
-   HoTs recently" — belong in Cell itself rather than as a ManaDemon overlay?
+3. Would an **overheal-risk indicator** — "this target has taken 90% overheal from your HoTs
+   recently" — belong in Cell itself rather than as a ManaDemon overlay?
 
-The natural first deliverable is read-only: ManaDemon publishes per-target overheal, Cell
-optionally displays it. No shared state, no load-order coupling.
+The natural first deliverable is read-only: ManaDemon publishes per-target overheal on
+`MD.Overheal:Target(guid)`, Cell optionally displays it. No shared state, no load-order
+coupling.
