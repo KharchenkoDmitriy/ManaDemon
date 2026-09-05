@@ -44,13 +44,34 @@ local fight = nil -- active fight state
 -- rolling Lifebloom on a tank between pulls is exactly the sort of casting
 -- whose overheal belongs in the average.
 MD:On("COMBAT_LOG_EVENT_UNFILTERED", function()
-    local _, subevent, _, sourceGUID, _, _, _, _, destName, _, _,
+    local _, subevent, _, sourceGUID, _, _, _, destGUID, destName, _, _,
         spellID, spellName, _, amount, overheal, _, critical = CombatLogGetCurrentEventInfo()
     if sourceGUID ~= MD.player.guid then return end
     if subevent ~= "SPELL_HEAL" and subevent ~= "SPELL_PERIODIC_HEAL" then return end
     amount, overheal = amount or 0, overheal or 0
 
+    -- Event kind for calibration and (v0.6.3) the overheal buckets: a periodic
+    -- event is a tick; a non-periodic Lifebloom event is its bloom; the rest
+    -- are direct heals.
+    local kind = "direct"
+    if subevent == "SPELL_PERIODIC_HEAL" then
+        kind = "tick"
+    elseif spellID and MD.SpellData.spells[spellID] and MD.SpellData.spells[spellID].family == "Lifebloom" then
+        kind = "bloom"
+    end
+
     if MD.Overheal then MD.Overheal:Record(spellID, amount, overheal) end
+    if MD.Calibration then
+        -- (a function call inside "a and f() or b" is truncated to ONE value,
+        -- which would hand calibration the NET convention's gross -- the bug
+        -- v0.5.3 already fixed once in this file)
+        local gross = amount + overheal
+        if MD.Overheal then
+            local _, g = MD.Overheal:Split(amount, overheal)
+            gross = g
+        end
+        MD.Calibration:Observe(spellID, kind, gross, critical, destGUID)
+    end
 
     if fight then
         -- one convention for the whole addon (Engine/Overheal.lua): whether

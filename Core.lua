@@ -23,6 +23,7 @@ local DEFAULTS = {
     treeAura = true,      -- count the Tree of Life aura (+25% Spirit as healing received by the party) in heal values
     naturesGrace = true,  -- average Nature's Grace into the dashboard's cast times
     effectiveMode = false, -- dashboard shows overheal-adjusted heal/HPM/HPS
+    calibAlerts = true,   -- chat line when a spell drifts >3% from the model over 30+ events
     healAmountGross = nil, -- latched from the combat log: does SPELL_HEAL's "amount" include the overheal?
     firstRun = true,
     minimap = { hide = false, angle = 220 },
@@ -30,7 +31,7 @@ local DEFAULTS = {
         enabled = false,  -- MD:Debug() is a no-op unless this is on
         maxLines = 1000,  -- memory ring size (Debug Console "keep lines")
         categories = { regen = true, mana = true, spend = true, tto = true,
-                       heal = true, cast = true, combat = true, chat = true, other = true },
+                       heal = true, cast = true, calib = true, combat = true, chat = true, other = true },
     },
     optionsPos = false,   -- { point, relativePoint, x, y } once the options frame was moved
     char = {},
@@ -113,7 +114,7 @@ end
 -- Debug log (Cell-style): a no-op unless debug logging is enabled in the
 -- settings, otherwise one timestamped line into the in-memory ring that the
 -- Debug Console (UI/DebugConsole.lua) shows and copies. Categories: regen,
--- mana, spend, tto, heal, cast, combat, chat, other. Extra arguments go through
+-- mana, spend, tto, heal, cast, calib, combat, chat, other. Extra arguments go through
 -- string.format; a bad format never raises.
 function MD:Debug(category, fmt, ...)
     local db = MD.db and MD.db.debug
@@ -301,6 +302,7 @@ MD.COMMANDS = {
     { "/md verify",       "check static spell data against the live client" },
     { "/md profile",      "copyable dump of every model input - use this for bug reports" },
     { "/md export",       "fights, overheal and roster as tab-separated text, for analysis" },
+    { "/md calibrate",    "the model against every heal you landed: ratio per spell and event kind" },
     { "/md fsrtest",      "log mana ticks for 15s (five-second-rule anchor test)" },
     { "/md regentest [N]", "idle regen check: observed mana gain vs GetManaRegen (N s, default 30)" },
     { "/md spamtest",     "arm, then chain-cast one spell to OOM: checks the dashboard's To OOM column" },
@@ -360,6 +362,8 @@ SlashCmdList.MANADEMON = function(msg)
         if MD.RunProfile then MD:RunProfile() end
     elseif cmd == "export" then
         if MD.RunExport then MD:RunExport() end
+    elseif cmd == "calibrate" or cmd == "calib" then
+        if MD.RunCalibrate then MD:RunCalibrate() end
     elseif cmd == "fsrtest" then
         if MD.RunFSRTest then MD:RunFSRTest() end
     elseif cmd == "regentest" then

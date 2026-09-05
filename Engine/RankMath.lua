@@ -334,6 +334,31 @@ function RankMath:Explain(spellID, variant)
     return RankMath:RowFor(spellID, RankMath:Context(), variant, true)
 end
 
+-- What ONE combat-log event should read, for Engine/Calibration.lua:
+--   { direct = <non-crit direct heal>, tick = <per tick at x1>, bloom = <bloom>,
+--     ticks = <n>, crit = <crit chance the row assumed>, stacked = <Lifebloom> }
+-- Crit is stripped here because a single event either crit or did not; the
+-- row's (1 + 0.5 x crit) is an expectation and cannot be compared to one hit.
+function RankMath:EventPrediction(spellID)
+    local row = RankMath:Explain(spellID)
+    local c = row and row.calc
+    if not c then return nil end
+    local out = { crit = c.crit or 0 }
+    if c.kind == "direct" then
+        out.direct = (c.base + (c.relicFlat or 0) + c.bonusOut) * c.talentMult
+    elseif c.kind == "hot" then
+        out.ticks = c.ticks
+        out.tick = row.heal / c.ticks
+    elseif c.kind == "hybrid" then
+        out.direct = c.direct / c.critMult
+        out.ticks = c.duration / 3
+        out.tick = c.hot / out.ticks
+    elseif c.kind == "lifebloom" then
+        out.tick, out.bloom, out.ticks, out.stacked = c.tick, c.bloom, 7, true
+    end
+    return out
+end
+
 --------------------------------------------------------------------------------
 -- Returns family -> { label, tol, rows = {...}, suggestedID, callout }; the
 -- inputs used are left in RankMath.info (the context).

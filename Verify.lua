@@ -139,6 +139,11 @@ function MD:Snapshot()
             or (MD.db.healAmountGross and "GROSS (includes overheal)" or "NET (excludes overheal)"))
     end
 
+    if MD.Calibration then
+        add("calibration (observed / model, non-crit events):")
+        for _, line in ipairs(MD.Calibration:Report()) do add("  " .. line) end
+    end
+
     local hist = MD.fightHistory or {}
     add("recorded fights: %d", #hist)
     for i = math.max(1, #hist - 4), #hist do
@@ -305,6 +310,17 @@ function MD:Export()
         for _, row in ipairs(MD.Calibration:ExportRows()) do out[#out + 1] = row end
     end
     return out
+end
+
+function MD:RunCalibrate()
+    if not MD.Calibration then return end
+    local lines = MD.Calibration:Report()
+    if MD.ShowCopyPopup then
+        MD:ShowCopyPopup("ManaDemon calibration: model vs your heals", table.concat(lines, "\n"))
+        MD:Print("calibration table ready - a ratio of 1.000 means the model matched the server exactly.")
+    else
+        for _, line in ipairs(lines) do MD:Print(line) end
+    end
 end
 
 function MD:RunExport()

@@ -6,7 +6,7 @@ local tab = UI.CreateFrame("ManaDemonOptionsFrame_GeneralTab", MD.optionsFrame, 
 tab:SetAllPoints(MD.optionsFrame)
 tab:Hide()
 
-local lockCB, restCB, tipCB, cdCB, muteCB, drinkCB, minimapCB, halfLifeSlider, confSlider, treeAuraCB, ngCB
+local lockCB, restCB, tipCB, cdCB, muteCB, drinkCB, minimapCB, halfLifeSlider, confSlider, treeAuraCB, ngCB, calibCB
 
 --------------------------------------------------------------------------------
 -- OOM widget
@@ -75,7 +75,7 @@ end
 -- Model
 --------------------------------------------------------------------------------
 local function CreateModelPane()
-    local pane = UI.CreateTitledPane(tab, "Model", 205, 222)
+    local pane = UI.CreateTitledPane(tab, "Model", 205, 245)
     pane:SetPoint("TOPLEFT", tab, "TOPLEFT", 222, -5)
 
     halfLifeSlider = UI.CreateSlider("Spend half-life (s)", pane, 5, 60, 160, 1, function(value)
@@ -109,11 +109,18 @@ local function CreateModelPane()
         "Marked with a grey * in the dashboard's Cast column.")
     ngCB:SetPoint("TOPLEFT", treeAuraCB, "BOTTOMLEFT", 0, -9)
 
+    calibCB = UI.CreateCheckButton(pane, "Calibration drift alerts", function(checked)
+        MD.db.calibAlerts = checked
+    end, "Calibration drift alerts", "The model checks itself against every heal you land.",
+        "When a spell drifts more than 3% from it over 30+ events, one chat",
+        "line per session says so. /md calibrate shows the whole table.")
+    calibCB:SetPoint("TOPLEFT", ngCB, "BOTTOMLEFT", 0, -9)
+
     local ohBtn = UI.CreateButton(pane, "Reset overheal data", "red-hover", { 150, 17 }, false, false, nil, nil,
         "Reset overheal data", "The dashboard's 'Effective' numbers come from your own combat log,",
         "per character. Clear it after a gear jump or a change of content -",
         "otherwise it forgets on its own over about 150 healing events.")
-    ohBtn:SetPoint("TOPLEFT", ngCB, "BOTTOMLEFT", 0, -12)
+    ohBtn:SetPoint("TOPLEFT", calibCB, "BOTTOMLEFT", 0, -12)
     ohBtn:SetScript("OnClick", function()
         if MD.Overheal then MD.Overheal:Reset() end
     end)
@@ -196,5 +203,6 @@ local function ShowTab(which)
     confSlider:SetValue(math.floor((MD.db.oomConfidence or 0.7) * 100 + 0.5))
     treeAuraCB:SetChecked(MD.db.treeAura ~= false)
     ngCB:SetChecked(MD.db.naturesGrace ~= false)
+    calibCB:SetChecked(MD.db.calibAlerts ~= false)
 end
 MD:RegisterCallback("ShowOptionsTab", ShowTab)
