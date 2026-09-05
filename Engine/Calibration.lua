@@ -136,11 +136,48 @@ function CAL:CheckDrift(spellID, kind, st)
         and not (MD.db and MD.db.calibAlerts == false) then
         alerted[key] = true
         local s = MD.SpellData.spells[spellID]
-        MD:Print(string.format("|cffffcc00calibration:|r %s R%d %s is healing %.1f%% %s the model over %d events. " ..
-            "Check SpellData, the relic table or an unmodelled buff - /md calibrate for the table.",
+        local msg = string.format("|cffffcc00calibration:|r %s R%d %s is healing %.1f%% %s the model over %d events.",
             GetSpellInfo(spellID) or "?", s and s.rank or 0, kind, math.abs(ratio - 1) * 100,
-            ratio > 1 and "above" or "below", st.n))
+            ratio > 1 and "above" or "below", st.n)
+        msg = msg .. CAL:RelicHint(spellID, kind, st)
+        MD:Print(msg .. " /md calibrate for the table.")
     end
+end
+
+-- The equipped idol, solved for. The slot check applies whatever value the
+-- table holds; if that value came from a database tooltip rather than a
+-- measurement (relic.verify), a drift on that idol's family is most likely the
+-- idol, and the drift IS the correction: for a flat bonus,
+--   implied = table value + (observed - predicted) x ticks / talentMult
+-- because the flat sits under the talent multipliers and is spread over the
+-- ticks. This turns "Rejuvenation is 3.2% high" into "the idol is worth +50,
+-- the table says +87" -- the exact edit to Data/SpellData.lua.
+function CAL:RelicHint(spellID, kind, st)
+    local SD = MD.SpellData
+    local relic, itemID, itemName = SD:Relic()
+    local s = SD.spells[spellID]
+    if not s then return "" end
+    if not relic then
+        if itemID then
+            return string.format(" You are wearing %s, which is not in the relic table - tell the author what it does.",
+                itemName or ("item " .. itemID))
+        end
+        return " Check SpellData or an unmodelled buff."
+    end
+    if relic.family ~= s.family then
+        return string.format(" Your idol (%s) does not affect %s, so this is the spell data or a buff.",
+            relic.name, s.family)
+    end
+    local p = Prediction(spellID)
+    if relic.flat and p and p.talentMult and p.talentMult > 0 and kind ~= "bloom" then
+        local ticks = (kind == "tick") and (p.ticks or 1) or 1
+        local delta = (st.obs - st.pred) / st.n * ticks / p.talentMult
+        -- (per application; on stacked Lifebloom ticks the flat is carried
+        -- once per stack, so this overstates a little there -- "about")
+        return string.format(" You are wearing %s (table: +%d%s); the data says about +%d.",
+            relic.name, relic.flat, relic.verify and ", unverified" or "", relic.flat + delta + 0.5)
+    end
+    return string.format(" You are wearing %s%s.", relic.name, relic.verify and " (value unverified)" or "")
 end
 
 -- Lines for /md calibrate and /md profile.

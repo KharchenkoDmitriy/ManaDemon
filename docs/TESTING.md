@@ -168,7 +168,11 @@ spell and event kind (tick / direct / bloom), non-crit only, and keeps the ratio
 4. The two skip counters at the bottom matter: *Lifebloom ticks with no clean stack fit*
    should be a small fraction of Lifebloom ticks; if it is large, tell me — that is the one
    weak spot in this design, on your most-cast spell.
-5. The `crit` rows: observed crit rate vs what the model assumed. Regrowth with Improved
+5. **Relics.** If a drift alert fires on the family your idol affects, it now names the idol
+   and says what value the data implies — e.g. *"You are wearing Harold's Rejuvenating
+   Broach (table: +87, unverified); the data says about +50."* That number is the table
+   correction; paste the line. Seven of the eight idols in the table are unverified.
+6. The `crit` rows: observed crit rate vs what the model assumed. Regrowth with Improved
    Regrowth should sit near 25% + crit; a big gap there is a talent-model bug.
 
 ## 12. The Waste view and the roster (one dungeon, then 2 min) — NEW

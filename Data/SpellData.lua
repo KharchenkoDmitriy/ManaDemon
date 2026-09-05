@@ -100,20 +100,35 @@ SD.spells = {
 }
 
 --------------------------------------------------------------------------------
--- Relics (idols). The heal-side bonus of the equipped idol, read from the
--- relic slot. flat = added to the spell's BASE heal before talent multipliers
--- (SPELLMOD_DAMAGE flat); perTick = added to each Lifebloom tick; aura = added
--- to the Tree of Life aura (healing received by party targets); cost-only
--- idols are already covered by the live cost. Values are best-effort from TBC
--- item data — VERIFY marks the ones not yet seen in a heal log.
+-- Relics (idols): the heal-side effect of the equipped idol, read from slot 18.
+--   flat       added to the spell's BASE heal (a HoT's total over its duration)
+--              before talent multipliers -- SPELLMOD_DAMAGE flat
+--   perTick    added to each Lifebloom tick (no current idol does this; kept)
+--   aura       added to the Tree of Life aura (healing received by party targets)
+--   castReduce seconds off the cast (Idol of Health, Healing Touch)
+--   cost       flat mana off the spell -- the LIVE cost already includes it, so
+--              this only feeds the static fallback and the Simulate strip
+--   verify     the value is from a database tooltip, not measured on this
+--              client. Engine/Calibration.lua's drift alert names the equipped
+--              relic and states the value the data implies, which is how these
+--              get confirmed or corrected without a hand-run test.
+-- Sources checked 2026-09-05 (wowhead tbc / warcraft.wiki.gg / tbc.cavernoftime):
+-- two earlier entries were wrong -- Idol of Health is a cast-time relic, not
+-- +100 healing, and Emerald Queen is +88 to Lifebloom's TOTAL periodic
+-- healing (~12.6 a tick), not +47 a tick. IDs matter: a wrong one never
+-- matches the slot and the idol silently vanishes from the model.
 --------------------------------------------------------------------------------
 SD.relics = {
-    [22398] = { name = "Idol of Rejuvenation",        family = "Rejuvenation", flat = 50 },
-    [25643] = { name = "Harold's Rejuvenating Broach", family = "Rejuvenation", flat = 86 },  -- VERIFY
-    [27886] = { name = "Idol of the Emerald Queen",   family = "Lifebloom",    perTick = 47 }, -- VERIFY
-    [28568] = { name = "Idol of the Avian Heart",     family = "HealingTouch", flat = 136 }, -- VERIFY
-    [22399] = { name = "Idol of Health",              family = "HealingTouch", flat = 100 }, -- VERIFY id
-    [32387] = { name = "Idol of the Raven Goddess",   aura = 44 },                          -- VERIFY
+    -- Vanilla, still worn while levelling
+    [22398] = { name = "Idol of Rejuvenation",         family = "Rejuvenation", flat = 50 },              -- measured 2026-09-03
+    [22399] = { name = "Idol of Health",               family = "HealingTouch", castReduce = 0.15, verify = true },
+    -- Burning Crusade
+    [25643] = { name = "Harold's Rejuvenating Broach", family = "Rejuvenation", flat = 87, verify = true },    -- quest; one source says 86
+    [27886] = { name = "Idol of the Emerald Queen",    family = "Lifebloom",    flat = 88, verify = true },    -- Ambassador Hellmaw, Shadow Labyrinth
+    [28568] = { name = "Idol of the Avian Heart",      family = "HealingTouch", flat = 136, verify = true },   -- Moroes, Karazhan
+    [32387] = { name = "Idol of the Raven Goddess",    aura = 44, verify = true },                             -- Vanquish the Raven God
+    [33508] = { name = "Idol of Budding Life",         family = "Rejuvenation", cost = 36, verify = true },    -- badges, G'eras
+    [30051] = { name = "Idol of the Crescent Goddess", family = "Regrowth",     cost = 65, verify = true },    -- Hydross, Serpentshrine Cavern
 }
 
 -- Returns the equipped relic's entry (or nil), plus the item ID and name for
@@ -181,6 +196,14 @@ function SD:StaticCost(spellID, ctx)
         if inTree and TOL_FAMILIES[fam] then reduction = reduction + 0.20 end
 
         cost = cost * (1 - reduction)
+
+        -- cost-only idol on this family (Budding Life, Crescent Goddess). Flat
+        -- after percent is assumed; /md verify's COST lines will say if the
+        -- client does it the other way round the day one is equipped.
+        local relic = SD:Relic()
+        if relic and relic.cost and relic.family == fam then
+            cost = math.max(0, cost - relic.cost)
+        end
     end
     return math.floor(cost + 0.5)
 end

@@ -91,9 +91,13 @@ local function Refresh()
     end
     if info and info.relic then
         local r = info.relic
-        local what = r.flat and string.format("+%d %s", r.flat, MD.SpellData.families[r.family].label)
-            or r.perTick and string.format("+%d per %s tick", r.perTick, MD.SpellData.families[r.family].label)
+        local fl = r.family and MD.SpellData.families[r.family] and MD.SpellData.families[r.family].label or "?"
+        local what = r.flat and string.format("+%d %s", r.flat, fl)
+            or r.perTick and string.format("+%d per %s tick", r.perTick, fl)
+            or r.castReduce and string.format("-%.2fs %s cast", r.castReduce, fl)
+            or r.cost and string.format("-%d mana %s", r.cost, fl)
             or r.aura and string.format("+%d Tree aura", r.aura) or ""
+        if r.verify then what = what .. ", unverified" end
         statsFS:SetText(statsFS:GetText() .. string.format("   relic: %s (%s)", r.name, what))
     end
     if info and info.treeAura > 0 then

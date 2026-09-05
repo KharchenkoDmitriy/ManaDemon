@@ -182,6 +182,7 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
     -- each Lifebloom tick
     local relicFlat = (relic and relic.family == s.family and relic.flat) or 0
     local relicTick = (relic and relic.family == s.family and relic.perTick) or 0
+    local relicCast = (relic and relic.family == s.family and relic.castReduce) or 0
     local bonus = ctx.bonus
 
     local heal, castTime, calc
@@ -189,7 +190,7 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
     local castBase, ngCrit
 
     if info.type == "direct" then
-        castBase = math.max(s.cast - ctx.naturalist, 1.5)
+        castBase = math.max(s.cast - ctx.naturalist - relicCast, 1.5)
         ngCrit = ctx.crit
         castTime = ctx.ExpectedCast(castBase, ngCrit)
         -- the coefficient uses the spell's BASE cast time, not the modified one
@@ -251,7 +252,9 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
         -- applies to the bloom too.
         local hotBonus = bonus * SD.lifebloomHotCoef * pen * ctx.empRejuv
         local bloomBonus = bonus * SD.lifebloomBloomCoef * pen * ctx.empRejuv
-        local hot = (s.hotTotal + 7 * relicTick + hotBonus) * ctx.goN
+        -- Emerald Queen is "+88 to the periodic healing": on the HoT TOTAL,
+        -- like any flat, not on the bloom
+        local hot = (s.hotTotal + relicFlat + 7 * relicTick + hotBonus) * ctx.goN
         local bloom = (s.bloom + bloomBonus) * ctx.goN
         lbHot, lbBloom = hot, bloom
         if variant then
@@ -263,7 +266,7 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
             heal = hot + bloom
         end
         if explain then
-            calc = { kind = "lifebloom", base = s.hotTotal, relicTick = relicTick,
+            calc = { kind = "lifebloom", base = s.hotTotal, relicTick = relicTick, relicFlat = relicFlat,
                      bonus = bonus, penalty = pen, bonusMult = ctx.empRejuv,
                      bonusMultName = "Empowered Rejuvenation", talentMult = ctx.goN,
                      hotCoef = SD.lifebloomHotCoef, hotBonus = hotBonus, hot = hot,
@@ -370,7 +373,7 @@ function RankMath:EventPrediction(spellID)
     local row = RankMath:Explain(spellID)
     local c = row and row.calc
     if not c then return nil end
-    local out = { crit = c.crit or 0 }
+    local out = { crit = c.crit or 0, family = c.family, talentMult = c.talentMult }
     if c.kind == "direct" then
         out.direct = (c.base + (c.relicFlat or 0) + c.bonusOut) * c.talentMult
     elseif c.kind == "hot" then

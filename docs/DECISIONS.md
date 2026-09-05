@@ -357,6 +357,21 @@ single-kind spells. Both are stated in the code.
 **13. The Waste tab works for any class.** Only the rank tabs are druid-only; overheal by
 target, role and class needs no spell table.
 
+**14. Relics: checked, corrected, and made self-verifying (v0.6.7).** The author asked
+why calibration should "find" an idol the slot check already reads. It should not — a
+*known* idol is applied exactly by `SD:Relic()`; calibration's job is the value the table
+holds when that value was never measured. So `verify` became data instead of a comment, and
+the drift alert now names the equipped relic and solves for it
+(`implied = table + (observed − predicted) × ticks / talentMult`), turning "3.2% high" into
+the exact table edit. Looking the IDs up rather than trusting memory found **two wrong
+entries**: Idol of Health (22399) is a −0.15s Healing Touch cast relic, not +100 healing;
+Idol of the Emerald Queen (27886) is +88 to Lifebloom's *total* periodic healing
+(~12.6/tick), not +47/tick. My remembered ID for Idol of Budding Life (33076) was a PvP
+idol; it is 33508. Added the TBC set: Budding Life (−36 Rejuv mana), Crescent Goddess
+(30051, −65 Regrowth mana) as cost-only relics the live cost already covers, and Harold's
+Broach at +87 (one source says 86 — calibration will settle it). Everything but the measured
+Idol of Rejuvenation is flagged `verify`.
+
 ### Priority, set by the author
 
 C1 self-calibration -> A waste report -> D1 logging -> B1 pull budget -> D2 Cell

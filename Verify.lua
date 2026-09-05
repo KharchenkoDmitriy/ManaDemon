@@ -121,8 +121,17 @@ function MD:Snapshot()
 
     local relic, relicID, relicName = SD:Relic()
     if relicID then
-        add("relic: %s (%d) - %s", relicName or "?", relicID,
-            relic and ("known: " .. relic.name) or "NOT in the relic table (tell the author what it does)")
+        if relic then
+            local what = relic.flat and string.format("+%d %s", relic.flat, relic.family)
+                or relic.perTick and string.format("+%d per %s tick", relic.perTick, relic.family)
+                or relic.castReduce and string.format("-%.2fs %s cast", relic.castReduce, relic.family)
+                or relic.cost and string.format("-%d mana on %s (live cost already includes it)", relic.cost, relic.family)
+                or relic.aura and string.format("+%d Tree of Life aura", relic.aura) or "?"
+            add("relic: %s (%d) - %s%s", relic.name, relicID, what,
+                relic.verify and " [value from a database tooltip, not yet measured - calibration will say]" or " [measured]")
+        else
+            add("relic: %s (%d) - NOT in the relic table (tell the author what it does)", relicName or "?", relicID)
+        end
     else
         add("relic: none equipped")
     end

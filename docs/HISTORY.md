@@ -602,3 +602,12 @@ skipped for stack ambiguity?).
 
 **Still open from before:** `K_SIGMA` / `CV_STABLE` (§5), Nature's Grace 0.5s (§8 — needs a
 Healing Touch in caster form), Innervate's value model (§9 — never cast), haste (unmodelled).
+
+**v0.6.7 (same day)** — relics. Author: "can't we just check if it's equipped?" — we do,
+and the framing was wrong: the slot check applies a known idol exactly; calibration is for
+the *value* when it was never measured. `verify` is now data; the drift alert names the
+equipped relic and solves for its true value. Looked every ID up instead of trusting memory
+and found two wrong entries (Idol of Health is a cast-time relic; Emerald Queen is +88 to
+the HoT total, not +47/tick) and one wrong ID (Budding Life is 33508, not 33076). Added the
+TBC cost-only idols (Budding Life, Crescent Goddess) and cast-time relics as kinds. Sources
+in `Data/SpellData.lua`.
