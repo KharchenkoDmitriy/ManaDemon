@@ -7,8 +7,10 @@ classes, where testing is harder (no alts), so it is built on verified generic p
 Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[?]` needs in-game data.
 
 **Design for everything below in §1b/§1c/§1d: `docs/DESIGN-v0.5.md`** (architecture,
-formulas, UI mockups, delivery order v0.5.0–v0.5.5, and the five calls worth arguing
-about first).
+formulas, UI mockups, delivery order v0.5.0–v0.5.5). **All of §1b, §1c and §1d shipped in
+v0.5.0–v0.5.4**; the calls made along the way are recorded in `docs/DECISIONS.md` §v0.5.
+What remains in Phase 1 is §1a: the author's in-game logs (`docs/TESTING.md` §5, §8, §9,
+§10), which confirm three model assumptions and tune the clock's constants.
 
 ## Phase 1 — druid, verify and improve
 
@@ -35,18 +37,24 @@ about first).
   now owns every mana source (Innervate, potions, Phase 2 class stubs) and the one value
   model the clock AND the advisor read. `inn 2:10` takes the secondary segment under 90s.
   [?] the "400% on the spirit share only" split, until the `regen` log around one Innervate.
-- [ ] **Overheal-calibrated HPM**: per-spell overheal from the combat log (plumbing exists
-  in `UI/Summary.lua`), shown as "effective HPM" once ≥ N casts of that spell were seen.
-- [ ] **Persist fight history** (last 20 per character in `MD.cdb`) so the pull-time seed
-  and a "last time here" reference survive a reload.
+- [x] **Overheal-calibrated HPM** — v0.5.3 (`Engine/Overheal.lua`): amount-weighted, per
+  family and per rank, 150-event half-life, 40-event gate, persisted per character. An
+  "Effective" toggle on the dashboard; the Pareto filter and suggested rank stay on raw
+  values on purpose (`docs/DECISIONS.md` v0.5 §3).
+- [x] **Persist fight history** — v0.5.3: last 20 in `MD.cdb.fights` with zone and heal
+  totals; the pull-time seed prefers same-zone fights, which is the "last time here"
+  reference.
 
 ### 1c. UX
-- [ ] **Per-row tooltips on the dashboard**: base heal, bonus contribution, penalty,
-  talent multipliers, cost source (live/table), HP5 interval, To OOM net per cast.
-- [ ] **Simulate strip: Tree form toggle and Moonglow rank box.**
-- [ ] **One tooltip builder** shared by the datatext, minimap button and widget hover.
-- [ ] **`/md profile`**: one-block dump of every model input (stats, talents, regen raw +
-  model, form, costs of known max ranks, settings) for bug reports.
+- [x] **Per-row tooltips on the dashboard** — v0.5.4, via `RankMath:Explain()`; the header
+  row hovers to a column glossary (which also fixed the hint paragraph wrapping onto the
+  table).
+- [x] **Simulate strip: Tree form toggle and Moonglow rank box** — v0.5.4, on a second
+  row; costs fall back to the static table while either is overridden.
+- [x] **One tooltip builder** — v0.5.0 (`UI/Tooltip.lua`); the widget gained a hover
+  tooltip it never had.
+- [x] **`/md profile`** — v0.5.4; opens the copy popup, shares `MD:Snapshot()` with
+  `/md verify`.
 
 ### 1d. Housekeeping
 - [x] Commit v0.4.6, remove the stale worktree.
@@ -68,7 +76,9 @@ Innervate branch, unreported regen talents.
   `IN_FSR_TALENT` table in `RegenModel` already has Priest/Mage).
 - [ ] **Unreported regen**: Shaman Unrelenting Storm and any int-based mp5 talent —
   only after someone runs `/md regentest` on that class.
-- [ ] **Advisor**: replace the Innervate branch with a per-class "big regen cooldown"
-  (Shadowfiend, Mana Tide, Divine Illumination) and the mana-potion branch stays generic.
+- [~] **Advisor**: done structurally in v0.5.2 — `Engine/ManaCooldowns.lua` owns the
+  per-class table (Shadowfiend / Mana Tide / Divine Illumination are present as stubs) and
+  the generic potion branch, and both the advisor and the clock read it. Each stub still
+  needs a value model plus one in-game log from someone of that class.
 - [ ] **Testing without alts**: `/md verify`, `/md regentest`, `/md spamtest` and the
   debug console Copy are the hand-off — ask a guildmate of that class for three pastes.

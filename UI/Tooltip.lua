@@ -281,6 +281,40 @@ function Tip:Row(row)
 end
 
 --------------------------------------------------------------------------------
+-- Column glossary, shown on the dashboard's header row. This used to be a
+-- paragraph under the table; at 760px it wrapped onto the rows below it.
+--------------------------------------------------------------------------------
+function Tip:Columns()
+    local info = MD.RankMath and MD.RankMath.info
+    local lines = { { l = "What the columns mean", c = Accent() }, {} }
+
+    lines[#lines + 1] = { l = "Heal/cast", r = "one cast, all ticks, at your stats", c = KEY, rc = SUB }
+    lines[#lines + 1] = { l = "HPM", r = "heal per mana", c = KEY, rc = SUB }
+    lines[#lines + 1] = { l = "HPS", r = "heal per second of cast time (1.5s GCD for instants)", c = KEY, rc = SUB }
+    lines[#lines + 1] = { l = "HP5", r = "healing per 5s you can sustain at ZERO mana,", c = KEY, rc = SUB }
+    lines[#lines + 1] = { l = "", r = "casting only as fast as regen pays for it (5SR-aware)", rc = SUB }
+    lines[#lines + 1] = { l = "To OOM", r = "chain-casts from your current mana", c = KEY, rc = SUB }
+
+    if info then
+        lines[#lines + 1] = {}
+        lines[#lines + 1] = { l = "Regen used", r = string.format("%d mp5 casting, %d mp5 resting",
+            info.castingRegen * 5 + 0.5, info.baseRegen * 5 + 0.5), c = KEY }
+        lines[#lines + 1] = { l = "Mana used", r = string.format("%d", info.mana), c = KEY }
+        if info.naturesGrace > 0 then
+            lines[#lines + 1] = { l = "Cast *", r = "Nature's Grace averaged in", c = KEY, rc = SUB }
+        end
+    end
+    if MD.db and MD.db.effectiveMode then
+        lines[#lines + 1] = {}
+        lines[#lines + 1] = { l = "Effective mode is on: the accent-coloured columns are " ..
+            "multiplied by (1 - your measured overheal).", c = MUTED, wrap = true }
+    end
+    lines[#lines + 1] = {}
+    lines[#lines + 1] = { l = "Hover any row for the full derivation of its numbers.", c = MUTED }
+    return lines
+end
+
+--------------------------------------------------------------------------------
 -- The widget / minimap composite: clock, state, last fight, click hints.
 --------------------------------------------------------------------------------
 function Tip:Clock(hints)

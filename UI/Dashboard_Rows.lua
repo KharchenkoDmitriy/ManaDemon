@@ -55,6 +55,10 @@ function MD.DashboardParts.CreateTable(parent, width)
 
             row:EnableMouse(true)
             row:SetScript("OnEnter", function(self)
+                if self.isHeader then
+                    MD.Tip:ShowAt(self, "TOPLEFT", pane:GetParent(), "TOPRIGHT", 4, 0, MD.Tip:Columns())
+                    return
+                end
                 if not self.spellID then return end
                 self.highlight:Show()
                 MD.Tip:ShowAt(self, "TOPLEFT", pane:GetParent(), "TOPRIGHT", 4, 0,
@@ -81,7 +85,7 @@ function MD.DashboardParts.CreateTable(parent, width)
 
     function api:Release()
         for _, row in ipairs(usedRows) do
-            row.spellID, row.variant = nil, nil
+            row.spellID, row.variant, row.isHeader = nil, nil, nil
             row.highlight:Hide()
             row:Hide()
             rowPool[#rowPool + 1] = row
@@ -99,7 +103,7 @@ function MD.DashboardParts.CreateTable(parent, width)
         local y = -4
 
         local header = AcquireRow()
-        header.spellID = nil -- the header is a pooled row too: no tooltip on it
+        header.isHeader = true -- pooled like any row; its hover shows the glossary
         header:SetPoint("TOPLEFT", pane, "TOPLEFT", 0, y)
         for _, col in ipairs(COLS) do
             local hex = (effective and EFFECTIVE_COLS[col.key]) and accent or "|cff888888"

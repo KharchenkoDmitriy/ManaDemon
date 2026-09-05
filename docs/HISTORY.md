@@ -418,3 +418,60 @@ v0.5.4 (row tooltips wired to hover, Simulate form/Moonglow row, `/md profile`),
 the author's next play session: the 0.5s Nature's Grace value (`cast` category) and
 whether Innervate's 400% touches anything beyond the spirit share (`regen` category, on
 buff gain/fade).
+
+## 2026-09-05 — v0.5.3 to v0.5.5: overheal, row tooltips, /md profile, docs
+
+Finished the `docs/DESIGN-v0.5.md` delivery order. **All of `docs/PLAN.md` §1b, §1c and
+§1d is now shipped**; what is left in Phase 1 is the author's in-game logs.
+
+**v0.5.3 — overheal + persisted history.** `Engine/Overheal.lua` measures overheal per
+family and per rank from the combat log, weighted by amount (so a 4-tick Rejuvenation and
+a Healing Touch count in proportion to the healing they did), decayed per event with a
+150-event half-life, gated at 40 events, persisted in `MD.cdb.overheal`. An "Effective"
+checkbox on the dashboard switches Heal/HPM/HPS/HP5 to `value × (1 − overheal)` and turns
+those four headers the class colour; Mana, Cast and To OOM never move. A rank with no data
+of its own keeps its raw value and gets a grey `?`. The Pareto filter and the suggested
+rank stay on raw values deliberately (DECISIONS v0.5 §3).
+
+While doing it, found and fixed a latent ambiguity: WoW documents `SPELL_HEAL`'s `amount`
+both ways (gross vs net of overheal) and `UI/Summary.lua` had quietly assumed net. A full
+overheal discriminates — gross reports `amount == overheal`, net reports `amount == 0` —
+so the first unambiguous sample latches `db.healAmountGross` and `OH:Split()` feeds both
+the dashboard and the fight summary's `overheal N%`. Net stays the default until proven,
+so nothing moves on its own. `/md profile` prints which way it latched.
+
+Fight history persists: `MD.cdb.fights`, last 20, with timestamp, zone and heal totals;
+`MD.fightHistory` is bound straight to it so nothing else changed. The pull-time seed now
+prefers the median of recent fights **in the current zone** when ≥2 exist — spend rate is
+content, not character.
+
+**v0.5.4 — the UX step.** Dashboard rows hover to the full derivation of every number
+(`RankMath:Explain()` rebuilds one row on demand, so the 2s re-render still allocates
+nothing). The Simulate strip gained a second row: form (Live/Caster/Tree — three states,
+because "follow my real form" is a distinct answer from "caster") and a Moonglow box;
+neither touches `MD:InTreeForm()`, and simulating either falls costs back to
+`SD:StaticCost(id, ctx)`. `/md profile` and a "Copy profile" button put every input, the
+max ranks' live-vs-static costs, the clock state and all settings into the copy popup.
+
+**Layout fix found while testing the math.** The hint paragraph under the callout was
+~265 characters in a 728px slot 18px above the table — it was already at risk of wrapping
+onto the rows, and Nature's Grace made it longer. Replaced with one short line; the full
+column glossary moved to a tooltip on the **header row**, which is a better home for it
+anyway. Flagged in `docs/TESTING.md` §1 as the layout risk to look at.
+
+**v0.5.5 — docs.** `docs/TESTING.md` rewritten for this build: a new §0 regression pass
+(v0.5.0 rewrote four tooltips and the rank math internals with no intended number change),
+and new §8 (Nature's Grace cast times via the `cast` category), §9 (Innervate's value via
+the `regen` lines around the buff) and §10 (overheal over a raid night). §5 still
+outstanding and now yields §9 as a by-product, so one good fight covers three tests.
+`docs/DECISIONS.md` gained a v0.5 section recording the nine calls made without a debate
+round, each with what would change my mind, plus a table of the four remaining assumptions
+and the log line that settles each. `CLAUDE.md`'s file table updated for the four new files.
+
+**State:** v0.5.4 built to `dist/combat-log-design-arch-ffb907/`, tree clean, branch
+`claude/combat-log-design-arch-ffb907` (6 commits ahead of master, not merged).
+
+**Next session:** whatever the author's logs say. In priority order — TESTING §0 (did
+anything regress), §8 and §9 (turn two assumptions into measurements), §5 (`K_SIGMA` /
+`CV_STABLE`), §10 (overheal after a night). Then Phase 2, Priest first, on the seams
+`Engine/ManaCooldowns.lua` and `RankMath:Context()/RowFor()` now provide.

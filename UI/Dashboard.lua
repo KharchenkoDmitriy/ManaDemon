@@ -69,11 +69,11 @@ local function Refresh()
         statsFS:SetText((statsFS:GetText():gsub("^%+%d+ healing", "%0 (Tree aura not counted - see Settings)")))
     end
     if info then
-        hintFS:SetFormattedText("|cff888888HPM = heal per mana.  HPS = heal per second of cast time (1.5s GCD for instants).  " ..
-            "HP5 = healing per 5s you can sustain at zero mana, casting only as regen pays (5SR-aware, %d / %d mp5 casting / resting).  " ..
-            "To OOM = chain-casts from your current %d mana.%s|r",
-            info.castingRegen * 5 + 0.5, info.baseRegen * 5 + 0.5, info.mana,
-            info.naturesGrace > 0 and "  * = Nature's Grace averaged in." or "")
+        -- One line only: this sits 18px above the table, and the old paragraph
+        -- wrapped onto the rows. The full glossary is the header row's tooltip.
+        hintFS:SetFormattedText("|cff888888HPM per mana - HPS per second of cast - HP5 sustained at 0 mana " ..
+            "(%d / %d mp5 casting / resting) - To OOM from %d mana.  Hover the header or any row.|r",
+            info.castingRegen * 5 + 0.5, info.baseRegen * 5 + 0.5, info.mana)
     end
 
     local res = results[currentFamily]
@@ -88,9 +88,7 @@ local function Refresh()
     if MD.Overheal then
         local frac, n = MD.Overheal:FamilyFraction(currentFamily)
         if frac then
-            ohNote = string.format("  |cff888888overheal %d%% measured over %d %s events%s|r",
-                frac * 100, n, res.label,
-                MD.db.effectiveMode and "" or " - tick Effective to apply it")
+            ohNote = string.format("  |cff888888overheal %d%% (%d events)|r", frac * 100, n)
         end
     end
     calloutFS:SetText("|cffffcc00" .. (res.callout or "") .. "|r" .. tolNote .. ohNote)

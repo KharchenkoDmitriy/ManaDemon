@@ -26,16 +26,21 @@ Load order is defined by `ManaDemon.toc` and matters — later files assume earl
 | `Engine/RegenModel.lua` | Five-second-rule state machine + regen rates straight from `GetManaRegen()` (no algebra — see DECISIONS) **plus the one thing the client omits: Dreamstate** (`RM:Unreported()`, measured in-game); raw values stay in `RM.apiBase/apiCasting`. `RM:Effective()` weights the two rates by the measured FSR duty cycle for projections; out-of-combat observed mana-gain rate (drinking) is an EWMA over gain events |
 | `Engine/SpendTracker.lua` | EWMA spend-rate estimator + its one-sigma spread (`ST:Estimate()` → rate, sigma, casts) from `UNIT_SPELLCAST_SUCCEEDED`, pull-time seed from fight history |
 | `Engine/TTO.lua` | Raw state (`MD:GetManaState()`: mode oom/hold/full/warmup/ooc, tto/ttf/bound/rest) computed once per tick, plus the render-only display layer (sigma-derived digit precision, value/mode latch, arrow from the shown value) behind `MD:GetDisplayString` |
-| `Engine/RankMath.lua` | Coefficients, downrank/sub-20 penalties, talent multipliers, crit weighting, Pareto filter, suggested rank |
+| `Engine/Overheal.lua` | Measured overheal per family/rank from the combat log (amount-weighted, 150-event half-life, 40-event gate), persisted in `MD.cdb.overheal`. Also latches whether the log's `amount` includes overheal (`OH:Split`) |
+| `Engine/ManaCooldowns.lua` | Per-class big mana cooldowns (Druid live; Priest/Shaman/Paladin stubs) + carried potions, each returning the **marginal** mana it buys over `RM:Effective()`. Read by both `Engine/TTO.lua` and `UI/Advisor.lua` |
+| `Engine/RankMath.lua` | `Context()` (every input, incl. `MD.sim` overrides) → `RowFor(spell, ctx, variant, explain)` → `Compute()`; `Explain()` rebuilds one row with `row.calc` for the tooltip. Coefficients, downrank/sub-20 penalties, talent multipliers, Nature's Grace expected cast, crit weighting, Pareto filter, suggested rank |
 | `UI/Style.lua` | Widget kit in Cell's options-UI style (`MD.UI`: flat panels, accent buttons/button groups, check buttons, titled panes, scroll frame, slider, movable frame with header, private tooltip). No libraries |
-| `UI/Widget.lua` | Floating one-liner + 5SR underline; **all** show/hide goes through `MD:UpdateVisibility()` |
-| `UI/Dashboard.lua` | `/md` rank dashboard frame (spell tabs + "Settings" button) |
+| `UI/Tooltip.lua` | **The one tooltip line builder** (`MD.Tip`): `{l, r}` line tables rendered into GameTooltip or ElvUI's `DT.tooltip`. `Tip:Mana()`, `:Row()`, `:Columns()`, `:Fights()`, `:Clock()`. Every hover surface goes through it |
+| `UI/Widget.lua` | Floating one-liner + 5SR underline; **all** show/hide goes through `MD:UpdateVisibility()`. Hover tooltip + left-click gated by `db.widgetTooltip` (it needs mouse input on the frame) |
+| `UI/Dashboard_Rows.lua` | Column layout, row frame pool, row rendering, hover → row tooltip, "Effective" (overheal-adjusted) mode |
+| `UI/Dashboard_Simulate.lua` | The two-row "Simulate" what-if strip (`MD.sim`: stats, form, Moonglow) |
+| `UI/Dashboard.lua` | `/md` rank dashboard frame (spell tabs, header lines, recap); the two files above export constructors on `MD.DashboardParts` and load first |
 | `UI/OptionsFrame.lua` | `/md options` settings window: tab buttons on the top edge, fires `ShowOptionsTab`; `UI/Options_General.lua` / `UI/Options_About.lua` are the tabs |
 | `UI/DebugConsole.lua` | `MD:Debug(category, fmt, ...)` sink (Core.lua defines the entry point): 1000-line memory ring, filterable window, Copy popup. `/md debug` |
 | `UI/Advisor.lua` | Innervate/potion advisor, gear toast, drink reminder |
 | `UI/Summary.lua` | Fight tracking, combat-log overheal, history ring |
 | `Integrations/ElvUIDatatext.lua` | `DT:RegisterDatatext` glue; only active when ElvUI is installed (`## OptionalDeps: ElvUI`) |
-| `Verify.lua` | `/md verify` (static data vs live client, input snapshot), `/md fsrtest` (FSR anchor logging), `/md regentest` (idle observed regen vs `GetManaRegen`: is Dreamstate included?) |
+| `Verify.lua` | `MD:Snapshot()` (every model input, shared), `/md verify` (static data vs live client), `/md profile` (snapshot + costs + clock + settings into the copy popup), `/md fsrtest`, `/md regentest`, `/md spamtest` |
 | `release.sh` / `Makefile` | `make release` builds from the main checkout or any git worktree (interactive menu, or `SRC=<name>`) into the **top-level** `dist/<name>/ManaDemon/` + versioned zip, from the `.toc`'s own file list (dev files excluded by construction). `make install WOW_ADDONS=<AddOns dir>` also copies it into the game. `dist/` is gitignored |
 
 Every file starts with `local _, MD = ...` to pull the shared addon table. `MD.db` is account-wide settings, `MD.cdb` is per-character.
@@ -49,7 +54,7 @@ Every file starts with `local _, MD = ...` to pull the shared addon table. `MD.d
 - **`Data/SpellData.lua` values are best-effort and frozen** — any change must come from `/md verify` output or an in-game measurement, never from memory (costs were corrected that way on 2026-09-03; heal values for unlearned ranks are still `-- VERIFY`). Unverified formulas are listed in `docs/DECISIONS.md` §Open verification items.
 - **Regen the client does not report** goes through `RM:Unreported()` only after an in-game `/md regentest` proves the API omits it (Dreamstate: proven). Adding a term the API already includes double counts.
 - enUS only for now (drink-buff names in `UI/Advisor.lua` are literal English strings).
-- **Debug logging:** `MD:Debug("category", fmt, ...)` with category in regen / mana / spend / tto / combat / chat / other; it is a no-op unless enabled in the Debug Console, so it is safe on hot paths. Log state transitions and inputs, not every tick.
+- **Debug logging:** `MD:Debug("category", fmt, ...)` with category in regen / mana / spend / tto / heal / cast / combat / chat / other; it is a no-op unless enabled in the Debug Console, so it is safe on hot paths. Log state transitions and inputs, not every tick.
 - **New settings UI goes through `MD.UI`** (`UI/Style.lua`) into a pane of `UI/Options_General.lua`, not into the dashboard.
 
 ## Verifying changes

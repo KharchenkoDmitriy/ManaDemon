@@ -86,11 +86,12 @@ Date: 2026-09-01.
 
 ## v2+ backlog (from the debates)
 
-- Overheal-calibrated effective HPM (`HPM × (1 − measuredOverheal[rank])`) once combat-log
-  corpus exists — the plumbing (per-fight overheal totals) already ships in v1.
-- Per-boss "last time you sustained X mps" reference (needs persistence).
+- ~~Overheal-calibrated effective HPM~~ — **shipped v0.5.3** (`Engine/Overheal.lua`).
+- ~~Per-boss "last time you sustained X mps" reference~~ — **shipped v0.5.3** as a
+  zone-scoped pull seed (`MD.cdb.fights`); per-boss would need encounter IDs.
+- ~~TTO-with-cooldowns second line~~ — **shipped v0.5.2** as the `inn 2:10` segment.
 - Non-druid rank dashboards (priest first).
-- Rank→keybind/macro helper; TTO-with-cooldowns second line; localization.
+- Rank→keybind/macro helper; localization.
 
 ## Feedback round 3 (2026-09-02): OOM + FULL display, estimator stability
 
@@ -194,3 +195,78 @@ than additive (1.25); kept multiplicative.
 | `MD:Print` mirrors into the `chat` category | `/md verify` and the regen test output become copyable without a second code path. |
 | Timestamp = wall clock + seconds since load with 2 decimals | Sub-second spacing is the point for mana ticks and 5SR edges; wall clock ties it to the author's notes. |
 | `/md regentest` measures instead of assuming (observed gain vs time-weighted API, diff vs `{4,7,10}% × Int / 5`) | The only honest way to answer whether the API includes Dreamstate on this client. |
+
+
+## v0.5 (2026-09-05): design calls made without a debate round
+
+Design in `docs/DESIGN-v0.5.md`; the author approved it and said to implement. The five
+calls its §11 flagged as arguable were decided as follows — all reversible, and each one
+notes what would change my mind.
+
+**1. `inn 2:10` takes the one-liner's secondary segment (under 90s), rather than living
+only in the tooltip.** The widget's value is that it never changes shape, so this spends
+its single secondary slot. Justification: under 90s the cooldown is the only decision
+left, and `rest` ("stop casting entirely") is the option you are least likely to take.
+Gated on the cooldown being ready AND worth ≥10% of the pool, so it stays quiet otherwise.
+`db.showCooldown` turns it off. **Would change my mind:** the author finding it noisy in
+one real fight (`docs/TESTING.md` §9 asks directly).
+
+**2. Overheal keyed by family, refined per rank at 40 events.** Per-rank-only would be an
+empty column for months; family-average is precisely the wrong shape for "does downranking
+overheal less", since one factor on every rank of a family cannot reorder them. Both are
+true, so both are shown: the tooltip labels the scope, and a rank with no data of its own
+shows the raw number with a grey `?` rather than a borrowed one dressed up as measured.
+
+**3. The Pareto filter and the suggested rank stay on RAW values.** With a family-scope
+fraction the ranking cannot move anyway; the only thing that *would* move is the
+"heals ≥40% of max rank" gate. Letting a noisy measurement silently change the recommended
+rank — and therefore fire a "rebind?" toast — is not a trade worth making yet. Revisit when
+per-rank scopes routinely fill.
+
+**4. Effective mode is a toggle, not an eleventh column.** The table is already ten columns
+at 760px. A column would let you see raw and effective at once, which is the real
+comparison — that comparison now lives in the row tooltip instead, which shows both.
+
+**5. Nature's Grace feeds HPS, HP5 *and* To OOM, not HPS alone.** They are all
+chain-cast metrics from the same cast interval; feeding one and not the others would make
+the row internally inconsistent. The visible consequence is that To OOM goes slightly
+*down* (a faster cast earns less regen per cast), which is correct and is stated in the
+tooltip.
+
+**6. The Nature's Grace term is the exact mixture, not the plan's shorthand.**
+`docs/PLAN.md` wrote `cast − 0.5 × crit` floored at 1.5s. That clips the wrong branch:
+with `T0 = 2.0` and `p = 0.65` the floored form gives `max(1.675, 1.5) = 1.675` while the
+truth is `0.35 × 2.0 + 0.65 × 1.5 = 1.675` — equal here, but at `T0 = 1.8, p = 0.5` the
+floored form gives 1.55 and the mixture gives 1.65, because half the casts cannot go below
+the GCD. Implemented as `(1 − p)·T0 + p·max(T0 − 0.5, 1.5)`. Throughput over a chain is
+`heal / E[T]` exactly, so averaging the cast time (not `heal/T` per cast) is the right
+statistic for a sustained column.
+
+**7. Innervate's value is MARGINAL, not gross.** `(boosted − RM:Effective()) × 20 − cost`,
+where `boosted = 5·S + G + U`. The clock already projects `RM:Effective()`; adding the
+gross figure to the pool would double count it. Suppressed entirely while the buff is up,
+because `GetManaRegen` reports the boosted rate then and the clock is already right.
+**Assumed** (§9 in TESTING): that the 400% multiplies the Spirit share only, and not flat
+gear/buff mp5 or Dreamstate — neither is spirit-based.
+
+**8. Static cost percentages now SUM.** The code already documented that the client sums
+same-type modifiers (Moonglow + Tree of Life = −29%, not ×0.91 × ×0.8) and called the
+multiplicative fallback a known ~2% error. The Simulate strip's form/Moonglow overrides
+depend on that path, so it was fixed rather than inherited.
+
+**9. The combat log's `amount` convention is detected, not assumed.** WoW documents
+`SPELL_HEAL`'s `amount` both ways across versions (gross, of which `overhealing` was
+wasted / net, with `overhealing` on top), and the fight summary had quietly assumed net. A
+full overheal discriminates: gross reports `amount == overheal`, net reports `amount == 0`.
+The first unambiguous sample latches `db.healAmountGross`, and `OH:Split()` then feeds both
+the dashboard and the summary. Net stays the default until proven, so nothing moves on its
+own.
+
+### Still assumed, with the log line that settles each
+
+| Assumption | Where | Settled by |
+|---|---|---|
+| Nature's Grace is 0.5s, floored at the GCD | `Engine/RankMath.lua` `ctx.ExpectedCast` | `cast` debug category, TESTING §8 |
+| Innervate's 400% is spirit-share only | `Engine/ManaCooldowns.lua` `InnervateValue` | `regen` line on buff gain/fade, TESTING §9 |
+| Overheal half-life 150 events, 40-event gate | `Engine/Overheal.lua` | one raid; counts visible in `/md profile` |
+| `K_SIGMA` / `CV_STABLE` | `Engine/TTO.lua` | TESTING §5 — **unchanged by v0.5** |
