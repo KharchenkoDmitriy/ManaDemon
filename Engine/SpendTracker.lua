@@ -76,9 +76,16 @@ MD:On("UNIT_SPELLCAST_START", function(unit, _, spellID)
     local actual = (endMS - startMS) / 1000
     local s = spellID and MD.SpellData.spells[spellID]
     if s and s.cast then
-        local base = math.max(s.cast - 0.1 * MD:TalentRank("Naturalist"), 1.5)
-        MD:Debug("cast", "%s R%d: live %.2fs - model base %.2fs, after a crit %.2fs (table %.1fs)",
-            name or "?", s.rank or 0, actual, base, math.max(base - 0.5, 1.5), s.cast)
+        -- Naturalist only shortens Healing Touch (the first cut subtracted it
+        -- from every spell -- harmless at rank 0, wrong after a respec).
+        local naturalist = s.family == "HealingTouch" and 0.1 * MD:TalentRank("Naturalist") or 0
+        local base = math.max(s.cast - naturalist, 1.5)
+        local ng = MD:TalentRank("Nature's Grace")
+        MD:Debug("cast", "%s R%d: live %.2fs - model %.2fs%s (table %.1fs)",
+            name or "?", s.rank or 0, actual, base,
+            ng > 0 and string.format(", after a crit %.2fs (Nature's Grace %d)", math.max(base - 0.5, 1.5), ng)
+                    or " (Nature's Grace not talented: no reduction expected)",
+            s.cast)
     else
         MD:Debug("cast", "%s (%s): live %.2fs", name or "?", tostring(spellID), actual)
     end

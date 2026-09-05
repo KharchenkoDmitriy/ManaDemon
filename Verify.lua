@@ -261,6 +261,63 @@ function MD:RunProfile()
 end
 
 --------------------------------------------------------------------------------
+-- /md export: machine-readable TSV for analysis (fights, overheal buckets,
+-- roster, calibration when present). Tabs, no quoting: the first dungeon log
+-- was analysed by regexing prose, which is how the analyst wants to stop.
+--------------------------------------------------------------------------------
+function MD:Export()
+    local out = {}
+    local function add(...) out[#out + 1] = table.concat({ ... }, "\t") end
+    add("# manademon " .. MD.version, MD.player.charKey, MD.player.class .. " " .. MD.player.level,
+        date("%Y-%m-%d %H:%M"), MD.db.healAmountGross == nil and "amount:unknown"
+            or (MD.db.healAmountGross and "amount:gross" or "amount:net"))
+
+    add("# fights")
+    add("t", "zone", "dur", "spent", "netMp5", "healed", "overhealed", "oomAt")
+    for _, f in ipairs(MD.fightHistory or {}) do
+        add(f.t or "", f.zone or "", string.format("%.1f", f.duration or 0),
+            string.format("%.0f", (f.avgSpendRate or 0) * (f.duration or 0)),
+            string.format("%.0f", f.netMp5 or 0), f.healed or "", f.overhealed or "",
+            f.oomAt and string.format("%.1f", f.oomAt) or "")
+    end
+
+    if MD.Overheal and MD.Overheal.stats then
+        add("# overheal")
+        add("key", "n", "healed", "overhealed")
+        local keys = {}
+        for k in pairs(MD.Overheal.stats) do keys[#keys + 1] = k end
+        table.sort(keys)
+        for _, k in ipairs(keys) do
+            local st = MD.Overheal.stats[k]
+            add(k, st.n, string.format("%.0f", st.h), string.format("%.0f", st.o))
+        end
+    end
+
+    if MD.Targets then
+        add("# roster")
+        add("name", "class", "role", "roleSource", "kind")
+        for _, row in ipairs(MD.Targets:ExportRows()) do out[#out + 1] = row end
+    end
+
+    if MD.Calibration and MD.Calibration.ExportRows then
+        add("# calibration")
+        add("spellID", "kind", "n", "obs", "pred")
+        for _, row in ipairs(MD.Calibration:ExportRows()) do out[#out + 1] = row end
+    end
+    return out
+end
+
+function MD:RunExport()
+    local lines = MD:Export()
+    if MD.ShowCopyPopup then
+        MD:ShowCopyPopup("ManaDemon export (TSV)", table.concat(lines, "\n"))
+        MD:Print(string.format("export ready (%d lines) - Ctrl+C in the box.", #lines))
+    else
+        for _, line in ipairs(lines) do MD:Print(line) end
+    end
+end
+
+--------------------------------------------------------------------------------
 -- FSR anchor test: log every player mana change with a timestamp for 15s.
 --------------------------------------------------------------------------------
 local fsrLogging = false

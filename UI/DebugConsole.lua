@@ -141,7 +141,18 @@ function MD:ShowCopyPopup(title, text)
 end
 
 local function ShowLogCopyPopup()
-    MD:ShowCopyPopup("Copy Debug Log", BuildPlainTextLog())
+    -- Every pasted log carries its own inputs: the first dungeon log could not
+    -- say whether Nature's Grace was even talented, and the analysis had to
+    -- infer it from a cast time.
+    local text = BuildPlainTextLog()
+    if MD.Snapshot then
+        local head = { string.format("=== ManaDemon v%s  %s  %s level %d  %s ===", MD.version, MD.player.charKey,
+            MD.player.class, MD.player.level, date("%Y-%m-%d %H:%M")) }
+        for _, line in ipairs(MD:Snapshot()) do head[#head + 1] = line end
+        head[#head + 1] = "--- log ---"
+        text = table.concat(head, "\n") .. "\n" .. text
+    end
+    MD:ShowCopyPopup("Copy Debug Log", text)
 end
 
 --------------------------------------------------------------------------------

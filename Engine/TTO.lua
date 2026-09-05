@@ -412,6 +412,7 @@ end
 -- (15s out), first summary immediately after a transition.
 --------------------------------------------------------------------------------
 local dbgMode, dbgAcc = nil, 0
+local dbgShown, dbgShownAt = nil, nil
 local function Plain(str)
     return (str:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
 end
@@ -423,6 +424,17 @@ MD:OnTick(function(dt)
         MD:Debug("tto", "mode %s -> %s (shown: %s)", tostring(dbgMode), s.mode, Plain(MD:GetDisplayString()))
         dbgMode = s.mode
         dbgAcc = math.huge
+    end
+    -- Every change of the SHOWN string, so jumpiness can be measured rather
+    -- than estimated from 5s samples (79% of consecutive samples differed in
+    -- the first dungeon log; how many of those were real changes is unknown).
+    local shown = Plain(MD:GetDisplayString())
+    if shown ~= dbgShown then
+        local now = GetTime()
+        if dbgShown ~= nil then
+            MD:Debug("tto", "shown: '%s' (was '%s', %.1fs)", shown, dbgShown, now - (dbgShownAt or now))
+        end
+        dbgShown, dbgShownAt = shown, now
     end
     dbgAcc = dbgAcc + dt
     if dbgAcc >= (s.inCombat and 5 or 15) then

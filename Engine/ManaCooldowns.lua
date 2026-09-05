@@ -172,8 +172,19 @@ end
 -- (or disproves) the "400% on the spirit share only" model above.
 --------------------------------------------------------------------------------
 local wasActive = false
+local wasReady = {}   -- key -> true while a source was ready last tick
 MD:OnTick(function()
     if not (MD.db and MD.db.debug and MD.db.debug.enabled) then return end
+    -- A source that was ready and no longer is was just used (or, for a
+    -- potion, the last one was drunk). The first dungeon log had four potion
+    -- alerts and no way to tell whether any was answered.
+    for _, src in ipairs(MC:All()) do
+        if wasReady[src.key] and not src.ready then
+            MD:Debug("spend", "cooldown used: %s (worth ~%d) at %d/%d mana",
+                src.name, src.delta, UnitPower("player", 0) or 0, UnitPowerMax("player", 0) or 0)
+        end
+        wasReady[src.key] = src.ready or nil
+    end
     local active = MC:Active()
     if active ~= wasActive then
         wasActive = active

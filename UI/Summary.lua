@@ -86,8 +86,10 @@ MD:On("PLAYER_REGEN_DISABLED", function()
         overhealed = 0,
         oomAt = nil,
     }
-    MD:Debug("combat", "pull: mana %d/%d, regen base %.2f casting %.2f",
-        fight.startMana, UnitPowerMax("player", 0), MD.Regen.base, MD.Regen.casting)
+    MD:Debug("combat", "pull: mana %d/%d, regen base %.2f casting %.2f, zone %s",
+        fight.startMana, UnitPowerMax("player", 0), MD.Regen.base, MD.Regen.casting,
+        GetRealZoneText and GetRealZoneText() or "?")
+    if MD.Targets then MD:Debug("combat", "roster: %s", MD.Targets:RosterLine()) end
 end)
 
 -- OOM detection (below 2% counts as dry).
