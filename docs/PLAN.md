@@ -68,17 +68,18 @@ emphasis: the author's mana problem is **waste, not running out** (38% overheal,
 wasted ticks, never below 36% mana except once). Design and architecture:
 **`docs/DESIGN-v0.6.md`**; the calls are in `docs/DECISIONS.md` §v0.6.
 
-- [ ] **v0.6.0** HP5 redefined (chain-casting, in-5SR); the `OOM 0s` false alarm; digits
-  gated on `sigma/net`; default view from usage; advisor/clock name the same cooldown.
-- [ ] **v0.6.1** `Engine/Targets.lua` (roster: class + role, read not inferred) and richer
+- [x] **v0.6.0** HP5 **removed** (author: no new insight — it orders like HPM); the `OOM 0s`
+  false alarm; digits gated on `sigma/net` (0.7, a slider, provenance in its tooltip);
+  default view from usage; advisor names the richer cooldown it is holding.
+- [x] **v0.6.1** `Engine/Targets.lua` (roster: class + role, read not inferred) and richer
   logs — snapshot on Copy, roster at each pull, shown-string changes, cooldown use.
-- [ ] **v0.6.2** `Engine/Calibration.lua` — the model checks itself against every heal
+- [x] **v0.6.2** `Engine/Calibration.lua` — the model checks itself against every heal
   landed, and reports drift. **Top priority:** stats, content and spec all change.
-- [ ] **v0.6.3** Waste view — overheal by spell / role / class / target, wasted mana, and
+- [x] **v0.6.3** Waste view — overheal by spell / role / class / target, wasted mana, and
   the per-fight spend breakdown (~7% of mana is currently invisible).
-- [ ] **v0.6.4** Lifebloom rolling-vs-bloom economics; Life Tap detection.
-- [ ] **v0.6.5** `Engine/PullBudget.lua` — "2 more pulls, or 4 after a drink".
-- [ ] **v0.6.6** `/md export` (TSV), docs, TESTING for the new surface.
+- [x] **v0.6.4** Lifebloom rolling-vs-bloom economics; Life Tap detection.
+- [x] **v0.6.5** `Engine/PullBudget.lua` — "2 more pulls, or 4 after a drink".
+- [x] **v0.6.6** docs, TESTING §0b/§11–§14 for the new surface (`/md export` shipped in v0.6.1).
 - [ ] **D2** Cell integration — investigation brief only (`docs/DESIGN-v0.6.md` §13).
 
 **Caveat carried through all of it:** that log was a level 61 dungeon on a level 64 druid.

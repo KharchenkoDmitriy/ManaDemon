@@ -347,6 +347,16 @@ hard-pull samples and drops 55% of quiet digits — not the 80% first claimed, w
 in `hold` samples that are above 1 by construction. Still the right default; still to be
 re-derived on raid logs.
 
+**12. Two deviations from `docs/DESIGN-v0.6.md` made while implementing.** (a) The drift
+threshold is a constant (3%, `Engine/Calibration.lua ALERT_REL`) with an on/off checkbox,
+not a user-facing threshold setting — the Idol case pins 3% and a slider would invite
+turning a real finding into noise. (b) Hybrid (Regrowth) wasted-mana attribution splits the
+cost half to the direct hit and half across the seven ticks; the design table only covered
+single-kind spells. Both are stated in the code.
+
+**13. The Waste tab works for any class.** Only the rank tabs are druid-only; overheal by
+target, role and class needs no spell table.
+
 ### Priority, set by the author
 
 C1 self-calibration -> A waste report -> D1 logging -> B1 pull budget -> D2 Cell

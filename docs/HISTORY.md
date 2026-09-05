@@ -537,3 +537,68 @@ line is what proves it.
 
 **Next:** implement v0.6.0 (HP5 redefinition + the two clock fixes + small fixes). Nothing
 in v0.6 touches `K_SIGMA` / `CV_STABLE`, which remain `docs/PLAN.md` §1a.
+
+
+## 2026-09-05 (implementation) — v0.6.0 to v0.6.6 shipped
+
+Author reviewed `docs/DESIGN-v0.6.md` (published as a page), made one change — **remove
+HP5 rather than redefine it** ("it does not provide new insights": chain-casting in the
+5SR it reduces to `5 x castingRegen x HPM`) — and said to proceed. Seven releases, in
+the design's order, each luaparser-checked and built; nothing run in-game yet.
+
+**v0.6.0** — the red `OOM 0s` is gone: the tick keeps the last shown value while the mode
+latch holds `oom` over a `hold` state, and the display renders `OOM --` when there is
+none; `v or 0` deleted. Digits gated on `sigma/net <= db.oomConfidence` (0.7, a
+percentage slider with its provenance in the tooltip): above it the clock shows the bound
+`OOM >2:00 =`, `rest` shows unconditionally, the cooldown segment stays off; digits return
+after two confident ticks. Re-derived inside `oom` mode only: hard pull median 0.41, quiet
+median 0.73 — 0.7 keeps all six hard samples and drops 55% of quiet digits (not the 80%
+first claimed, which had mixed in `hold`). HP5 column removed. Dashboard opens on the
+most-cast family (`MD.cdb.familyCasts`). Advisor names the richer cooldown it is holding.
+
+**v0.6.1** — `Engine/Targets.lua`: roster with class, role and **roleSource**, role read
+from `UnitGroupRolesAssigned` → `GetPartyAssignment` → class-implied → unknown. Logs:
+Copy prepends `MD:Snapshot()`; `roster:` at each pull; `shown:` on every display change;
+`cooldown used:`; the `cast` line applies Naturalist only to Healing Touch (it applied it
+to everything — harmless at rank 0) and states the Nature's Grace rank. `/md export` TSV.
+
+**v0.6.2** — `Engine/Calibration.lua`: observed / predicted per spell and event kind, crits
+separated (rate checked independently), no decay (a ratio is gear-invariant), reset only on
+a changed talent build (TALENTS_CHANGED fires at every login, so the summary string is
+compared). Lifebloom stack fitted from x1/x2/x3, ambiguous ticks skipped and counted; events
+within 2s of a form change skipped. 3% drift alert at n ≥ 30 — the Idol case was 3.2%, a
+5% line would have missed it. `RankMath:EventPrediction()` on `Explain()`. `/md calibrate`.
+**Caught before shipping:** the same `a and f() or b` truncation of `Overheal:Split` that
+v0.5.3 fixed once already in `UI/Summary.lua`. Now in CLAUDE.md as a named trap.
+
+**v0.6.3** — `Engine/Overheal.lua` rewritten: six dimensions (family, spell, spell:kind,
+role, class, per-target), two stores (persisted decayed / session undecayed; targets only in
+session, pruned on `ROSTER_CHANGED`), wasted-mana attribution per event kind (cost/ticks;
+cost; hybrid half/half; AoE cost/(ticks×group); bloom 0). `UI/Dashboard_Waste.lua`: the
+fifth tab, by Spell / Role / Class / Target, session or all; any class. Spend tracker keeps
+per-family spend for session and fight, "other" catching buffs/dispels/forms; the fight
+line gains `(LB 52%, RG 22%, ...)` and `~1.5k into full health`.
+
+**v0.6.4** — Lifebloom rows weighted tick/bloom separately via `OH:KindFraction`; the
+callout says "keep the stack rolling" or "let it bloom" with both fractions and effective
+HPMs. Life Tap counted per member from `SPELL_CAST_SUCCESS`, shown as `Life Tap xN` in
+Target mode.
+
+**v0.6.5** — `Engine/PullBudget.lua`: median mana per pull in this zone → "2 more, or 4
+after a drink", in the OOC tooltip and as the drink reminder's text.
+
+**v0.6.6** — docs. `docs/TESTING.md` §0b (v0.6 regression), §11 calibration, §12 Waste +
+the roster question (are roles actually assigned in the author's groups?), §13 pull
+budget, §14 export. `CLAUDE.md` file table and conventions (calibration never feeds the
+model; the multi-return trap; constants from one log are settings). `docs/DECISIONS.md`
+§v0.6 items 10–13.
+
+**State:** branch `claude/combat-log-design-arch-ffb907` at v0.6.6, 11 commits ahead of
+master (master is at v0.5.5). `dist/combat-log-design-arch-ffb907/` built. **Nothing in
+v0.6 has run in-game.** The two things I most want from the next logs, in order: the
+`roster:` lines (does `UnitGroupRolesAssigned` return roles in a guild premade?) and
+`/md calibrate` after a night (are the ratios 1.000 — and how many Lifebloom ticks were
+skipped for stack ambiguity?).
+
+**Still open from before:** `K_SIGMA` / `CV_STABLE` (§5), Nature's Grace 0.5s (§8 — needs a
+Healing Touch in caster form), Innervate's value model (§9 — never cast), haste (unmodelled).

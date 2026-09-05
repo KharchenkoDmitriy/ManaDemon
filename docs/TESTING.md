@@ -1,7 +1,8 @@
-# ManaDemon — what to test now (v0.5.4)
+# ManaDemon — what to test now (v0.6.6)
 
-**Status 2026-09-05:** §1–§4b, §6, §7 passed on v0.4.8 and are kept for regression.
-**Outstanding: §5 (the clock's constants) and the three new tests §8, §9, §10.**
+**Status 2026-09-05:** the first real dungeon log (`.logs/dungeon-BF-1.txt`) was analysed
+and produced v0.6.0–v0.6.5 (`docs/DESIGN-v0.6.md`). §1–§4b, §6, §7 passed on v0.4.8 and are
+kept for regression. **Outstanding: §0b (v0.6 regression), §5, §8, §9, §11–§14.**
 
 Everything below is done on the druid, in-game, with the Debug Console open
 (`/md options` → General → Misc → Debug Console → tick **Enable Debug Logging**).
@@ -13,8 +14,9 @@ a fight with the Mana category on produces roughly 3 lines per second.
 Install: `make install WOW_ADDONS="/path/to/_anniversary_/Interface/AddOns"` (or copy
 `dist/combat-log-design-arch-ffb907/ManaDemon`), then `/reload`.
 
-> **v0.5 changed a lot of plumbing.** §0 is a five-minute check that nothing regressed;
-> do it first, because §8–§10 are worthless if something is broken underneath.
+> **v0.5 and v0.6 both changed a lot of plumbing.** §0 and §0b are ten minutes of "did
+> anything break"; do them first, because everything after is worthless if something is
+> broken underneath.
 
 ## 0. v0.5 regression pass (5 min) — DO THIS FIRST
 The v0.5.0 architecture pass rewrote four tooltips and the rank math's internals with no
@@ -29,6 +31,24 @@ intended change to any number. What to confirm:
   Options → OOM Widget → untick **Tooltip on hover**.
 - **Widget left-click** opens the dashboard (new).
 - Watch for Lua errors throughout (`/console scriptErrors 1`).
+
+## 0b. v0.6 regression pass (5 min) — NEW, DO THIS TOO
+- **No red `OOM 0s`.** In the BF log it appeared nine times at 72–97% mana. It must never
+  appear again; if it does, Copy the log around it.
+- **`OOM >2:00 =` on quiet pulls.** When the projection's error is above 70% of its value
+  the clock now shows a bound instead of digits (Options → Model → *OOM digits below
+  error*). On an easy pull expect mostly `OOM >N:NN =  rest Ns`; on a hard one the digits
+  come back and count down as before. Tell me if a pull you *felt* was hard showed only the
+  bound — that is the 0.7 needing retuning.
+- **HP5 column is gone**; Cast / To OOM / note shifted left. Nothing overlaps.
+- **Dashboard opens on your most-cast spell** (Lifebloom), not Healing Touch, until you
+  click a tab.
+- **A fifth tab, `Waste`**, renders with four `by:` buttons and two `scope:` buttons.
+  Before any healing it says "No heals recorded this session yet".
+- The **advisor**, when it fires for the potion, now adds *"Innervate is ready too but worth
+  ~N: hold it until you're down that far."*
+- Debug Console: **ten** categories in two rows (new: `Calib`); nothing overlaps the "keep
+  lines" box.
 
 ## 1. Smoke test of the UI (5 min)
 - `/md options`: tabs switch, frame drags by the tab strip, position survives `/reload`,
@@ -79,7 +99,7 @@ the relic table, paste the idol's name and tooltip text.
 - **New in this build:** the same log now also answers §9 and §10, so one good fight
   covers three tests. Use Innervate during it.
 
-## 6. To OOM / HP5 sanity (repeat only if something looks off)
+## 6. To OOM sanity (repeat only if something looks off)
 - `/md spamtest`, then chain-cast one spell to OOM. Prediction vs measured on one line.
 
 ## 7. Simulate strip (2 min, partly new)
@@ -135,6 +155,48 @@ The dashboard learns your overheal per spell from the combat log and can apply i
   wrong (say, doubled or halved), the combat log's `amount` convention was latched the
   wrong way — `/md profile` prints which one it picked under *combat log 'amount'
   convention*. Tell me what it says.
+
+## 11. Calibration — the model against your heals (one night, then 1 min) — NEW
+The addon now compares every heal you land with what the model predicted for it, per
+spell and event kind (tick / direct / bloom), non-crit only, and keeps the ratio.
+1. Play a night. Nothing to do.
+2. `/md calibrate` (or Options → Misc → *Copy profile*, which includes it). Paste it.
+3. What I check: every row with n ≥ 30 should read **ratio 1.000 ± 0.03**. A `HIGH` or
+   `LOW` row is a real finding — a relic the table does not know, a wrong coefficient, an
+   unmodelled buff — and you will also have seen one yellow *calibration:* chat line about
+   it during play (Options → Model → *Calibration drift alerts* turns those off).
+4. The two skip counters at the bottom matter: *Lifebloom ticks with no clean stack fit*
+   should be a small fraction of Lifebloom ticks; if it is large, tell me — that is the one
+   weak spot in this design, on your most-cast spell.
+5. The `crit` rows: observed crit rate vs what the model assumed. Regrowth with Improved
+   Regrowth should sit near 25% + crit; a big gap there is a talent-model bug.
+
+## 12. The Waste view and the roster (one dungeon, then 2 min) — NEW
+1. After a run, `/md` → **Waste**. Try all four `by:` modes and both scopes.
+2. **The question that matters:** in `by: Role`, are your party's roles TANK / HEALER /
+   DAMAGER, or mostly `UNKNOWN`? And in `by: Target`, do names show a grey `?` after the
+   role? The design assumes `UnitGroupRolesAssigned` returns the role people picked in the
+   group finder. In a guild premade it may return nothing — the `roster:` line at each pull
+   in the debug log (Combat category) says `NAME CLASS ROLE(source)` for everyone; paste one.
+   If `(unknown)` is common, the fallback needs work and I want to know now.
+3. Sanity: the tank should overheal ~40%, a mage's Water Elemental ~100% (Lifebloom on a
+   pet), you yourself around 45%. A warlock who taps shows *Life Tap xN* next to the name.
+4. The footer: *"X spent this session, ~Y (Z%) into targets at full health"* — the BF log
+   was 24%. Your number, and whether it changes how you cast, is the whole point.
+5. The fight summary line now carries *(LB 52%, RG 22%, RJ 14%, other 12%)* and *~1.5k into
+   full health*. Check it reads sensibly against one pull you remember.
+
+## 13. Pull budget (between two pulls, 30s) — NEW
+Out of combat, hover the widget: two new lines, *Pull budget: N more, M after a drink* and
+*a pull in <zone> costs ~X (median of n)*. The drink reminder now reads *"Drink? 62% --
+recent pulls here cost ~2.3k -- 2 more, or 4 after a drink."* Does the count match what you
+would have guessed? Too optimistic is the failure mode to report.
+
+## 14. Export (1 min) — NEW
+`/md export` opens a copy box of tab-separated fights, overheal buckets, roster and
+calibration. Paste it once alongside the debug log; from now on I analyse this rather than
+regexing prose. Also: **Copy in the Debug Console now prepends the full input snapshot**, so
+a pasted log is self-describing — no need to add your talents by hand.
 
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the

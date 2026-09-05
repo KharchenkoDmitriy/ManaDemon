@@ -11,6 +11,11 @@ are cheap and one is a visible bug.
 Status of every statement: **measured** = read out of the log; **derived** = follows from
 code in the repo; **assumed** = a modelling choice that needs in-game data (listed in §12).
 
+> **Delivered 2026-09-05 as v0.6.0–v0.6.6.** Deviations from this text are recorded in
+> `docs/DECISIONS.md` §v0.6 items 10–13 (HP5 removed rather than redefined; drift threshold
+> a constant with an on/off switch; hybrid attribution split; Waste tab for any class).
+> D2 remains an investigation brief. What to test: `docs/TESTING.md` §0b, §11–§14.
+
 ---
 
 ## 0. What the log established — and what it does not
