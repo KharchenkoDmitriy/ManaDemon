@@ -1399,3 +1399,20 @@ reporting version 0.7.1 (it reads the `.toc` now), and a card saying *waited 101
 fight* (the last wait's span ran past the end; clamped). And the "ticks" checkbox is anchored
 from the window's right edge with its label's width, so it cannot fall off a one-column
 window a third time; a column is 460 wide.
+
+## 2026-09-06 — v0.9 specified: runs, the measured character, the drink
+
+"You can plan and make specs for v0.9.x." `docs/SPEC-v0.9.md`, in the v0.7/v0.8 shape. Five
+versions in an order that keeps each honest: **v0.9.0** the character as it is — the mp5 the
+API omits measured by `/md regentest` and stored with its date (three solo recordings behind
+it now), the profile persisted so the offline engine sees this druid and not the BF-1 build;
+**v0.9.1** the run recorder — manual checkpoints, every pull plus the gaps (drinks with their
+measured rate, deaths, mana every 2 s, the clock), two runs kept in SavedVariables, auto-stop
+on leaving, `runcheck`; **v0.9.2** the Review tab's run selector; **v0.9.3** the run in the
+engine — pulls chained with mana carried over, a gap model that drinks by a policy at the
+run's own measured rate, a score that puts **time before mana** (`addedTime`, `drinks`, then
+mana), and the card that says "you drank 4x (3:10); this plan needs 2x (1:20)"; **v0.9.4**
+the run strip in the replay window. Six calls in `docs/DECISIONS.md` §v0.9, a rejected list
+(no file writing, no preset drink rate, no blended score, no run-level play-through), and the
+author questions with defaults (measure vs read the mp5: measure; drinks vs added time in the
+score: added time first). Auto-start stays reserved behind a setting that ships off.

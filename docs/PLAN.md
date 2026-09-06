@@ -134,9 +134,19 @@ ticks. Spec: **`docs/SPEC-v0.8.md`**; the three calls are in `docs/DECISIONS.md`
 - [x] **`tools/import.lua`** (2026-09-06): the game's SavedVariables as the addon's database;
   list / validate / replay / coach / export on real recordings without the game. First run on
   three solo fights measured the character's own unreported regen at ~31 mp5 (TESTING §16 A).
-- [ ] **Run recording** (v0.9): manual `/md run start|stop` checkpoints (auto-start reserved),
-  every pull of a dungeon plus the gaps, stored separately, a run selector on Review.
-- [ ] **Measured item mp5 into the model** — decision pending (see DECISIONS §v0.7.1 addendum).
+
+## Phase 1.10 — runs, the measured character, the drink (v0.9)
+
+Spec: **`docs/SPEC-v0.9.md`**; the calls in `docs/DECISIONS.md` §v0.9.
+
+- [ ] **v0.9.0** measured mp5 (`cdb.mp5` from `/md regentest`) into `RM:Unreported()` and every
+  recording's `initial.energize`; the profile snapshot; the import tool uses both.
+- [ ] **v0.9.1** `Engine/RunRecorder.lua`: `/md run start|stop|status`, every pull plus the gaps
+  (drinks, deaths, mana every 2 s), `cdb.runs`, auto-stop, `# run` export, `tools/runcheck.lua`.
+- [ ] **v0.9.2** Review tab run selector; pulls of a run with every button; `import.lua runs`.
+- [ ] **v0.9.3** the run in the engine: `ChainRun`, the gap model with the run's own drink rate,
+  `CoachRun`, the run card — "you drank 4x (3:10); this plan needs 2x (1:20)".
+- [ ] **v0.9.4** the run strip in the replay window; pull-by-pull Play through a dungeon.
 
 ## Phase 2 — other classes (after 1 is green)
 

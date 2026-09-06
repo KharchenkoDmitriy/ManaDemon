@@ -588,3 +588,25 @@ is not urgent — which is a present-state input to `Plan:Decide`, legal under t
 invariant, and *not* the engine altering damage (the damage Evasion prevented was recorded
 as prevented). The recording of auras in v0.8.3 is its prerequisite; the rule waits for a
 recording that shows the case.
+
+## v0.9 (2026-09-06): runs, the measured character, the drink — spec, no debate
+
+The author, after the first real replays and the import tool: "each separate combat is ok for
+bossing, but in a 5-man it makes more sense to record the whole run — a checkpoint (could be
+manual) to start and stop, stored separately, ideally in a file, selectable for replay." Then:
+"keep it manual for now, but keep the possibility to add auto-start later." `docs/SPEC-v0.9.md`
+carries the plan. The calls:
+
+1. **Runs are manual**; auto-start is reserved behind a setting that ships off and a
+   `Start("auto")` that already exists.
+2. **The SavedVariables is the file.** An addon can write nothing else; runs live under their
+   own key, two kept, pinnable, and `tools/import.lua` reads them.
+3. **Every pull of a run is kept**, gate or no gate — the gate is for coaching *from* a pull.
+4. **The measured mp5 enters the model as a measurement** (option 1 of the v0.7.1 addendum: the
+   regentest histogram's 2 s beat, stored per character with its date, re-taken on a gear
+   change). Never as a constant, never per named source. Tooltip reading stays reserved.
+5. **The run's score puts time before mana**: `(deaths, floor, addedTime, drinks, mana, ...)`.
+   Mana in a dungeon is only worth the time it saves; a drink that did not fit its gap made
+   the run longer, which is the thing the healer was trying not to do. The drink rate is the
+   run's own, measured; there is no preset.
+6. **The profile is persisted** so the offline engine sees the character, not the BF-1 build.

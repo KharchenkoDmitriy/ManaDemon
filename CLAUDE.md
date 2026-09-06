@@ -19,7 +19,10 @@ Primary user is the author (Resto Druid); the TTO/advisor side is intentionally 
 implement from it, not from `docs/DESIGN-v0.7.md`; the debate that produced it is in
 `docs/debates/v0.7-sim/` and its rulings in `docs/DECISIONS.md` §v0.7. **v0.8 (the replay
 window: two columns of unit frames, actual vs suggested, on one clock) is specified in
-`docs/SPEC-v0.8.md`**; its three calls are in `docs/DECISIONS.md` §v0.8.
+`docs/SPEC-v0.8.md`**; its three calls are in `docs/DECISIONS.md` §v0.8. **v0.9 (run recording
+with manual checkpoints, the measured mp5 and profile into the model, the run in the engine
+with a drink model and a time-first score) is specified in `docs/SPEC-v0.9.md`**; the calls
+are in `docs/DECISIONS.md` §v0.9.
 
 **Session continuity:** past work sessions are logged in **`docs/HISTORY.md`** (what was done, project state, next steps). Read it at the start of a session to recover context, and append a dated entry when a session ends with meaningful progress — this is the project's memory across conversations. **`docs/PLAN.md`** is the agreed roadmap (Phase 1 druid verification + improvements, Phase 2 other classes) — tick items there as they land. **`docs/TESTING.md`** tells the author what to test in-game and how to report it.
 
