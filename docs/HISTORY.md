@@ -1334,3 +1334,22 @@ up to ten ×1.25 in two columns, a raid at Cell's own size five per column — e
 its Cell position, offsets and icons grow with the scale, the bar and the name stretch with
 the width (`f.Resize(W, H, s)`). `tools/replayui.lua` asserts the stretched party buttons and
 the in-flight name with its border (43). Six suites green.
+
+## 2026-09-06 — v0.8.9: four screenshots, five bugs
+
+The solo replay at ×3.5, and what it showed. **A brown band across the lower third of the
+button**: the status strip's black-at-60% background over orange, drawn with no text —
+`GetText()` on an empty font string is *nil* on this client, so `~= ""` was always true. The
+stub returns `""`, which is why forty assertions never saw it; the strip's text now lives in a
+field the window owns (`f.castText`, `f.labelText`) and the harness asserts the background is
+hidden when idle. **"Regrowth / R9" on two lines over the name**: no `SetWordWrap(false)` on
+the status strings, and a status font scaled ×3.5 with the button; status, deficit and stack
+fonts now stop growing at ×2 (`CELL.textScaleMax`), the name keeps scaling. **The HoT icons
+over the score line**: Cell's slot sits 3 px above the button's top, ×3.5 = 10 px, and the
+grid began right under the strip; the gap is the overhang now. **A dark power strip on the
+healer's own button**: the healer was matched by `MD.player.name`, which does not exist —
+the recorder's roster carries the guid now and the window matches on it (older recordings:
+`UnitName("player")`); the harness asserts the healer is recognised and the strip shows mana.
+And the strip's GCD sweep was too light under white text.
+
+`tools/replayui.lua` 46. Six suites green.

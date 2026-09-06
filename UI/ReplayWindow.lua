@@ -41,6 +41,7 @@ local CELL = {
     healthText = { "BOTTOMRIGHT", 0, 0 },               -- deficit_short
     statusText = { "BOTTOM", 0, 0 },                    -- 11px with background: cast name, label, dead
     fonts = { name = 13, health = 12, status = 11, count = 11 },
+    textScaleMax = 2,                                   -- status / deficit / counts stop growing here; the name does not
 }
 -- Frames scale with the head-count (author, 2026-09-06): a raid at Cell's own
 -- size, a party stretched across the column, a solo fight big enough to read.
@@ -207,10 +208,18 @@ local function CreateUnitFrame(parent, x, y)
     f.statusBG:Hide()
     f.cast = f.top:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
     f.cast:SetJustifyH("CENTER")
+    f.cast:SetWordWrap(false)
     f.cast:SetText("")
     f.label = f.top:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
     f.label:SetJustifyH("CENTER")
+    f.label:SetWordWrap(false)
     f.label:SetText("")
+    -- what the two strings hold, kept here: GetText() on an empty font string
+    -- is nil on this client, and "nil ~= ''" drew the strip's background over
+    -- every button that had nothing to say (the brown band of the first look)
+    f.castText, f.labelText = "", ""
+    function f.SetCast(text) f.castText = text or ""; f.cast:SetText(f.castText) end
+    function f.SetLabel(text) f.labelText = text or ""; f.label:SetText(f.labelText) end
 
     -- One icon builder for HoTs, defensives and debuffs: the spell's texture,
     -- a Cell-style VERTICAL sweep (the elapsed share of the icon dimmed from
@@ -282,13 +291,14 @@ local function CreateUnitFrame(parent, x, y)
         local ht = CELL.healthText
         f.pct:ClearAllPoints()
         f.pct:SetPoint(ht[1], f.bar, ht[1], ht[2] * sc, ht[3] * sc)
-        Font(f.pct, CELL.fonts.health * sc)
+        local ts = math.min(sc, CELL.textScaleMax)
+        Font(f.pct, CELL.fonts.health * ts)
         local ri = CELL.roleIcon
         f.role:SetSize(ri[4] * sc, ri[4] * sc)
         f.role:ClearAllPoints()
         f.role:SetPoint(ri[1], f, ri[1], ri[2] * sc, ri[3] * sc)
         local stt = CELL.statusText
-        local sh = 12 * sc
+        local sh = 12 * ts
         f.statusBG:ClearAllPoints()
         f.statusBG:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 1 + pw)
         f.statusBG:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1 + pw)
@@ -297,7 +307,7 @@ local function CreateUnitFrame(parent, x, y)
             fs:ClearAllPoints()
             fs:SetPoint(stt[1], f, stt[1], stt[2] * sc, stt[3] + pw + 1)
             fs:SetWidth(W - 4)
-            Font(fs, CELL.fonts.status * sc)
+            Font(fs, CELL.fonts.status * ts)
         end
         local ho = CELL.hots
         for fi = 1, 3 do
@@ -305,7 +315,7 @@ local function CreateUnitFrame(parent, x, y)
             ic:SetSize(ho[4] * sc, ho[4] * sc); ic.size = ho[4] * sc
             ic:ClearAllPoints()
             ic:SetPoint(ho[1], f, ho[1], (ho[2] + ho[5] * (fi - 1) * ho[4]) * sc, ho[3] * sc)
-            Font(ic.count, CELL.fonts.count * sc); Font(ic.letter, CELL.fonts.count * sc)
+            Font(ic.count, CELL.fonts.count * ts); Font(ic.letter, CELL.fonts.count * ts)
         end
         f.dot:SetSize(5 * sc, 5 * sc)
         f.dot:ClearAllPoints()
@@ -314,13 +324,13 @@ local function CreateUnitFrame(parent, x, y)
         f.defIcon:SetSize(de[4] * sc, de[5] * sc); f.defIcon.size = de[5] * sc
         f.defIcon:ClearAllPoints()
         f.defIcon:SetPoint(de[1], f, de[1], de[2] * sc, de[3] * sc)
-        Font(f.defIcon.count, CELL.fonts.count * sc); Font(f.defIcon.letter, CELL.fonts.count * sc)
+        Font(f.defIcon.count, CELL.fonts.count * ts); Font(f.defIcon.letter, CELL.fonts.count * ts)
         local db = CELL.debuffs
         for i, ic in ipairs(f.debuffs) do
             ic:SetSize(db[4] * sc, db[4] * sc); ic.size = db[4] * sc
             ic:ClearAllPoints()
             ic:SetPoint(db[1], f, db[1], (db[2] + db[5] * (i - 1) * db[4]) * sc, db[3] * sc)
-            Font(ic.count, CELL.fonts.count * sc); Font(ic.letter, CELL.fonts.count * sc)
+            Font(ic.count, CELL.fonts.count * ts); Font(ic.letter, CELL.fonts.count * ts)
         end
     end
     f.Resize(CELL.size[1], CELL.size[2], 1)
@@ -398,7 +408,7 @@ local function MakeOnEvent(col)
                 local c = FAMILY_COLOR[family] or FAMILY_COLOR.other
                 f:SetBackdropBorderColor(c[1], c[2], c[3], 1)
                 f.flashUntil = now + FLASH_CAST
-                f.cast:SetText(label)
+                f.SetCast(label)
                 f.cast:SetTextColor(c[1], c[2], c[3])
                 f.textUntil = now + FLASH_TEXT
                 -- the classifier's word for this cast (left column, plan present),
@@ -407,7 +417,7 @@ local function MakeOnEvent(col)
                 local cl = col.isLeft and rp.casts and lc and rp.casts[lc.n]
                 if cl and cl.label and cl.label ~= "utility" and cl.label ~= "shift" then
                     local lcol = LABEL_COLOR[cl.label] or LABEL_COLOR.unclassified
-                    f.label:SetText(cl.label)
+                    f.SetLabel(cl.label)
                     f.label:SetTextColor(lcol[1], lcol[2], lcol[3])
                     f.labelFrom, f.labelUntil = now + FLASH_TEXT, now + FLASH_TEXT + LABEL_FLASH
                 end
@@ -537,7 +547,7 @@ local function PaintFrame(f, st, ti, isLeft, now)
         local label, family = SpellLabel(casting.spellID)
         local fc = FAMILY_COLOR[family] or FAMILY_COLOR.other
         f:SetBackdropBorderColor(fc[1], fc[2], fc[3], 1)
-        f.cast:SetText(label .. " ...")
+        f.SetCast(label .. " ...")
         f.cast:SetTextColor(fc[1], fc[2], fc[3])
         f.textUntil = now + 0.1   -- refreshed every frame while in flight
     elseif f.flashUntil <= now then
@@ -546,12 +556,12 @@ local function PaintFrame(f, st, ti, isLeft, now)
 
     -- the status slot: the landed cast's name, then its label; DEAD wins.
     -- Nothing is drawn -- no background either -- when there is nothing to say.
-    if f.textUntil <= now and f.cast:GetText() ~= "" then f.cast:SetText("") end
-    local showLabel = f.labelFrom <= now and now < f.labelUntil and f.label:GetText() ~= ""
-    if f.labelUntil <= now and f.label:GetText() ~= "" then f.label:SetText("") end
+    if f.textUntil <= now and f.castText ~= "" then f.SetCast("") end
+    local showLabel = f.labelFrom <= now and now < f.labelUntil and f.labelText ~= ""
+    if f.labelUntil <= now and f.labelText ~= "" then f.SetLabel("") end
     Shown(f.label, showLabel and not dead)
-    Shown(f.cast, f.cast:GetText() ~= "" and not showLabel and not dead)
-    Shown(f.statusBG, (not dead) and (showLabel or f.cast:GetText() ~= ""))
+    Shown(f.cast, f.castText ~= "" and not showLabel and not dead)
+    Shown(f.statusBG, (not dead) and (showLabel or f.castText ~= ""))
 
     -- HoT icons with the vertical sweep of their remaining time; Lifebloom
     -- shows its stacks and its border turns white in the last second (the
@@ -649,7 +659,7 @@ local function PaintStrip(s, st, pool, now)
         s.castFS:SetTextColor(1, 1, 1)
     elseif s.lastCast and st.t < s.gcdUntil and st.t >= s.gcdStart then
         -- just after an instant: the GCD sweeping, in grey
-        s.cast:SetStatusBarColor(0.45, 0.45, 0.45)
+        s.cast:SetStatusBarColor(0.3, 0.3, 0.3)
         s.cast:SetValue((st.t - s.gcdStart) / GCD)
         s.castFS:SetText(s.lastCast .. "  instant")
         s.castFS:SetTextColor(1, 1, 1)
@@ -710,7 +720,7 @@ local function SeekTo(t)
             local f = col and col.frames[ti]
             if f then
                 f.flashUntil, f.textUntil, f.labelFrom, f.labelUntil, f.pulseUntil, f.tickIdx = 0, 0, 0, 0, 0, nil
-                f.cast:SetText(""); f.label:SetText("")
+                f.SetCast(""); f.SetLabel("")
             end
         end
     end
@@ -893,7 +903,10 @@ local function Layout()
     table.sort(rows)
     local roster = rp.rec.roster
     local healerIdx = nil
-    for i, r in ipairs(roster) do if r.name == MD.player.name then healerIdx = i end end
+    local myName = UnitName and UnitName("player") or nil
+    for i, r in ipairs(roster) do
+        if (r.guid and r.guid == MD.player.guid) or (not r.guid and myName and r.name == myName) then healerIdx = i end
+    end
 
     local n = #rows
     local sc, nCols, stretch = ScaleFor(n)
@@ -908,9 +921,10 @@ local function Layout()
         pitch = math.max(COL_W, nCols * W + (nCols - 1) * spX)
     end
     local gridH = math.min(n, perCol) * H + (math.min(n, perCol) - 1) * spY
+    local overhang = CELL.hots[3] * sc + 4        -- the HoT slot sits above the button's top edge
     local hasRight = rp.right ~= nil
     local width = hasRight and (2 * pitch + 3 * GUTTER) or (pitch + 2 * GUTTER)
-    local height = HEADER_H + STRIP_H + gridH + SCRUB_H + 12
+    local height = HEADER_H + STRIP_H + overhang + gridH + SCRUB_H + 12
     frame:SetSize(width, height)
     frame.hint:SetWidth(width - 2 * GUTTER)
     right.x = 2 * GUTTER + pitch
@@ -925,7 +939,7 @@ local function Layout()
     for _, col in ipairs({ left, right }) do
         for _, f in pairs(col.frames) do f:Hide() end
     end
-    local y0 = -(HEADER_H + STRIP_H + 4)
+    local y0 = -(HEADER_H + STRIP_H + overhang)
     for k, ti in ipairs(rows) do
         local cI, rI = math.floor((k - 1) / perCol), (k - 1) % perCol
         local dx, y = cI * (W + spX), y0 - rI * (H + spY)
@@ -951,7 +965,7 @@ local function Layout()
                 f.bar.bg:SetColorTexture(c[1] * CELL.lossFactor, c[2] * CELL.lossFactor, c[3] * CELL.lossFactor, 1)
                 f.power:SetValue(f.isHealer and 1 or 0)
                 f.flashUntil, f.textUntil, f.labelFrom, f.labelUntil, f.pulseUntil, f.tickIdx = 0, 0, 0, 0, 0, nil
-                f.cast:SetText(""); f.label:SetText("")
+                f.SetCast(""); f.SetLabel("")
                 f:SetBackdropBorderColor(0, 0, 0, 1)
                 f.defIcon.spellID = nil
                 for _, ic in ipairs(f.debuffs) do ic.spellID = nil end

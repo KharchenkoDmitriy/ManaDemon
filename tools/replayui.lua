@@ -158,6 +158,17 @@ check("seek clears the cast text", W.left.frames[tankRow].cast:GetText() == "")
 local anyLabel = false
 for _, ti in ipairs(W.rows) do if W.left.frames[ti].label:GetText() ~= "" then anyLabel = true end end
 check("seek clears the labels", not anyLabel)
+-- the status strip's background only while there is text (the brown band)
+local bgIdle = W.left.frames[tankRow].statusBG:IsShown()
+check("no status background when idle", not bgIdle)
+-- the healer's own button carries their mana on the power strip
+local me
+for _, ti in ipairs(W.rows) do if roster[ti].name == "Penek" then me = ti end end
+check("healer recognised by guid", me and W.left.frames[me].isHealer == true)
+MD.Replay._seek(10.0)
+check("healer's power strip shows mana", me and W.left.frames[me].power:GetValue() > 0.3 and W.left.frames[me].power:GetValue() < 1,
+    me and string.format("%.2f", W.left.frames[me].power:GetValue()) or "no row")
+MD.Replay._seek(0)
 local anyHot = false
 for _, ti in ipairs(W.rows) do for fi = 1, 3 do if W.left.frames[ti].hots[fi]:IsShown() then anyHot = true end end end
 check("no HoT icons at t=0", not anyHot)

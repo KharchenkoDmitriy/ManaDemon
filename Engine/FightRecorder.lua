@@ -100,7 +100,7 @@ local function BuildRoster()
         if e and e.unit and UnitGUID(e.unit) == r.guid then
             maxHP = UnitHealthMax(e.unit) or -1
         end
-        out[i] = { name = r.name, class = r.class, role = r.role,
+        out[i] = { name = r.name, guid = r.guid, class = r.class, role = r.role,
                    roleSource = e and e.roleSource or "unknown", maxHP = maxHP }
     end
     return out
