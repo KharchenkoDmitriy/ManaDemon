@@ -519,46 +519,98 @@ local function IsDrinking()
 end
 
 --------------------------------------------------------------------------------
--- Storing the measurement (v0.9.0, docs/SPEC-v0.9.md 2.1). The histogram
--- already NAMES the beat the API omits; this writes it down, with its date, so
--- RM:MeasuredMp5() can add it and every recording can carry it. It stores only
--- from a CLEAN window -- nothing spent, no drink, out of the five-second rule
--- throughout, at least MP5_MIN_TICKS beats, and the beat constant to within
--- +-1 mana -- because a measurement taken through a cast is not a measurement.
--- A dirty test says why it did not store. What lands in the bucket is whatever
--- was up: run it SOLO (docs/TESTING.md 27), or you are measuring somebody
--- else's blessing into your own gear.
+-- Storing the measurement (v0.9.0, corrected in v0.9.5). What is stored is the
+-- RESIDUAL: the observed regen rate minus what the client reports, minus what
+-- the model already adds for Dreamstate, minus anything the histogram
+-- identified as somebody else's 3s party energize.
+--
+--   unreported = observed - GetManaRegen - Dreamstate - party
+--
+-- The first version stored the SIZE OF THE TICK instead, off a cluster the
+-- histogram had labelled "a 2s beat the API does not report". On a druid with
+-- Dreamstate that label is wrong: Dreamstate rides inside the same server tick,
+-- so the one and only tick reads ~14% above the raw API rate, gets called a
+-- separate stream, and its whole size is stored. The author's character ended
+-- up with 279 mp5 of "unreported" regen on top of a 244 mp5 API rate -- a 556
+-- mp5 datatext for a druid regenerating 279. A term the API does not report can
+-- only ever be what is LEFT OVER after everything that is reported; anything
+-- else double counts by construction.
+--
+-- Stored only from a clean window: nothing spent, no drink, out of the
+-- five-second rule throughout, enough ticks to average, and SOLO -- in a group
+-- somebody's blessing lands in the same bucket. Below MP5_FLOOR the residual is
+-- indistinguishable from the test's own precision, so nothing is stored and any
+-- previous measurement is CLEARED: "the model already accounts for everything"
+-- is a result, and leaving a stale number in place would hide it.
 --------------------------------------------------------------------------------
-local MP5_MIN_TICKS = 5
+local MP5_MIN_TICKS = 6
+local MP5_FLOOR = 1.0     -- mana/s (5 mp5). The tick sizes vary by +-1 and a 30s
+                          -- window holds ~15 of them, so the test itself is good
+                          -- to about 0.5/s; half of that again is noise.
 
-local function StoreMeasuredMp5(t, own, elapsed)
+local function ClearMeasured(reason)
+    if not (MD.cdb and MD.cdb.mp5) then return false end
+    local prev = MD.cdb.mp5
+    MD.cdb.mp5 = nil
+    if MD.Regen then MD.Regen:Refresh() end
+    MD:Print(string.format("regentest: |cffffcc00cleared|r the stored %d mp5 (measured %s) - %s.",
+        prev.mp5 or 0, date("%Y-%m-%d", prev.at or 0), reason))
+    return true
+end
+
+function MD:ClearMeasuredMp5()
+    if not ClearMeasured("you asked") then
+        MD:Print("regentest: nothing stored to clear.")
+    end
+end
+
+-- t: the finished test. observed/api/ds/party are all mana per second.
+local function StoreMeasuredMp5(t, elapsed, observed, api, ds, party)
+    local solo = (GetNumGroupMembers and GetNumGroupMembers() or 1) <= 1
     local why = nil
     if not MD.cdb then why = "no character database yet"
     elseif t.spent > 0 then why = string.format("%d mana was spent during the window", t.spent)
     elseif t.drank then why = "a drink/food buff was up"
     elseif t.fsrTime > 0.5 then why = string.format("%.1fs of the window were inside the 5SR", t.fsrTime)
-    elseif not own then why = "no 2s beat outside the spirit tick was seen"
-    elseif own.n < MP5_MIN_TICKS then why = string.format("the beat was seen %d time(s), needs %d", own.n, MP5_MIN_TICKS)
-    elseif own.hi - own.lo > 1 then why = string.format("the beat was not constant (%d-%d mana)", own.lo, own.hi)
+    elseif t.ticks < MP5_MIN_TICKS then why = string.format("%d regen tick(s) seen, needs %d", t.ticks, MP5_MIN_TICKS)
+    elseif not solo then why = "you are in a group - somebody else's blessing would be measured in"
     end
     if why then
         MD:Print("regentest: not stored - " .. why .. ". Nothing was changed.")
         return
     end
 
-    local perSec = (own.sum / own.n) / 2       -- a 2s beat: mana per second
+    local unreported = observed - api - ds - party
+    MD:Print(string.format("regentest: observed %.2f/s = API %.2f + Dreamstate %.2f%s + unreported %+.2f (%+d mp5)",
+        observed, api, ds, party > 0 and string.format(" + party %.2f", party) or "",
+        unreported, unreported * 5 + (unreported >= 0 and 0.5 or -0.5)))
+
+    if unreported > api and api > 0 then
+        MD:Print(string.format("regentest: |cffff4444not stored|r - the leftover (%d mp5) is larger than everything " ..
+            "the client reports (%d mp5). That is a broken measurement, not a discovery.",
+            unreported * 5 + 0.5, api * 5 + 0.5))
+        return
+    end
+    if unreported < MP5_FLOOR then
+        MD:Print(string.format("regentest: nothing to store - the model already accounts for everything the client " ..
+            "regenerates (leftover %+d mp5, under the %d mp5 floor this test can resolve).",
+            unreported * 5 + (unreported >= 0 and 0.5 or -0.5), MP5_FLOOR * 5))
+        ClearMeasured("the leftover is now inside the noise floor")
+        return
+    end
+
     local prev = MD.cdb.mp5
     MD.cdb.mp5 = {
-        perSec = perSec, mp5 = math.floor(perSec * 5 + 0.5), at = time(),
-        source = "regentest", ticks = own.n, level = UnitLevel("player") or 0,
+        perSec = unreported, mp5 = math.floor(unreported * 5 + 0.5), at = time(),
+        source = "regentest", ticks = t.ticks, level = UnitLevel("player") or 0,
         hint = GetRealZoneText and GetRealZoneText() or nil,
-        window = elapsed, solo = (GetNumGroupMembers and GetNumGroupMembers() or 1) <= 1,
+        window = elapsed, solo = solo,
+        observed = observed, api = api, dreamstate = ds, party = party,
     }
     if MD.Regen then MD.Regen:Refresh() end
-    MD:Print(string.format("regentest: |cff33ff66stored %d mp5|r (%.2f/s, %d beats over %.0fs) - was: %s.%s",
-        MD.cdb.mp5.mp5, perSec, own.n, elapsed,
-        prev and string.format("%d mp5 measured %s", prev.mp5 or 0, date("%Y-%m-%d", prev.at or 0)) or "none",
-        MD.cdb.mp5.solo and "" or " |cffffaa33You were in a group - a blessing on you was measured in.|r"))
+    MD:Print(string.format("regentest: |cff33ff66stored %d mp5|r (%.2f/s left over after the API and Dreamstate, " ..
+        "%d ticks over %.0fs) - was: %s.", MD.cdb.mp5.mp5, unreported, t.ticks, elapsed,
+        prev and string.format("%d mp5 measured %s", prev.mp5 or 0, date("%Y-%m-%d", prev.at or 0)) or "none"))
 end
 
 local function FinishRegenTest(reason)
@@ -623,6 +675,29 @@ local function FinishRegenTest(reason)
     end
     table.sort(clusters, function(a, b) return a.n > b.n end)
 
+    -- The rate one stream of ticks actually carries, without the window's edges
+    -- in it. Dividing a cluster's whole mana by the whole window is biased by up
+    -- to one tick -- 111 mana over 30s is 3.7/s, which is bigger than the
+    -- leftover this test is trying to resolve. Between the FIRST and LAST tick
+    -- of a stream there are exactly n-1 intervals, so dropping one tick's worth
+    -- of mana and dividing by that span is unbiased.
+    --
+    -- Interleaved phases of one source (four overlapping 3s streams in the BF-1
+    -- log) need p ticks dropped, not one: p is how many the cluster has more
+    -- than a single phase could fit in its own span.
+    local function ClusterRate(c, period)
+        if c.n < 2 then return 0 end
+        local span = c.ts[#c.ts] - c.ts[1]
+        if span <= 0 then return 0 end
+        local mean = c.sum / c.n
+        local phases = 1
+        if period and period > 0 then
+            local perPhase = span / period + 1
+            if perPhase > 0.5 then phases = math.max(1, math.floor(c.n / perPhase + 0.5)) end
+        end
+        return (c.sum - phases * mean) / span
+    end
+
     -- share of events with a partner at +period (+-0.15s)
     local function beat(ts, period)
         local hits = 0
@@ -636,9 +711,17 @@ local function FinishRegenTest(reason)
         return hits / #ts
     end
 
-    local own = nil   -- the 2s beat that is not the spirit tick: this character's own mp5
+    -- Mana per second that belongs to somebody else: a cluster on a 3s beat is
+    -- a party energize (the BF-1 log's second stream), and it must not end up
+    -- in this character's own bucket.
+    local party, ticked = 0, 0
     if #clusters > 0 then
-        local spirit = t.apiSum / elapsed * 2 -- what a 2s tick of the reported rate weighs
+        -- What a 2s tick of everything the model ALREADY knows about weighs.
+        -- Dreamstate is not a separate stream: the server folds it into the
+        -- same regen tick, so comparing against the raw API rate alone reads the
+        -- one true tick as an unexplained beat -- which is the bug that stored
+        -- 279 mp5 on a character regenerating 279 in total (v0.9.5).
+        local expected = (t.apiSum / elapsed + dsRate) * 2
         MD:Print("regentest: tick histogram (size x count, cadence) -")
         for i = 1, math.min(#clusters, 6) do
             local c = clusters[i]
@@ -646,14 +729,18 @@ local function FinishRegenTest(reason)
             local mean = c.sum / c.n
             local label = c.lo == c.hi and tostring(c.lo) or string.format("%d-%d", c.lo, c.hi)
             local b2, b3 = beat(c.ts, 2.0), beat(c.ts, 3.0)
+            local period = (b3 >= 0.4 and b3 > b2) and 3.0 or (b2 >= 0.4 and 2.0 or nil)
+            local rate = ClusterRate(c, period)
+            ticked = ticked + rate
             local note
-            if spirit > 0 and math.abs(mean - spirit) <= 0.12 * spirit then
-                note = "the reported spirit tick"
+            if expected > 0 and math.abs(mean - expected) <= 0.12 * expected then
+                note = dsRate > 0 and "the regen tick the model expects (spirit + gear + Dreamstate)"
+                    or "the reported spirit tick"
             elseif b3 >= 0.4 and b3 > b2 then
-                note = "a 3s beat - a party energize, not yours"
+                note = string.format("a 3s beat - a party energize, not yours (%d mp5)", rate * 5 + 0.5)
+                party = party + rate
             elseif b2 >= 0.4 then
-                note = string.format("a 2s beat - %d mp5 the API does not report", mean * 2.5 + 0.5)
-                if not own or c.n > own.n then own = c end
+                note = string.format("a 2s beat of %d mana - a stream of its own (%d mp5)", mean + 0.5, rate * 5 + 0.5)
             elseif c.n > 2 then
                 note = string.format("no clean beat (2s %d%%, 3s %d%%)", b2 * 100, b3 * 100)
             else
@@ -662,7 +749,8 @@ local function FinishRegenTest(reason)
             MD:Print(string.format("    %7s x %-3d  %s", label, c.n, note))
         end
     end
-    StoreMeasuredMp5(t, own, elapsed)
+    -- the rate the TICKS carry (edge-free), not the window's endpoints
+    StoreMeasuredMp5(t, elapsed, ticked > 0 and ticked or observed, api, dsRate, party)
 
     if dsRank == 0 then
         MD:Print(string.format("no Dreamstate talent: diff should be ~0 (it is %+.2f/s). A large positive diff means " ..
@@ -723,6 +811,10 @@ MD:OnTick(function(dt)
 end)
 
 function MD:RunRegenTest(seconds)
+    if tostring(seconds or ""):lower():match("^clear") then
+        MD:ClearMeasuredMp5()
+        return
+    end
     if regenTest then
         MD:Print("regentest: already running.")
         return

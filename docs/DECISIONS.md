@@ -545,6 +545,24 @@ regentest histogram's 2 s beat, stored per character with its date and re-taken 
 change — or *read* it (equipped-item tooltip scan for "mana per 5 sec"). Which, is the
 author's call; both are honest, the constant is not.
 
+> **Correction (2026-09-06, night): stream A on this character was Dreamstate.** The first
+> in-game `/md regentest` after v0.9.0 settled it. Observed 55.77/s against a raw API 48.76/s
+> is a gap of 7.01/s, and Dreamstate 3 on 326 intellect is 6.52/s — the whole of it, with
+> +0.49/s (2 mp5) left over, which is inside what a 30 s window can resolve. The recordings
+> looked like they were missing 27–34 mp5 of *item* mp5 because the replay scenario carried
+> only `apiBase`, the raw client rate, and **nothing ever added Dreamstate to a replay**. The
+> talent is 33 mp5 on this character. Re-validating the 87 s recording with Dreamstate alone
+> and no measured mp5 at all takes its mana gate from 3.3% to **1.0%**, inside the 2% limit.
+> The in-combat ticks in the same log agree from the other side: +48/+49 per 2 s inside the
+> five-second rule is 24.3/s, against API casting 17.58 + Dreamstate 6.52 = 24.10/s.
+>
+> So v0.9.0's actual fix — recording `RM:Unreported()` as each pull's `initial.energize` —
+> was right, and its *measured* half was measuring nothing. What it stored instead was the
+> size of the whole regen tick (see the v0.9 addendum below), because on a druid with
+> Dreamstate there is only one tick and the histogram called it an unreported beat. Stream A
+> is not a separate stream on this character. BF-1's 17-per-2 s next to a 138 spirit tick, on
+> a build with no Dreamstate, remains a genuine second stream and the fixture keeps it.
+
 Consequently `/md simreplay fixture` reports three numbers rather than one pass/fail: `spend`
 (must be exact), `modelled` (the fit `GetManaRegen` alone can produce — mean 6.3%, max 12.1%
 on BF-1) and `measured` (with the fixture's recorded energize — mean 1.3%, max 2.8%, which
@@ -636,3 +654,19 @@ carries the plan. The calls:
 10. **The next pull follows on its own** (the spec's open question, answered yes;
     `db.replayNextPull`). Pull-by-pull is the way through a dungeon, and stopping to click at
     every boundary makes it a chore. There is still no run-level play-through at 1×.
+11. **What is stored is the leftover, never a tick** (v0.9.5, after the first in-game run of the
+    v0.9.0 test stored 279 mp5 on a character regenerating 279 and the clock read 556). The
+    stored value is `observed - GetManaRegen - Dreamstate - any 3 s party stream`, and nothing
+    else can be correct: a term the API does not report is by definition what is *left over*
+    after everything it does report. Three consequences, all of them in the code:
+    - the histogram compares a tick against the rate the **model** expects (API + Dreamstate),
+      not the raw API rate — Dreamstate rides inside the same server tick, so comparing against
+      the raw rate reads the one true tick as an unexplained beat;
+    - rates are measured **between the first and last tick of a stream**, not across the window,
+      because a window edge is worth up to a whole tick (111 mana over 30 s is 3.7/s — bigger
+      than the leftover being measured); interleaved phases of one source drop as many ticks as
+      they have phases;
+    - a leftover under **5 mp5** is not stored and *clears* any previous measurement. "The model
+      already accounts for everything" is a result. `Engine/RegenModel.lua` additionally refuses
+      any stored value larger than what the client reports, and says so once, so a database
+      written before this fix cannot keep lying.

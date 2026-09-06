@@ -1631,3 +1631,58 @@ follows`), which pushed the General tab from 470 to 520 tall — a pane that doe
 setting nobody finds. `docs/DECISIONS.md` §v0.9 gained four addenda from the implementation: the
 assumed energize on older recordings, the Innervate that is counted but not modelled and why,
 Coach-run versus Coach-pull, and the answered auto-advance question.
+
+## 2026-09-06 — v0.9.5: the measured mp5 was measuring the whole tick
+
+The author, with a debug dump: "some of your last fixes seem to include out-of-casting regen as
+something out of the API, and now I see a 556 regen datatext, which is far from true." Correct,
+and the log says exactly where it went wrong.
+
+**What happened.** `/md regentest` stored `279 mp5` on a character whose client reports 244, so
+the model ran at 111.11/s — 556 mp5 for a druid regenerating 279. The histogram had labelled the
+one and only regen tick (111 mana every 2 s) as "a 2 s beat the API does not report", and
+v0.9.0 stored the size of that tick. On a druid with Dreamstate there is *one* tick: the server
+folds the talent into the same regen tick as spirit and gear, so the tick reads ~14% above the
+raw API rate, falls outside the histogram's 12% "this is the spirit tick" window, and gets
+called a separate stream. A term the API does not report can only ever be what is **left over**
+after everything it does report; storing a tick double counts by construction.
+
+**The fix.** What is stored is now `observed - GetManaRegen - Dreamstate - any 3 s party
+stream`, printed as one line so it can be checked by eye:
+
+```
+regentest: observed 55.77/s = API 48.76 + Dreamstate 6.52 + unreported +0.49 (+2 mp5)
+```
+
+Three supporting changes, each with its own reason:
+- the histogram compares a tick against the rate the **model** expects (API + Dreamstate), not
+  the raw API rate, so the true tick is named "the regen tick the model expects";
+- rates come from **between the first and last tick of a stream**, not from the window's edges.
+  A window edge is worth up to a whole tick — 111 mana over 30 s is 3.7/s, bigger than the
+  leftover being measured. Interleaved phases of one source drop as many ticks as they have
+  phases, which is how the BF-1 log's four overlapping 3 s streams read correctly;
+- a leftover under **5 mp5** stores nothing *and clears* any previous measurement, because "the
+  model already accounts for everything the client regenerates" is a result, and a stale number
+  would hide it. `RM:MeasuredMp5()` also refuses any stored value larger than what the client
+  reports, saying so once, so a database written before this fix cannot keep lying.
+  `/md regentest clear` forgets one on demand.
+
+**And the finding underneath it: stream A was Dreamstate.** The v0.7.1 addendum read three solo
+recordings as missing 27–34 mp5 of item mp5. Dreamstate 3 on 326 intellect is 33 mp5. The
+recordings looked short because the replay scenario carried only `apiBase`, the raw client rate,
+and nothing ever added Dreamstate to a replay. Re-validating the 87 s Hellfire fight with
+Dreamstate alone and **no measured mp5 at all** takes its mana gate from 3.3% to **1.0%**,
+inside the 2% limit. The same log agrees from the other side: its in-combat ticks are +48/+49
+per 2 s (24.3/s) against API casting 17.58 + Dreamstate 6.52 = 24.10/s. So v0.9.0's real fix —
+recording `RM:Unreported()` as each pull's `initial.energize` — was right, and its *measured*
+half was measuring nothing. `docs/DECISIONS.md` §v0.7.1 carries the correction; BF-1's
+17-per-2 s next to a 138 spirit tick, on a build with no Dreamstate, stays a genuine second
+stream and the fixture keeps it.
+
+`regencheck` 18 → 27, including the bug itself as a regression test: one tick with Dreamstate
+inside it must be named as the model's own tick, must store nothing, must clear what was there,
+and must leave the model at API + Dreamstate; plus the refusal of an over-large stored value and
+`/md regentest clear`.
+
+Suites: simcheck 10, reccheck 38, simwindow 8, regencheck 27, replaycheck 33, replayui 50,
+runcheck 69, reviewui 31.

@@ -97,9 +97,26 @@ end
 -- It is a MEASUREMENT with a date, stored per character by the test itself
 -- (Verify.lua), never a constant and never inferred from gear. No measurement
 -- means zero: the model does not guess.
+-- A stored measurement is trusted, with one bound: it is what the client does
+-- NOT report, so it cannot be bigger than what the client does. v0.9.0 shipped
+-- a test that stored the size of the whole regen tick instead of the leftover,
+-- and a character regenerating 279 mp5 ended up modelled at 556. The test is
+-- fixed (Verify.lua, v0.9.5); this refuses the old number so a database written
+-- before the fix cannot keep lying, and says so once rather than silently
+-- clamping.
+local warnedMp5 = false
 function RM:MeasuredMp5()
     local m = MD.cdb and MD.cdb.mp5
     if not m or not m.perSec or m.perSec <= 0 then return 0 end
+    if RM.apiBase > 0 and m.perSec > RM.apiBase then
+        if not warnedMp5 then
+            warnedMp5 = true
+            MD:Print(string.format("the stored measured mp5 (%d) is larger than everything the client reports (%d mp5) " ..
+                "- ignoring it. Run |cffffff00/md regentest 30|r solo to measure again, or |cffffff00/md regentest clear|r.",
+                m.mp5 or (m.perSec * 5 + 0.5), RM.apiBase * 5 + 0.5))
+        end
+        return 0
+    end
     return m.perSec
 end
 

@@ -399,7 +399,7 @@ MD.COMMANDS = {
     { "/md export",       "fights, overheal and roster as tab-separated text, for analysis" },
     { "/md calibrate",    "the model against every heal you landed: ratio per spell and event kind" },
     { "/md fsrtest",      "log mana ticks for 15s (five-second-rule anchor test)" },
-    { "/md regentest [N]", "idle regen check: observed mana gain vs GetManaRegen (N s, default 30)" },
+    { "/md regentest [N|clear]", "idle regen check: observed mana gain vs GetManaRegen (N s, default 30; clear forgets the measurement)" },
     { "/md spamtest",     "arm, then chain-cast one spell to OOM: checks the dashboard's To OOM column" },
     { "/md simrun",       "self-tests for the simulation engine (heals, HoT refresh, GCD, 5SR)" },
     { "/md simreplay [n]", "replay recorded fight n (or the BF-1 fixture) and score it against the log" },
@@ -474,7 +474,7 @@ SlashCmdList.MANADEMON = function(msg)
     elseif cmd == "fsrtest" then
         if MD.RunFSRTest then MD:RunFSRTest() end
     elseif cmd == "regentest" then
-        if MD.RunRegenTest then MD:RunRegenTest(tonumber(arg)) end
+        if MD.RunRegenTest then MD:RunRegenTest(arg ~= "" and arg or nil) end
     elseif cmd == "spamtest" then
         if MD.RunSpamTest then MD:RunSpamTest() end
     elseif cmd == "simrun" then
