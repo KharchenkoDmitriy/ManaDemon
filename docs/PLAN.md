@@ -118,8 +118,8 @@ Two columns of unit frames on one clock — the fight as the healer played it, t
 coached plan would have — both from the engine, the recorder's real HP snapshots drawn as
 ticks. Spec: **`docs/SPEC-v0.8.md`**; the three calls are in `docs/DECISIONS.md` §v0.8.
 
-- [ ] **v0.8.0** the trace (`opts.trace` on `SM:Run`), `Engine/ReplayTrace.lua`, `SP.Replay`,
-  `tools/replaycheck.lua`.
+- [x] **v0.8.0** the trace (`opts.trace` on `SM:Run`), `Engine/ReplayTrace.lua`, `SP.Replay`,
+  `tools/replaycheck.lua`. *(shipped; 27 assertions offline, nothing to see in-game yet)*
 - [ ] **v0.8.1** `UI/ReplayWindow.lua` — frames, healer strip, damage pulses, cast flashes,
   snapshot ticks, scrubber; `/md replay [n]`; Play on the Review row.
 - [ ] **v0.8.2** HoT indicators; per-cast labels at the moment of the cast; the right column's

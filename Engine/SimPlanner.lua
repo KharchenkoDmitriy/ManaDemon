@@ -154,6 +154,8 @@ end
 
 -- Rules, in the fixed order. Returns spellID, target -- or nil to wait, which
 -- is a real answer: the less you drink, the faster the dungeon goes.
+-- Returns spellID, target, rule -- the rule (1..5) is the reason, recorded by
+-- the trace; every other caller ignores it.
 function Plan:Decide(S, t, mana, form)
     local kit = self.kit[form] or self.kit.caster
     local function affordable(id)
@@ -171,7 +173,7 @@ function Plan:Decide(S, t, mana, form)
             local row = S.hots[i]
             local has = row and ((row[HOT_INDEX.Regrowth] and row[HOT_INDEX.Regrowth].active)
                               or (row[HOT_INDEX.Rejuvenation] and row[HOT_INDEX.Rejuvenation].active))
-            if has then return sm, i end
+            if has then return sm, i, 1 end
         end
     end
 
@@ -183,7 +185,7 @@ function Plan:Decide(S, t, mana, form)
         local dE = affordable(direct)
         if dE then
             local i = Neediest(self, S, t, self.directBelow)
-            if i then return direct, i end
+            if i then return direct, i, 2 end
         end
     end
 
@@ -195,9 +197,9 @@ function Plan:Decide(S, t, mana, form)
         if i then
             local st = S.hots[i] and S.hots[i][HOT_INDEX.Lifebloom]
             local stacks = (st and st.active) and st.stacks or 0
-            if stacks < self.rollStacks then return lb, i end
+            if stacks < self.rollStacks then return lb, i, 3 end
             -- at the target stack, refresh only as it is about to fall off
-            if st and st.active and (st.expires - t) <= 1.5 then return lb, i end
+            if st and st.active and (st.expires - t) <= 1.5 then return lb, i, 3 end
         end
     end
 
@@ -206,17 +208,23 @@ function Plan:Decide(S, t, mana, form)
     local rjE = affordable(rj)
     if rjE then
         local i = Neediest(self, S, t, self.hotBelow, true, HOT_INDEX.Rejuvenation)
-        if i then return rj, i end
+        if i then return rj, i, 4 end
     end
 
     -- 5. Filler, or wait.
     if self.filler and lbE then
         local i = Anchor(self, S, t)
         local st = i and S.hots[i] and S.hots[i][HOT_INDEX.Lifebloom]
-        if i and not (st and st.active) then return lb, i end
+        if i and not (st and st.active) then return lb, i, 5 end
     end
     return nil
 end
+
+-- One line per rule, for the replay window's "why" (docs/SPEC-v0.8.md 4.3).
+SP.RULE_NAMES = {
+    "Swiftmend on a big hit", "direct heal, a HoT would be late",
+    "keep Lifebloom rolling on the anchor", "Rejuvenation on anyone hurt", "filler",
+}
 
 function Plan:BindCount()
     local n = 0
@@ -312,6 +320,7 @@ function SP.Classify(rec, scenario, plan, kit)
     local labels, counts = {}, {}
     for _, k in ipairs(LABELS) do labels[k], counts[k] = 0, 0 end
     local detail = { overheal = {}, unclassified = {} }
+    local perCast = {}   -- [n] = { t, spellID, tgt, label }, in cast order (SPEC-v0.8 4.2)
 
     -- the recorded costs, in cast order: the replay fires onCast in the same
     -- order, so cast n costs costs[n]
@@ -368,6 +377,7 @@ function SP.Classify(rec, scenario, plan, kit)
                 end
             end
             label = label or "unclassified"
+            perCast[ci] = { t = t, spellID = spellID, tgt = ti, label = label }
 
             labels[label] = labels[label] + cost
             counts[label] = counts[label] + 1
@@ -396,7 +406,7 @@ function SP.Classify(rec, scenario, plan, kit)
         if not near then idle = idle + 1 end
     end
 
-    return { labels = labels, counts = counts, detail = detail, idle = idle,
+    return { labels = labels, counts = counts, detail = detail, idle = idle, casts = perCast,
              replay = r, planResult = planResult, planCasts = planCasts }
 end
 
@@ -642,7 +652,67 @@ function SP.Coach(rec, opts)
     local card = SP.Card(rec, best, bestResult, you, results, cls, validation)
     local progress = SP.Progress(rec.zone)
     if progress then card[#card + 1] = "  " .. progress end
+    -- the last plan coached for this fight, so Play never searches (SPEC-v0.8 2.5)
+    SP.plans[rec.id] = best
     return card, validation, cls, best
+end
+
+SP.plans = {}   -- [rec.id] = the plan Coach last produced for it
+
+--------------------------------------------------------------------------------
+-- Replay (docs/SPEC-v0.8.md 2.5): both columns of the replay window in one
+-- call. Left is the recorded casts through the engine, right is a plan --
+-- the one passed in, else the one Coach cached for this fight -- and only if
+-- the fight validates (the same rule as Coach's disabled button; opts.force
+-- overrides it, as it does there). The recorder's real HP snapshots ride
+-- along as `ticks` so the window can draw the truth over the reconstruction.
+--------------------------------------------------------------------------------
+local function Snap(r)
+    return { manaSpent = r.manaSpent, healed = r.healed, overhealed = r.overhealed,
+             lowestMana = r.lowestMana, lowest = { hp = r.lowest.hp, tgt = r.lowest.tgt, t = r.lowest.t },
+             floorSeconds = r.floorSeconds, deaths = { n = r.deaths.n },
+             waitFraction = r.waitFraction, maxWaitRun = r.maxWaitRun }
+end
+
+function SP.Replay(rec, opts)
+    SM = SM or MD.SimModel
+    opts = opts or {}
+    if not rec then return nil end
+    local kit = opts.kit or MD.RankMath:SpellKit()
+    local validation = SM:Validate(rec, kit)
+    local scenario = SM.ScenarioFromRecording(rec, kit)
+    local dt = opts.dt or 0.25
+    local rp = { rec = rec, scenario = scenario, kit = kit, validation = validation }
+
+    local left = SM:Run(scenario, nil, { critMode = "ev", trace = { dt = dt } })
+    rp.left = { trace = left.trace, snapshot = Snap(left) }
+
+    local plan = opts.plan or SP.plans[rec.id]
+    if plan and (opts.force or not validation or validation.ok) then
+        local right = SP.RunPlan(scenario, plan, { critMode = "ev", trace = { dt = dt } })
+        rp.right = { trace = right.trace, snapshot = Snap(right), plan = plan }
+        if opts.labels ~= false then
+            local cls = SP.Classify(rec, scenario, plan, kit)
+            rp.casts = cls.casts
+        end
+    end
+
+    -- the recorder's snapshots as fractions, tracked targets only
+    local hp = rec.hp or {}
+    local ticks = { t = hp.t or {}, hp = {} }
+    for _, ti in ipairs(rec.tracked or {}) do
+        local cur, max = hp.hp and hp.hp[ti], hp.max and hp.max[ti]
+        if cur and max then
+            local col = {}
+            for k = 1, #ticks.t do
+                local m = max[k] or 0
+                col[k] = (m > 0 and cur[k] and cur[k] >= 0) and (cur[k] / m) or -1
+            end
+            ticks.hp[ti] = col
+        end
+    end
+    rp.ticks = ticks
+    return rp
 end
 
 --------------------------------------------------------------------------------

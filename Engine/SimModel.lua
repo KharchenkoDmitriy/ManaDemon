@@ -45,6 +45,13 @@ SM.HOT_INDEX = { Rejuvenation = 1, Regrowth = 2, Lifebloom = 3 }
 SM.HOT_NAME = { "Rejuvenation", "Regrowth", "Lifebloom" }
 local HOT_INDEX = SM.HOT_INDEX
 
+-- Trace event kinds (docs/SPEC-v0.8.md 2.1): what a run writes down for the
+-- replay window when opts.trace asks for it. Distinct from SM.K, which are the
+-- RECORDED kinds; neither table is ever renumbered.
+SM.TK = { CAST_START = 1, CAST = 2, CANCEL = 3, HOT = 4, HOT_END = 5, DEATH = 6, FORM = 7, WAIT = 8 }
+local TK = SM.TK
+SM.TRACE_MAX_NUMBERS = 30000
+
 local EMPTY = {}
 local LIFEBLOOM_MAX_STACKS = 3
 -- Spell cooldowns the engine has to respect. Only the ones a plan can choose;
@@ -250,6 +257,48 @@ function SM:Run(scenario, plan, opts)
     local lowestTgt, lowestHp, lowestHpT = nil, 1, 0
 
     ----------------------------------------------------------------------------
+    -- Trace (docs/SPEC-v0.8.md 2). Allocated fresh, owned by the caller, never
+    -- in the search: the pool slot is reused, the trace is not.
+    ----------------------------------------------------------------------------
+    local trace, gridDt, gridN, gridI = nil, 0, 0, 1
+    if opts.trace then
+        gridDt = opts.trace.dt or 0.25
+        while (nT + 2) * (dur / gridDt + 1) > SM.TRACE_MAX_NUMBERS do gridDt = gridDt * 2 end
+        gridN = math.floor(dur / gridDt + 1e-9) + 1
+        trace = { dt = gridDt, n = gridN, dur = dur, nT = nT, mana = {}, form = {}, hp = {},
+                  ev = { t = {}, kind = {}, tgt = {}, a = {}, b = {}, why = {} }, nEv = 0 }
+        for i = 1, nT do if S.tracked[i] then trace.hp[i] = {} end end
+        if gridDt ~= (opts.trace.dt or 0.25) then
+            MD:Debug("sim", "trace: dt %.2f -> %.2f to stay under %d numbers", opts.trace.dt or 0.25, gridDt, SM.TRACE_MAX_NUMBERS)
+        end
+    end
+    local pendingWhy = 0        -- the rule behind the cast being committed (plan runs)
+    local waitEv = nil          -- index of the open WAIT event, patched when it ends
+    local function Trace(kind, tgt, a, b, why)
+        if not trace then return end
+        local n = trace.nEv + 1
+        trace.nEv = n
+        local e = trace.ev
+        e.t[n], e.kind[n], e.tgt[n], e.a[n], e.b[n], e.why[n] = t, kind, tgt or 0, a or 0, b or 0, why or 0
+        return n
+    end
+    local function TakeGrid()
+        local k = gridI
+        trace.mana[k] = mana
+        trace.form[k] = (form == "tree") and 1 or 0
+        for i = 1, nT do
+            local c = trace.hp[i]
+            if c then c[k] = S.dead[i] and 0 or (S.hp[i] / S.maxHP[i]) end
+        end
+    end
+    local function EndWait()
+        if waitEv then
+            trace.ev.a[waitEv] = t - trace.ev.t[waitEv]
+            waitEv = nil
+        end
+    end
+
+    ----------------------------------------------------------------------------
     -- Healing
     ----------------------------------------------------------------------------
     local function Land(ti, amount, family)
@@ -274,6 +323,7 @@ function SM:Run(scenario, plan, opts)
             local d = S.deaths
             d.n = d.n + 1
             d.tgt[d.n], d.t[d.n] = ti, t
+            Trace(TK.DEATH, ti, 0, 0)
         else
             S.hp[ti] = hp
         end
@@ -319,6 +369,7 @@ function SM:Run(scenario, plan, opts)
         st.nextTick = t + st.tickPeriod
         st.expires = t + (e.duration or (st.ticksLeft * st.tickPeriod))
         ScheduleHot(ti, fi, st)
+        Trace(TK.HOT, ti, fi, st.stacks)
     end
 
     -- Crits. "ev" multiplies by the expectation, which is right for comparing
@@ -395,6 +446,11 @@ function SM:Run(scenario, plan, opts)
         -- Lockstep hook: the classifier asks a plan what it would have done at
         -- this instant, with the REPLAY's state rather than the plan's own.
         if onCast then onCast(S, t, spellID, ti, mana, form) end
+        if trace then
+            EndWait()
+            Trace(TK.CAST, ti, spellID, cost, pendingWhy)
+            pendingWhy = 0
+        end
         LandCast(spellID, ti)
     end
 
@@ -465,6 +521,7 @@ function SM:Run(scenario, plan, opts)
                 st.nextTick = remaining - (st.ticksLeft - 1) * st.tickPeriod
                 if st.nextTick < 0 then st.nextTick = 0 end
                 ScheduleHot(a.target, fi, st)
+                Trace(TK.HOT, a.target, fi, st.stacks)
             end
         end
     end
@@ -510,16 +567,20 @@ function SM:Run(scenario, plan, opts)
         -- event at that instant has been applied -- which is what a recorded
         -- mana sample means: the log's line at a cast's timestamp is the mana
         -- AFTER the cast paid for itself.
+        -- The trace grid (v0.8) is a third sampler under the same rule.
         while true do
             local ms = (samples and sampleI <= sampleN) and samples[sampleI] or nil
             local hs = (hpT and hpI <= hpN) and hpT[hpI] or nil
-            if ms and ms < nt and (not hs or ms <= hs) then
-                AdvanceTo(ms); TakeSample(); sampleI = sampleI + 1
-            elseif hs and hs < nt then
-                AdvanceTo(hs); TakeHpSample(); hpI = hpI + 1
-            else
-                break
-            end
+            local gs = (trace and gridI <= gridN) and ((gridI - 1) * gridDt) or nil
+            local pick, which = nil, 0
+            if ms and ms < nt then pick, which = ms, 1 end
+            if hs and hs < nt and (not pick or hs < pick) then pick, which = hs, 2 end
+            if gs and gs < nt and (not pick or gs < pick) then pick, which = gs, 3 end
+            if not pick then break end
+            AdvanceTo(pick)
+            if which == 1 then TakeSample(); sampleI = sampleI + 1
+            elseif which == 2 then TakeHpSample(); hpI = hpI + 1
+            else TakeGrid(); gridI = gridI + 1 end
         end
 
         AdvanceTo(nt)
@@ -531,6 +592,7 @@ function SM:Run(scenario, plan, opts)
         elseif src == 2 then
             form = forms[formI][2]
             formI = formI + 1
+            Trace(TK.FORM, 0, form == "tree" and 1 or 0, 0)
         elseif src == 3 then
             local k, tg, amt, x = ev.kind[evi], ev.tgt[evi], ev.amt[evi], ev.x[evi]
             evi = evi + 1
@@ -540,6 +602,11 @@ function SM:Run(scenario, plan, opts)
                 Land(tg, amt, "foreign")
             elseif k == SM.K.FORM then
                 form = (amt == 1) and "tree" or "caster"
+                Trace(TK.FORM, 0, amt == 1 and 1 or 0, 0)
+            elseif k == SM.K.CASTSTART then
+                Trace(TK.CAST_START, tg, x, 0)
+            elseif k == SM.K.CANCEL then
+                Trace(TK.CANCEL, tg, x, 0)
             elseif k == SM.K.CD then
                 if amt and amt > 0 then
                     mana = mana + amt
@@ -552,11 +619,13 @@ function SM:Run(scenario, plan, opts)
                     local d = S.deaths
                     d.n = d.n + 1
                     d.tgt[d.n], d.t[d.n] = tg, t
+                    Trace(TK.DEATH, tg, 0, 0)
                 end
             end
-            -- ABSORB, OWNHEAL, OWNTICK, OWNCAST, CASTSTART and CANCEL are read
-            -- by the recorder's own validation, not by the engine: the engine
-            -- generates its own heals and is charged by the script.
+            -- ABSORB, OWNHEAL, OWNTICK and OWNCAST are read by the recorder's
+            -- own validation, not by the engine: the engine generates its own
+            -- heals and is charged by the script. CASTSTART and CANCEL only
+            -- reach the trace (the replay window's cast bar).
         elseif src == 4 then
             local c = script[scriptI]
             scriptI = scriptI + 1
@@ -577,16 +646,19 @@ function SM:Run(scenario, plan, opts)
             elseif prio == E_EXPIRE then
                 local st = S.hots[a] and S.hots[a][b]
                 if st and st.active and st.gen == aux then
+                    local bloomed = 0
                     if b == HOT_INDEX.Lifebloom and st.bloom > 0 and not S.dead[a] then
                         Land(a, st.bloom, st.family or "Lifebloom")
                         bloomCount = bloomCount + 1
+                        bloomed = 1
                     end
                     st.active = false
+                    Trace(TK.HOT_END, a, b, bloomed)
                 end
             elseif prio == E_LAND then
                 Succeed(a, b, aux)   -- aux carries the committed cast's cost
             elseif prio == E_DECIDE and deciding then
-                local spellID, ti = plan:Decide(S, t, mana, form)
+                local spellID, ti, rule = plan:Decide(S, t, mana, form)
                 if spellID and lastWasWait and reaction > 0 then
                     -- Coming out of idle: pay the reaction delay, then ask
                     -- again. Asking again rather than committing now keeps the
@@ -602,9 +674,11 @@ function SM:Run(scenario, plan, opts)
                     -- Cast commitment: once started, the cast is locked in and
                     -- the plan is not asked again until it has landed.
                     local succeedAt = instant and t or (t + castTime)
+                    pendingWhy = rule or 0
                     if instant then
                         Succeed(spellID, ti, e and e.cost or nil)
                     else
+                        if trace then EndWait(); Trace(TK.CAST_START, ti, spellID, castTime, pendingWhy) end
                         HeapPush(h, succeedAt, E_LAND, spellID, ti, e and e.cost or nil)
                     end
                     busyUntil = succeedAt > t + GCD and succeedAt or (t + GCD)
@@ -613,6 +687,7 @@ function SM:Run(scenario, plan, opts)
                     -- waiting is a real action; ask again at the next thing
                     -- that could change the answer, and never later than 0.5s
                     lastWasWait = true
+                    if trace and not waitEv then waitEv = Trace(TK.WAIT, 0, 0, 0) end
                     local nextT = h.n > 0 and h.t[1] or (t + 0.5)
                     if nextT > t + 0.5 then nextT = t + 0.5 end
                     if nextT <= t then nextT = t + 0.5 end
@@ -628,15 +703,19 @@ function SM:Run(scenario, plan, opts)
         if opts.abortAbove and manaSpent > opts.abortAbove then aborted = true; break end
     end
 
-    while (samples and sampleI <= sampleN) or (hpT and hpI <= hpN) do
+    while (samples and sampleI <= sampleN) or (hpT and hpI <= hpN) or (trace and gridI <= gridN) do
         local ms = (samples and sampleI <= sampleN) and samples[sampleI] or nil
         local hs = (hpT and hpI <= hpN) and hpT[hpI] or nil
-        if ms and (not hs or ms <= hs) then
-            AdvanceTo(ms); TakeSample(); sampleI = sampleI + 1
-        else
-            AdvanceTo(hs); TakeHpSample(); hpI = hpI + 1
-        end
+        local gs = (trace and gridI <= gridN) and ((gridI - 1) * gridDt) or nil
+        local pick, which = ms, 1
+        if hs and (not pick or hs < pick) then pick, which = hs, 2 end
+        if gs and (not pick or gs < pick) then pick, which = gs, 3 end
+        AdvanceTo(pick)
+        if which == 1 then TakeSample(); sampleI = sampleI + 1
+        elseif which == 2 then TakeHpSample(); hpI = hpI + 1
+        else TakeGrid(); gridI = gridI + 1 end
     end
+    if trace then EndWait() end
 
     local r = S.result
     r.ok = (S.deaths.n == 0) and floorSeconds == 0 and not aborted
@@ -655,6 +734,7 @@ function SM:Run(scenario, plan, opts)
     r.waitFraction = dur > 0 and (waitTime / dur) or 0
     r.maxWaitRun, r.maxWaitAt = maxWaitRun, maxWaitAt
     r.evals = 1
+    r.trace = trace   -- nil unless asked for; the pool result is reused, so it is set every run
     r.ms = ((GetTime and GetTime()) or 0) - startClock
     -- The result and its arrays belong to the pool slot: read them before the
     -- next Run, or copy what you need. That is the price of the zero-allocation

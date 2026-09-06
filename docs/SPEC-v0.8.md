@@ -148,6 +148,10 @@ are steps, which is honest.
 visuals suppressed; there is no incremental undo. Traces are hundreds of events; this is
 nothing. `replaycheck` asserts *seek(t) == step-to(t)* for every field above at ten random `t`.
 
+**Events at `t = 0` are initial state.** A pre-pull HoT or the opening swing is in the state a
+fresh machine reports and never fires `onEvent`: the window paints from state every frame, so
+nothing is lost, and there is no flash for something that happened before the window opened.
+
 ### 2.5 `SP.Replay(rec, opts)` — one call, both columns
 
 ```lua

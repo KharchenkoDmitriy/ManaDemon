@@ -408,6 +408,13 @@ What to judge:
    only place that shows it.
 3. Does the search freeze anything? (Same concern as §19.)
 
+## 22. The trace (v0.8.0) — nothing to test in-game yet
+v0.8.0 is engine-side only: the replay window arrives in v0.8.1. What exists is verified
+offline by `tools/run.sh tools/replaycheck.lua` (27 assertions). The one thing worth doing
+after this update is the usual `/md simrun` (10 tests, all ok) and `/md coach 1` on a
+recorded fight, because `Plan:Decide` now returns a third value and Coach caches its plan
+for the window — both are invisible if they work and loud if they do not.
+
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
 raw numbers. `/md profile` output is welcome with any report. I turn them into

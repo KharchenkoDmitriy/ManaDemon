@@ -1110,3 +1110,40 @@ happened). A rejected list, so nothing gets re-proposed. `docs/PLAN.md` Phase 1.
 `docs/DECISIONS.md` §v0.8 carry the calls.
 
 Nothing implemented yet; harnesses unchanged and green.
+
+## 2026-09-06 — v0.8.0: the trace and the replay state machine
+
+The engine can now write down what it did. `SM:Run(..., { trace = { dt = 0.25 } })` records
+mana, form and each tracked target's HP on a fixed grid plus the discrete things between grid
+points — cast start / succeed / cancel, HoT apply / end (with the bloom), deaths, form
+changes, and the plan's waits — every one stamped with the `Plan:Decide` rule that caused it
+(`why`; 0 on the recorded side, whose reasons are not on record). The grid is a third sampler
+under the same rule as the recorded ones: drained strictly before the next event, so a grid
+point on a cast's timestamp shows the mana *after* the cast paid — the v0.7.1 bug, asserted so
+it cannot come back. Damage is not in the trace: it is identical in both columns by
+construction and the window reads it from the scenario.
+
+`Engine/ReplayTrace.lua` is the state machine the window will paint from, with no frames in
+it: `Seek(t)` rescans from zero with the callback suppressed, `Advance(dt)` fires it for every
+event crossed, and `Hp` / `Hot` / `Casting` / `Waiting` / `Score` answer for the moment.
+Two rules stated in the file: nothing is interpolated (a heal is a jump), and events at t = 0
+are initial state — a pre-pull HoT is in the state a fresh machine reports and never flashes.
+
+`SP.Replay(rec, opts)` builds both columns in one call — the recorded casts on the left, the
+plan on the right (the one passed in, else the one Coach now caches per fight in `SP.plans`,
+so Play never searches), the classifier's per-cast labels (`cls.casts`, new) and the
+recorder's real HP snapshots as fractions for the ticks.
+
+`tools/replaycheck.lua` (27 assertions) drives the scripted pull — now shared with `reccheck`
+as `tools/fakepull.lua` — and asserts the trace's shape, every own cast at its time, the
+post-cast rule, the death, the fixture's pre-pull HoTs at t = 0, the grid agreeing with the
+gate's own sampler to 1e-6, the right column's rules and wait lengths, and *seek == step* for
+every accessor at ten times on both columns. Two of its first three failures were the
+harness's own assumptions (the stub has no auras; t = 0 is initial state) — the third became
+the rule above.
+
+One thing seen and left alone: on the scripted pull the classifier labels a Lifebloom on a
+full-health target `fine` when the plan wanted a Lifebloom on the anchor at that moment. The
+v0.7.4 order says "same family, different target" before "target above 85%", which reads
+wrong here; it is unchanged pending real pulls (the card's counts have not been seen in-game
+yet), and the per-cast labels in the window will make it visible when it matters.
