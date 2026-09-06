@@ -529,6 +529,48 @@ Two follow-ups worth doing once:
    measurement predates the gear. Nothing is invalidated; re-measure when convenient.
 2. `/md profile` now carries `measured mp5: ...` with its date next to the regen block.
 
+## 28. Record a whole dungeon as one run (v0.9.1)
+A boss is a pull; a five-man is thirty pulls and the gaps between them, and the gaps are where
+the mana goes. Runs are **manual**, so at the instance door:
+
+```
+/md run start
+```
+
+It names itself after the zone and the time (`/md run start Ramparts fast` names it yourself).
+Then play the dungeon normally. At the end, `/md run stop` — or just walk out and keep going:
+the run stops itself 30 seconds after you leave the instance, and says so. `/md run status` at
+any point prints the elapsed time, the pulls so far, the drinks and how much of the event
+budget is spent.
+
+What it records that a single fight does not: every pull including the short ones, the mana
+every 2 seconds for the whole run, each drink with the mana either side of it, your deaths and
+the time you spent dead, zone changes, Innervates and potions.
+
+Report the stop line verbatim. It looks like:
+
+```
+run Blood Furnace 21:14: 30 pull(s), 28:50, combat 57%, drank 4x (3:10, 143 mana/s), mana at pull p50 71%, 1 death(s) (1:35 dead), 41200 mana spent
+```
+
+The three numbers worth checking against your memory of the run: **how many drinks**, **roughly
+how long**, and **mana at pull p50** (the mana you typically opened a pack with). If the drink
+count is wrong, say what the drink buff was called — the recorder watches for `Drink`,
+`Refreshment` and `Food & Drink` by name.
+
+Two things to try deliberately, once:
+1. **Die**, release and run back. The dead time should appear in the stop line.
+2. **Leave and come back** (a corpse run, or a quick step outside). The run should NOT stop —
+   there are 30 seconds of grace, and returning cancels it.
+
+Then `/reload` and, on the machine, `tools/run.sh tools/import.lua list` still lists your
+single fights; the run itself reaches the tools in v0.9.2. `/md export` already carries it as a
+`# run` section.
+
+Limits worth knowing: two runs are kept (pin one on the Review tab from v0.9.2 to protect it),
+a run stops itself after 90 minutes, and a very long run stops *recording* new pulls at 30 000
+events while still counting them — the stop line says `STREAM FULL` if that happened.
+
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
 raw numbers. `/md profile` output is welcome with any report. I turn them into

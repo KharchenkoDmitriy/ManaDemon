@@ -73,6 +73,13 @@ function GetNumGroupMembers() return #S.unitOrder end
 function GetRaidRosterInfo() return nil end
 function InCombatLockdown() return false end
 function UnitAura() return nil end
+-- Buffs on the player, by name, in the order the client would return them.
+-- MD:HasBuff walks UnitBuff until it returns nil, so an empty list means no
+-- buffs -- which is what every suite but tools/runcheck.lua wants.
+S.buffs = {}
+function UnitBuff(u, i) return S.buffs[i] end
+S.inInstance = false
+function IsInInstance() return S.inInstance, S.inInstance and "party" or "none" end
 
 function GetManaRegen() return 69.24, 28.33 end
 function GetSpellBonusHealing() return 450 end

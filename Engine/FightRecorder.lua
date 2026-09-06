@@ -156,8 +156,22 @@ end
 --------------------------------------------------------------------------------
 function FR:Start(t0)
     FR.active = nil
-    if not (MD.db and MD.db.recordFights ~= false) then return end
     if not MD.Recorder then return end
+    -- v0.9.1: a run is the container for its own pulls, so it overrides
+    -- db.recordFights -- turning single-fight recording off is a statement about
+    -- the ring of 8, not about a dungeon the author explicitly started
+    -- recording. Once the run's budget is spent, pulls are summarised only.
+    local RR = MD.RunRecorder
+    local inRun = RR and RR.active ~= nil
+    if not (MD.db and MD.db.recordFights ~= false) and not inRun then return end
+    if inRun then
+        RR:PullStarted()
+        if RR:FullUp() then
+            RR.active.truncated = true
+            MD:Debug("sim", "run full (%d events): this pull is summarised, not recorded", RR.MAX_RUN_EV)
+            return
+        end
+    end
     K = K or (MD.SimModel and MD.SimModel.K)
     if not K then return end
 
@@ -463,7 +477,12 @@ end
 function FR:Finish(duration, labels)
     local s = FR.active
     FR.active = nil
-    if not s then return nil end
+    if not s then
+        -- the pull was not recorded (fight recording off, or the run's budget
+        -- spent); a run still wants to know one happened and how long it was
+        if MD.RunRecorder and MD.RunRecorder.active then MD.RunRecorder:PullSkipped(duration) end
+        return nil
+    end
     s.dur = duration
     s.ownCasts = s.ownCasts or 0
     s.spent = s.spent or 0
@@ -482,7 +501,21 @@ function FR:Finish(duration, labels)
     s.foreignShare = (own + foreign) > 0 and (foreign / (own + foreign)) or 0
     s.trackedSet = nil  -- a set of indices does not serialise usefully
 
-    if duration < 20 or s.ownCasts < 5 then
+    local short = duration < 20 or s.ownCasts < 5
+
+    -- v0.9.1: while a run is recording it takes every pull, the short ones
+    -- included -- a dungeon is mostly short pulls, and the gate is about what
+    -- may be COACHED from, not about what happened. The ring of 8 is left
+    -- alone: a run is pinned, replaced and reviewed as one thing.
+    local RR = MD.RunRecorder
+    if RR and RR.active then
+        local k = RR:AddPull(s, short)
+        MD:Debug("sim", "stream %d -> run pull %d: %.0fs, %d events, %d casts, %d mana%s",
+            s.id, k or 0, duration, s.n, s.ownCasts, s.spent, short and " (under the gate)" or "")
+        return s
+    end
+
+    if short then
         MD:Debug("sim", "stream discarded: %.0fs, %d own cast(s) (needs 20s / 5)",
             duration, s.ownCasts)
         return nil

@@ -299,6 +299,70 @@ end
 -- roster, calibration when present). Tabs, no quoting: the first dungeon log
 -- was analysed by regexing prose, which is how the analyst wants to stop.
 --------------------------------------------------------------------------------
+-- One recorded stream, dumped verbatim: the parallel arrays as they are, one
+-- event per row. This is the raw material for offline replay, so it is not
+-- summarised -- a summary of a stream is what the Review tab is for. Shared by
+-- the ring of 8 and (v0.9.1) by every pull of a run, which passes `extra` to
+-- say which run and which pull the stream belongs to.
+local function DumpRecording(add, r, n, extra)
+    add("# recording " .. n, r.id or "", r.zone or "",
+        string.format("%.1f", r.dur or 0), "pool " .. (r.pool or 0),
+        (r.ownCasts or 0) .. " casts", (r.spent or 0) .. " mana",
+        string.format("foreign %.0f%%", (r.foreignShare or 0) * 100),
+        r.truncated and "TRUNCATED" or "", r.pinned and "pinned" or "",
+        (r.auraN or 0) .. " auras" .. (r.auraTruncated and " (debuffs truncated)" or ""),
+        extra or "")
+    add("# roster")
+    add("idx", "name", "class", "role", "roleSource", "maxHP", "tracked")
+    local trackedSet = {}
+    for _, idx in ipairs(r.tracked or {}) do trackedSet[idx] = true end
+    for i, e in ipairs(r.roster or {}) do
+        add(i, e.name or "", e.class or "", e.role or "", e.roleSource or "",
+            e.maxHP or -1, trackedSet[i] and "y" or "")
+    end
+    local init = r.initial or {}
+    add("# initial", "mana " .. (init.mana or 0), "base " .. (init.apiBase or 0),
+        "casting " .. (init.apiCasting or 0), init.form or "?")
+    for _, a in ipairs(init.auras or {}) do
+        add("aura", a.target, a.spellID, a.stacks, string.format("%.1f", a.remaining or 0))
+    end
+    for _, b in ipairs(init.buffs or {}) do
+        add("buff", b.spellID or 0, b.name or "", string.format("%.1f", b.remaining or 0))
+    end
+    add("# precasts")
+    add("t", "spellID", "cost", "tgt", "hpAtCast", "form")
+    for _, c in ipairs(r.precasts or {}) do
+        add(string.format("%.2f", c[1]), c[2], c[3], c[4],
+            string.format("%.3f", c[5] or -1), c[6])
+    end
+    add("# ev")
+    add("t", "kind", "tgt", "amt", "x")
+    local ev = r.ev or {}
+    for i = 1, #(ev.t or {}) do
+        add(string.format("%.2f", ev.t[i]), ev.kind[i], ev.tgt[i],
+            string.format("%.0f", ev.amt[i] or 0), ev.x[i])
+    end
+    add("# hp")
+    local hp = r.hp or {}
+    local head = { "t" }
+    for _, idx in ipairs(r.tracked or {}) do head[#head + 1] = "hp" .. idx end
+    for _, idx in ipairs(r.tracked or {}) do head[#head + 1] = "max" .. idx end
+    add(unpack(head))
+    for i = 1, #(hp.t or {}) do
+        local row = { string.format("%.1f", hp.t[i]) }
+        for _, idx in ipairs(r.tracked or {}) do row[#row + 1] = hp.hp[idx][i] or -1 end
+        for _, idx in ipairs(r.tracked or {}) do row[#row + 1] = hp.max[idx][i] or -1 end
+        add(unpack(row))
+    end
+    add("# mana")
+    add("t", "v", "base", "cast")
+    local mn = r.mana or {}
+    for i = 1, #(mn.t or {}) do
+        add(string.format("%.1f", mn.t[i]), mn.v[i],
+            string.format("%.2f", mn.base[i] or 0), string.format("%.2f", mn.cast[i] or 0))
+    end
+end
+
 function MD:Export()
     local out = {}
     local function add(...) out[#out + 1] = table.concat({ ... }, "\t") end
@@ -333,66 +397,42 @@ function MD:Export()
         for _, row in ipairs(MD.Targets:ExportRows()) do out[#out + 1] = row end
     end
 
-    -- Recorded streams (v0.7.2): the parallel arrays as they are, one event per
-    -- row. This is the raw material for offline replay, so it is dumped
-    -- verbatim rather than summarised -- a summary of a stream is what the
-    -- Review tab is for.
+    -- Recorded streams (v0.7.2), the ring of 8.
     if MD.FightRecorder then
-        for n, r in ipairs(MD.FightRecorder:List()) do
-            add("# recording " .. n, r.id or "", r.zone or "",
-                string.format("%.1f", r.dur or 0), "pool " .. (r.pool or 0),
-                (r.ownCasts or 0) .. " casts", (r.spent or 0) .. " mana",
-                string.format("foreign %.0f%%", (r.foreignShare or 0) * 100),
-                r.truncated and "TRUNCATED" or "", r.pinned and "pinned" or "",
-                (r.auraN or 0) .. " auras" .. (r.auraTruncated and " (debuffs truncated)" or ""))
-            add("# roster")
-            add("idx", "name", "class", "role", "roleSource", "maxHP", "tracked")
-            local trackedSet = {}
-            for _, idx in ipairs(r.tracked or {}) do trackedSet[idx] = true end
-            for i, e in ipairs(r.roster or {}) do
-                add(i, e.name or "", e.class or "", e.role or "", e.roleSource or "",
-                    e.maxHP or -1, trackedSet[i] and "y" or "")
-            end
-            local init = r.initial or {}
-            add("# initial", "mana " .. (init.mana or 0), "base " .. (init.apiBase or 0),
-                "casting " .. (init.apiCasting or 0), init.form or "?")
-            for _, a in ipairs(init.auras or {}) do
-                add("aura", a.target, a.spellID, a.stacks, string.format("%.1f", a.remaining or 0))
-            end
-            for _, b in ipairs(init.buffs or {}) do
-                add("buff", b.spellID or 0, b.name or "", string.format("%.1f", b.remaining or 0))
-            end
-            add("# precasts")
-            add("t", "spellID", "cost", "tgt", "hpAtCast", "form")
-            for _, c in ipairs(r.precasts or {}) do
-                add(string.format("%.2f", c[1]), c[2], c[3], c[4],
-                    string.format("%.3f", c[5] or -1), c[6])
-            end
-            add("# ev")
-            add("t", "kind", "tgt", "amt", "x")
-            local ev = r.ev or {}
+        for n, r in ipairs(MD.FightRecorder:List()) do DumpRecording(add, r, n) end
+    end
+
+    -- Runs (v0.9.1): the container, then every pull it kept. The run's own
+    -- arrays are the GAPS -- mana across the whole run, the drinks with the mana
+    -- either side of them, deaths, zone changes -- which is the half a single
+    -- fight's stream cannot hold.
+    if MD.RunRecorder then
+        local RR = MD.RunRecorder
+        for n, run in ipairs(RR:List()) do
+            local st = run.stats or {}
+            add("# run " .. n, run.id or "", run.name or "", run.zone or "",
+                string.format("%.1f", run.dur or 0), "pool " .. (run.pool or 0),
+                (st.pulls or 0) .. " pulls", (st.recorded or 0) .. " recorded",
+                string.format("combat %.0f%%", (st.combatPct or 0) * 100),
+                (st.drinks or 0) .. " drinks", st.drinkRate and string.format("%.1f mana/s", st.drinkRate) or "no rate",
+                (st.deaths or 0) .. " deaths", (st.spent or 0) .. " mana",
+                run.truncated and "TRUNCATED" or "", run.pinned and "pinned" or "",
+                run.stopReason or "")
+            add("# run ev")
+            add("t", "kind", "name", "a", "b")
+            local ev = run.ev or {}
             for i = 1, #(ev.t or {}) do
-                add(string.format("%.2f", ev.t[i]), ev.kind[i], ev.tgt[i],
-                    string.format("%.0f", ev.amt[i] or 0), ev.x[i])
+                add(string.format("%.1f", ev.t[i]), ev.kind[i],
+                    RR.KIND_NAMES[ev.kind[i]] or "?", string.format("%.0f", ev.a[i] or 0),
+                    string.format("%.3f", ev.b[i] or 0))
             end
-            add("# hp")
-            local hp = r.hp or {}
-            local head = { "t" }
-            for _, idx in ipairs(r.tracked or {}) do head[#head + 1] = "hp" .. idx end
-            for _, idx in ipairs(r.tracked or {}) do head[#head + 1] = "max" .. idx end
-            add(unpack(head))
-            for i = 1, #(hp.t or {}) do
-                local row = { string.format("%.1f", hp.t[i]) }
-                for _, idx in ipairs(r.tracked or {}) do row[#row + 1] = hp.hp[idx][i] or -1 end
-                for _, idx in ipairs(r.tracked or {}) do row[#row + 1] = hp.max[idx][i] or -1 end
-                add(unpack(row))
-            end
-            add("# mana")
-            add("t", "v", "base", "cast")
-            local mn = r.mana or {}
-            for i = 1, #(mn.t or {}) do
-                add(string.format("%.1f", mn.t[i]), mn.v[i],
-                    string.format("%.2f", mn.base[i] or 0), string.format("%.2f", mn.cast[i] or 0))
+            add("# run mana")
+            add("t", "v")
+            local mn = run.mana or {}
+            for i = 1, #(mn.t or {}) do add(string.format("%.1f", mn.t[i]), mn.v[i]) end
+            for k, pull in ipairs(run.pulls or {}) do
+                DumpRecording(add, pull, k, string.format("run %s pull %d%s", tostring(run.id), k,
+                    pull.short and " short" or ""))
             end
         end
     end

@@ -143,8 +143,10 @@ Spec: **`docs/SPEC-v0.9.md`**; the calls in `docs/DECISIONS.md` §v0.9.
   recording's `initial.energize`; the profile snapshot; the import tool uses both. *(2026-09-06;
   an older recording gets the current measurement with `energizeAssumed` stated in the report.
   In-game: TESTING §27.)*
-- [ ] **v0.9.1** `Engine/RunRecorder.lua`: `/md run start|stop|status`, every pull plus the gaps
+- [x] **v0.9.1** `Engine/RunRecorder.lua`: `/md run start|stop|status`, every pull plus the gaps
   (drinks, deaths, mana every 2 s), `cdb.runs`, auto-stop, `# run` export, `tools/runcheck.lua`.
+  *(2026-09-06; the run's own drink rate is measured across the drink's interior. In-game:
+  TESTING §28.)*
 - [ ] **v0.9.2** Review tab run selector; pulls of a run with every button; `import.lua runs`.
 - [ ] **v0.9.3** the run in the engine: `ChainRun`, the gap model with the run's own drink rate,
   `CoachRun`, the run card — "you drank 4x (3:10); this plan needs 2x (1:20)".

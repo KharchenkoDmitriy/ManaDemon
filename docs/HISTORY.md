@@ -1460,3 +1460,48 @@ energize moves the mana curve by exactly `energize × t`, and the run result mus
 of its pooled slot before the next run reuses it.
 
 Suites: simcheck 10, reccheck 38, simwindow 8, regencheck 18, replaycheck 33, replayui 50.
+
+## 2026-09-06 — v0.9.1: a dungeon is a run, and the gaps are half of it
+
+`docs/SPEC-v0.9.md` §3. `Engine/RunRecorder.lua` (new, 380 lines): `/md run start [name]`,
+`/md run stop`, `/md run status`. Manual, as decided — `Start(reason)` takes a reason and
+`db.runAutoStart` ships `false`, so auto-start on entering a five-man is one `if` away.
+
+**The container.** While a run is active `FightRecorder:Finish` hands every finished pull to
+the run **instead of** the ring of 8 — a run is pinned, replaced and reviewed as one thing —
+and that includes pulls under the 20 s / 5 casts gate, marked `short`. The gate never went
+away; it is about what may be *coached from*, and a dungeon is mostly pulls that fail it. A run
+also overrides `db.recordFights`: turning single-fight recording off is a statement about the
+ring, not about a dungeon the author explicitly asked to record.
+
+**The gaps**, which is the half a fight stream cannot hold: mana every 2 s across the whole
+run, in and out of combat; each drink with the mana either side of it; deaths and the time
+spent dead; zone changes; Innervates (the cast) and potions (the item leaving the bags, which
+needs no spell id nobody has verified on this client). The **drink rate is measured across the
+drink's interior** — first to last poll that was still inside it — because the buff goes up and
+comes down between two 0.5 s polls and guessing at either end is 2% of a 25 s drink. `runcheck`
+holds it to within 2% of a scripted 120 mana/s and gets 120.0.
+
+**Limits.** Two runs in `cdb.runs`, one pinnable; starting a third when both are pinned is
+refused *before* recording, with the reason. Auto-stop on leaving the instance (30 s of grace,
+because a corpse run leaves and returns — and returning cancels it), on logout, and at
+`db.runMaxMinutes` (90). Two budgets, not one: `MAX_RUN_EV` (30 000, the pulls' streams
+included) stops *recording* further pulls, while the run's own timeline has its own
+`MAX_GAP_EV` — the first version squeezed the gap events out as soon as the pulls filled the
+budget, and a pull the run only summarised then lost even the fact that it happened. It is
+counted now: `stats.summarised`, and its length still counts as combat time.
+
+**Export.** The per-recording dump is now a shared `DumpRecording`, used by the ring of 8 and
+by each pull of a run (tagged `run <id> pull <k>`), under new `# run` / `# run ev` /
+`# run mana` sections.
+
+**Harness.** `tools/runcheck.lua` (new, 49 assertions): three pulls with a drink, a death and a
+release between them; the short pull kept and flagged; the ring of 8 untouched; the PULL mana
+fractions; the drink rate; `stats`; the budget forcing a summarised pull; the auto-stop with
+its grace and the return that cancels it; the retention refusal when both runs are pinned;
+`db.recordRuns` off; the command's name keeping its case (the slash handler lower-cased
+everything, so `/md run start Blood Furnace` used to hand back a name the author never typed);
+and the `# run` export. The stub gained `UnitBuff` and `IsInInstance`.
+
+Suites: simcheck 10, reccheck 38, simwindow 8, regencheck 18, replaycheck 33, replayui 50,
+runcheck 49.

@@ -35,6 +35,12 @@ local DEFAULTS = {
                           -- waiting is a legitimate action for a 5-man healer)
     recordFights = true,  -- keep the full event stream of the last 8 interesting pulls so they
                           -- can be replayed (Engine/FightRecorder.lua). Summaries run regardless
+    recordRuns = true,    -- allow /md run start: a whole dungeon as one recording, every pull plus
+                          -- the gaps (Engine/RunRecorder.lua). Two runs kept, one pinnable
+    runMaxMinutes = 90,   -- a recording run stops itself at this age (0 = no ceiling)
+    runAutoStart = false, -- RESERVED (docs/SPEC-v0.9.md 1.1): start a run on entering a 5-man.
+                          -- Runs are manual; the recorder already takes a reason so this is one
+                          -- `if` away when the author asks for it
     -- Replay validation gates (docs/SPEC-v0.7.md §7). A recording earns the right to be
     -- coached from; each threshold's provenance is printed with its result in Engine/SimModel.lua.
     simGateManaMean = 0.02,   -- mean |delta| on the mana curve, as a fraction of the pool
@@ -399,6 +405,7 @@ MD.COMMANDS = {
     { "/md coach [n]",    "search for a better plan on recorded fight n and show the card (cancel stops it)" },
     { "/md sim",          "simulation window: build a fight and find the cheapest plan that holds it" },
     { "/md replay [n]",   "play recorded fight n as unit frames: what you did, and what Coach suggested" },
+    { "/md run start|stop|status", "record a whole dungeon: every pull and the gaps between them" },
     { "/md debug",        "toggle the debug console (enable logging there, Copy to export)" },
 }
 
@@ -412,8 +419,13 @@ end
 SLASH_MANADEMON1 = "/manademon"
 SLASH_MANADEMON2 = "/md"
 SlashCmdList.MANADEMON = function(msg)
-    msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+    -- commands are matched lower-case; the RAW tail is kept because a run's
+    -- name is the author's text ("/md run start Blood Furnace") and lower-casing
+    -- it would hand them back a name they did not type
+    local raw = (msg or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    msg = raw:lower()
     local cmd, arg = msg:match("^(%S*)%s*(.*)$")
+    local _, rawArg = raw:match("^(%S*)%s*(.*)$")
     if cmd == "" then
         if MD.ToggleDashboard then MD:ToggleDashboard() end
     elseif cmd == "help" then
@@ -473,6 +485,8 @@ SlashCmdList.MANADEMON = function(msg)
         if MD.ToggleSimWindow then MD:ToggleSimWindow() end
     elseif cmd == "replay" then
         if MD.ToggleReplay then MD:ToggleReplay(arg) end
+    elseif cmd == "run" then
+        if MD.RunCommand then MD:RunCommand(rawArg) end
     elseif cmd == "debug" then
         if MD.ToggleDebugConsole then MD:ToggleDebugConsole() end
     else
