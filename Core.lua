@@ -26,6 +26,13 @@ local DEFAULTS = {
     calibAlerts = true,   -- chat line when a spell drifts >3% from the model over 30+ events
     simFullHp = 0.85,     -- a target at or above this fraction of health counts as "full" for the
                           -- cast labels and the replay engine (docs/SPEC-v0.7.md §2.2)
+    simFloor = 0.35,      -- below this fraction of health a tracked target is "in danger": the
+                          -- seconds spent there are what a plan is scored on first
+    simReaction = 0.5,    -- seconds a simulated healer takes to start casting after idling.
+                          -- Only after a wait: BF-1's inter-cast gaps (p10/p25 1.50/1.52s) show
+                          -- chained casts go out at the GCD with no delay at all
+    simMinActivity = 0,   -- minimum fraction of the fight a plan must spend casting (0 = off;
+                          -- waiting is a legitimate action for a 5-man healer)
     healAmountGross = nil, -- latched from the combat log: does SPELL_HEAL's "amount" include the overheal?
     firstRun = true,
     minimap = { hide = false, angle = 220 },
@@ -309,6 +316,8 @@ MD.COMMANDS = {
     { "/md fsrtest",      "log mana ticks for 15s (five-second-rule anchor test)" },
     { "/md regentest [N]", "idle regen check: observed mana gain vs GetManaRegen (N s, default 30)" },
     { "/md spamtest",     "arm, then chain-cast one spell to OOM: checks the dashboard's To OOM column" },
+    { "/md simrun",       "self-tests for the simulation engine (heals, HoT refresh, GCD, 5SR)" },
+    { "/md simreplay",    "replay the BF-1 fixture through the engine and score the mana curve" },
     { "/md debug",        "toggle the debug console (enable logging there, Copy to export)" },
 }
 
@@ -373,6 +382,10 @@ SlashCmdList.MANADEMON = function(msg)
         if MD.RunRegenTest then MD:RunRegenTest(tonumber(arg)) end
     elseif cmd == "spamtest" then
         if MD.RunSpamTest then MD:RunSpamTest() end
+    elseif cmd == "simrun" then
+        if MD.RunSimRun then MD:RunSimRun() end
+    elseif cmd == "simreplay" then
+        if MD.RunSimReplay then MD:RunSimReplay(arg) end
     elseif cmd == "debug" then
         if MD.ToggleDebugConsole then MD:ToggleDebugConsole() end
     else

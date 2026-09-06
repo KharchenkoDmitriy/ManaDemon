@@ -758,3 +758,60 @@ checker). The real check is in-game and is written up as **TESTING §15** — it
 
 **Next:** v0.7.1 — `RankMath:SpellKit`, `Engine/SimModel.lua` (mana half), `/md simrun`
 self-tests, `/md simreplay fixture` against the already-generated `Data/SimFixture_BF1.lua`.
+
+## 2026-09-06 — v0.7.1: the simulation engine, and a real test harness
+
+**The biggest thing that happened is not in the addon.** There is now
+`tools/run.sh tools/simcheck.lua`: a WoW API stub (`tools/wowstub.lua`) plus a real Lua 5.1
+that `tools/run.sh` downloads and builds into `tools/.lua` on first use. It loads the actual
+non-UI files and runs `/md simrun` and `/md simreplay fixture` outside the game. The repo has
+never had a way to execute its own logic before, and it immediately earned its keep — see the
+sample-ordering bug below. Keep `tools/harness.lua`'s file list in step with the `.toc`.
+
+**Shipped (spec §3):**
+
+- `RankMath:SpellKit(opts)` — every known rank of every family flattened to plain numbers,
+  once per form, from `Context({ live = true, healer = ... })`. This is the only boundary
+  between the rank math and the engine; the engine never calls `RowFor`. Crit is stripped
+  from `direct` on purpose (the engine decides expectation vs roll). Swiftmend is valued off
+  the highest known Rejuvenation/Regrowth; Tranquility is carried with `dataMissing = true`
+  because `Data/SpellData.lua` has no heal values for it and a planner must not invent them.
+- `Context(opts)` gained `opts.healer`, applied exactly where the Simulate strip's overrides
+  are and nowhere else.
+- `Engine/SimModel.lua` — the engine. Binary heap over parallel arrays keyed `(t, prio, seq)`
+  for ticks, expiries, committed casts and decisions; recorded timelines (damage, foreign
+  heals, forms, rates, script) read by **cursor**, never copied, so a 1,500-event fight costs
+  three integers of state; per-run scratch from a reused pool slot. Scripted runs (replay,
+  self-tests) and deciding runs (v0.7.4) share one code path.
+- `/md simrun` — ten assertions, all passing: heal amount against the dashboard row, chain
+  casts against `CastsToOOM`'s closed form, ticks dropped on refresh, one bloom per Lifebloom
+  stack, Swiftmend eating Regrowth before Rejuvenation, nothing landing on a corpse, the 5SR
+  switching rates at exactly 5.0, the GCD holding two instants 1.5 s apart, and Run's cost
+  being flat in the timeline length.
+- `/md simreplay fixture` — replays `Data/SimFixture_BF1.lua` and prints **three** numbers.
+
+**Three spec corrections, all from evidence, all written up in DECISIONS §v0.7.1:** mana
+leaves (and the 5SR restarts) when a cast *succeeds*, not when it starts — the log's `[mana]`,
+`[spend]` and `5SR start` lines share the `UNIT_SPELLCAST_SUCCEEDED` timestamp; regen is
+integrated continuously rather than in 2 s ticks; and a recorded sample sitting exactly on an
+event's timestamp is read after **every** event at that instant. That last one was a genuine
+bug the harness caught — a cast sharing its timestamp with a form change was sampled before it
+had paid for itself, which put the fixture's worst error at 13.7%. Fixed: **2.8%**.
+
+**Fixture result:** spend reproduced exactly (6169 vs 6169), `measured` mean **1.3%** / max
+**2.8%** of pool — inside spec §3.9's 2% / 5% gate.
+
+**And a finding worth more than the engine.** The fixture cannot be reproduced by the regen
+model alone: over 40 s continuously in the five-second rule the player gained 2072 mana while
+`GetManaRegen` accounts for 1141. The missing 931 (23 mana/s, **116 mp5**) arrives as two
+clean periodic streams visible in the log — exactly 17 every 2.00 s, and bursts of 13-15 on a
+~3 s cycle. Dreamstate is ruled out (no points in it). Blessing of Wisdom from the party's
+paladin fits the first stream and would be invisible to `GetManaRegen` for the same reason
+drinking is. Nothing has been added to the model: `docs/TESTING.md` **§16** is the in-game
+test that settles it, and it is now the most valuable thing on the testing list.
+
+**Drive-by:** `lbHot` / `lbBloom` in `RowFor` were globals — correct by luck, but `_G` writes
+on a path the dashboard runs every 2 s.
+
+**Next:** v0.7.2 — `Engine/FightRecorder.lua` (full streams) and the `/md export` recording
+section.

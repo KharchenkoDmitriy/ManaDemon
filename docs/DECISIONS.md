@@ -468,3 +468,48 @@ fires on ordinary melee; a blanket reaction delay contradicts the log; the `earl
 wrong for 68% of casts (Lifebloom refresh is the play).
 
 **Rejected, not to be re-proposed:** see `docs/SPEC-v0.7.md` §13.
+
+### v0.7.1 corrections made by running the engine (2026-09-06)
+
+Three calls in `docs/SPEC-v0.7.md` §3 changed once the engine could actually be executed
+(`tools/run.sh tools/simcheck.lua` — a WoW API stub plus a real Lua 5.1, so the engine runs
+outside the game). Each is a correction from evidence, not a preference.
+
+1. **Mana leaves, and the 5SR restarts, when a cast SUCCEEDS — not when it starts.** Spec
+   §3.6 said "at cast start". `.logs/dungeon-BF-1.txt` is unambiguous: `[mana] -460`,
+   `[spend] Regrowth cost 460` and `5SR start` all carry the timestamp of
+   `UNIT_SPELLCAST_SUCCEEDED`, i.e. the end of the cast bar. The engine follows the client.
+   A plan is therefore charged when its cast lands, and cast commitment (the plan is not
+   asked again until then) is what keeps that from being a free option.
+
+2. **Regen is integrated continuously, not in 2 s ticks.** The client ticks; the engine has
+   no way to know the tick phase of a fight it is replaying, and guessing costs more than it
+   saves. Over a 40 s pull the difference is at most one tick of phase (~1% of a 7k pool).
+
+3. **A recorded sample that sits exactly on an event's timestamp is read AFTER every event at
+   that instant.** This was a real bug, not a definition: the first cut sampled after the
+   *first* event at a timestamp, so a cast that shared its timestamp with a form change was
+   sampled before it had been paid for. It put the fixture's max error at 13.7%; fixing it
+   gave 2.8%.
+
+**The BF-1 fixture carries ~23 mana/s of energize `GetManaRegen` never reports.** Measured
+from the log's own mana lines: over 40.27 s continuously inside the five-second rule the
+player gained 2072 mana; the reported casting rate accounts for 1141 (19 ticks of ~57, i.e.
+27.2/s against a reported 28.33/s). The remaining 931 arrives as two clean periodic streams —
+**exactly 17 every 2.00 s** (8.45/s) and **bursts of 13-15 on a ~3 s cycle** (8.37/s) — plus
+merges of the two. That is 116 mp5 the model is blind to. The party had a paladin, and
+Blessing of Wisdom is a periodic energize rather than a regen stat, so it would be invisible
+to the API exactly like drinking is; the second stream is not identified. **This is the same
+shape of finding as Dreamstate in v0.5 and it gets the same treatment: it is not added to
+`RM:Unreported()` on a guess.** `docs/TESTING.md` §16 is the in-game test that settles it.
+
+Consequently `/md simreplay fixture` reports three numbers rather than one pass/fail: `spend`
+(must be exact), `modelled` (the fit `GetManaRegen` alone can produce — mean 6.3%, max 12.1%
+on BF-1) and `measured` (with the fixture's recorded energize — mean 1.3%, max 2.8%, which
+passes spec §3.9's mean ≤ 2% / max ≤ 5%). The gate is on `measured`, because §3.9 is a test of
+the engine's *mechanics*, and a rate the fixture already measured should not be re-litigated
+inside it.
+
+**One drive-by fix:** `lbHot` / `lbBloom` in `Engine/RankMath.lua`'s `RowFor` were globals.
+Behaviour was correct by luck (only the Lifebloom branch reads them, and it always writes
+them first), but they were `_G` writes on a path the dashboard runs every 2 s.

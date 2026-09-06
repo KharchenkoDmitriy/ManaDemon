@@ -18,14 +18,29 @@
 --     potion or Nature's Swiftness in the window
 --   * the pre-pull Lifebloom at -0.02s is already reflected in initial.mana
 --     (6833 = 7009 - 176); it is listed for aura state only
--- Expected: replaying `casts` from initial.mana at these rates reproduces
--- `mana` with mean |delta| <= 2 percent of pool and max <= 5 percent.
+-- Expected: replaying `casts` from initial.mana at these rates plus the
+-- measured energize below reproduces `mana` with mean |delta| <= 2 percent of
+-- pool and max <= 5 percent. `/md simreplay fixture` also prints the fit
+-- WITHOUT the energize, which is what the two-rate model alone can do.
 local _, MD = ...
 
 MD.SimFixtures = MD.SimFixtures or {}
 MD.SimFixtures.BF1 = {
     v = 1, zone = "Hellfire Citadel", name = "BF-1 hard pull", t0 = 0, dur = 40.32, pool = 7009,
-    initial = { mana = 6833, apiBase = 69.24, apiCasting = 28.33, form = "tree",
+    -- energize: mana the client's regen API does not report, MEASURED off this
+    -- log's own mana lines rather than assumed. Over the 40.27s window the
+    -- player gained 2072 mana while continuously inside the five-second rule;
+    -- GetManaRegen's casting rate accounts for 1141 of it (19 ticks of ~57,
+    -- 27.2/s against the reported 28.33/s). The remaining 931 arrives as two
+    -- clean periodic streams the API is blind to -- exactly 17 every 2.00s
+    -- (8.45/s) and bursts of 13-15 on a ~3s cycle (8.37/s), plus merges --
+    -- most likely Blessing of Wisdom from the party's paladin and a second
+    -- source not yet identified. 931 / 40.27 = 23.1 mana/s = 116 mp5.
+    -- This is the same class of thing Dreamstate was in v0.5: a periodic
+    -- energize, not a regen stat. It is recorded here so the replay validates
+    -- the ENGINE (5SR handling, per-cast deduction, curve shape) instead of
+    -- re-measuring a rate the fixture already knows. See docs/TESTING.md 16.
+    initial = { mana = 6833, apiBase = 69.24, apiCasting = 28.33, energize = 23.1, form = "tree",
                 auras = { -- target 1 = tank; remaining durations approximate
                     { target = 1, spellID = 33763, stacks = 1, remaining = 4.0 },  -- Lifebloom
                     { target = 1, spellID = 9858,  stacks = 1, remaining = 9.0 },  -- Regrowth HoT

@@ -37,7 +37,8 @@ Load order is defined by `ManaDemon.toc` and matters — later files assume earl
 | `Engine/Calibration.lua` | Observed / predicted per spell and event kind, crits separated, no decay (a ratio is gear-invariant); resets only when the talent build changes. Reports via `/md calibrate` and a 3% drift alert. **Reads RankMath; RankMath never reads it** |
 | `Engine/PullBudget.lua` | Median mana per pull in this zone from fight history → "N more, M after a drink" |
 | `Engine/ManaCooldowns.lua` | Per-class big mana cooldowns (Druid live; Priest/Shaman/Paladin stubs) + carried potions, each returning the **marginal** mana it buys over `RM:Effective()`. Read by both `Engine/TTO.lua` and `UI/Advisor.lua` |
-| `Engine/RankMath.lua` | `Context()` (every input, incl. `MD.sim` overrides) → `RowFor(spell, ctx, variant, explain)` → `Compute()`; `Explain()` rebuilds one row with `row.calc` for the tooltip; `EventPrediction()` for calibration. Coefficients, downrank/sub-20 penalties, talent multipliers, Nature's Grace expected cast, crit weighting, Lifebloom tick/bloom effective values, Pareto filter, suggested rank. **HP5 was removed in v0.6.0** (it ordered like HPM) |
+| `Engine/SimModel.lua` | **The simulation engine** (v0.7.1): one event-driven loop over a scenario, driven either by a recorded script (replay) or by a plan that decides. Binary heap for HoT ticks/expiries/decisions; recorded timelines read by cursor, never copied; per-run state from a reused pool slot. Mana leaves and the 5SR restarts when a cast **succeeds** (what the client does); regen integrated continuously. `SM.K` are the recorded event kinds — do not renumber |
+| `Engine/RankMath.lua` | `Context()` (every input, incl. `MD.sim` overrides) → `RowFor(spell, ctx, variant, explain)` → `Compute()`; `Explain()` rebuilds one row with `row.calc` for the tooltip; `EventPrediction()` for calibration. Coefficients, downrank/sub-20 penalties, talent multipliers, Nature's Grace expected cast, crit weighting, Lifebloom tick/bloom effective values, Pareto filter, suggested rank. `SpellKit(opts)` flattens every known rank into plain numbers, once per form — **the single boundary between the rank math and `Engine/SimModel.lua`, which must never call `RowFor`**. `Context(opts)` takes `opts.live` (ignore the Simulate strip) and `opts.healer` (the simulator's own stat overrides). **HP5 was removed in v0.6.0** (it ordered like HPM) |
 | `UI/Style.lua` | Widget kit in Cell's options-UI style (`MD.UI`: flat panels, accent buttons/button groups, check buttons, titled panes, scroll frame, slider, movable frame with header, private tooltip). No libraries |
 | `UI/Tooltip.lua` | **The one tooltip line builder** (`MD.Tip`): `{l, r}` line tables rendered into GameTooltip or ElvUI's `DT.tooltip`. `Tip:Mana()`, `:Row()`, `:Columns()`, `:Fights()`, `:Clock()`. Every hover surface goes through it |
 | `UI/Widget.lua` | Floating one-liner + 5SR underline; **all** show/hide goes through `MD:UpdateVisibility()`. Hover tooltip + left-click gated by `db.widgetTooltip` (it needs mouse input on the frame) |
@@ -51,6 +52,7 @@ Load order is defined by `ManaDemon.toc` and matters — later files assume earl
 | `UI/Summary.lua` | Fight tracking, combat-log overheal, history ring, **own-cast capture (`MD.Recorder`) and the plan-free cast labels** (SPEC-v0.7 §2) |
 | `Integrations/ElvUIDatatext.lua` | `DT:RegisterDatatext` glue; only active when ElvUI is installed (`## OptionalDeps: ElvUI`) |
 | `Verify.lua` | `MD:Snapshot()` (every model input, shared), `/md verify` (static data vs live client), `/md profile` (snapshot + costs + clock + settings into the copy popup), `/md fsrtest`, `/md regentest`, `/md spamtest` |
+| `tools/` | **Offline harness** — `tools/run.sh <script>` builds a real Lua 5.1 into `tools/.lua` (gitignored) and runs a script against this checkout; `tools/wowstub.lua` fakes just enough client API for the non-UI files to load; `tools/harness.lua` loads them and returns `MD`; `tools/simcheck.lua` runs `/md simrun` + `/md simreplay fixture` (`--curve` prints the mana curve next to the log's). Not shipped: `release.sh` builds from the `.toc`'s file list |
 | `release.sh` / `Makefile` | `make release` builds from the main checkout or any git worktree (interactive menu, or `SRC=<name>`) into the **top-level** `dist/<name>/ManaDemon/` + versioned zip, from the `.toc`'s own file list (dev files excluded by construction). `make install WOW_ADDONS=<AddOns dir>` also copies it into the game. `dist/` is gitignored |
 
 Every file starts with `local _, MD = ...` to pull the shared addon table. `MD.db` is account-wide settings, `MD.cdb` is per-character.
@@ -72,8 +74,13 @@ Every file starts with `local _, MD = ...` to pull the shared addon table. `MD.d
 
 ## Verifying changes
 
-There is no build system or test suite. A change is "verified" when:
-1. `luac -p <file>` passes (any Lua ≥5.1 syntax check is fine), and
-2. the file is listed in `ManaDemon.toc` in a position consistent with what it reads from `MD`.
+There is no build system. A change is "verified" when:
+1. `luac -p <file>` passes (any Lua ≥5.1 syntax check is fine),
+2. the file is listed in `ManaDemon.toc` in a position consistent with what it reads from `MD`, and
+3. **for anything the engine touches, `tools/run.sh tools/simcheck.lua` still passes** — ten
+   self-tests over `Engine/SimModel.lua` plus the BF-1 fixture replay. It runs the real files
+   under a stub client, so it catches ordering and arithmetic bugs a syntax check cannot (it
+   found the sample-ordering bug in the engine's first cut). It is the closest thing this
+   repo has to a test suite; keep `tools/harness.lua`'s file list in step with the `.toc`.
 
 Functional testing happens in-game: `/md verify` first (data + input snapshot), `/md fsrtest` for the five-second-rule anchor, then play. The neighboring `../ElvUI*` folders (if present in the parent AddOns checkout) are read-only reference code for datatext patterns.

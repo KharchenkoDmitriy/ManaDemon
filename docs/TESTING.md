@@ -10,7 +10,7 @@ exposed a sim leak (fixed). Also found: a false "cooldown used: Innervate" on ev
 (the GCD; fixed) and the `/md profile` paste came out **empty** (see §2b).
 
 **Still to do, in this order:** §0b · §2b · **§12 roster in a group** (the biggest unknown)
-· **§15 (new in v0.7.0, and it depends on §12 working)** · §5 (needs a hard pull) · §9
+· **§15 (new in v0.7.0, and it depends on §12 working)** · **§16 (new in v0.7.1)** · §5 (needs a hard pull) · §9
 (needs one Innervate) · §11 again after a dungeon night · §13 · §14. §1, §3, §4, §4b, §7
 are regression-only.
 
@@ -248,6 +248,32 @@ spend 3800, delta +0)`. Two failure modes to report:
 Also: history now keeps **200** fights instead of 20, and a fight with fewer than 4 of your
 own casts is no longer recorded at all. After a dungeon night, `/md export` should list
 many more fights than before.
+
+## 16. Where does 116 mp5 come from? (5 min in a party, v0.7.1) — NEW, and the most interesting
+Replaying the BF-1 hard pull through the new engine turned up something the model does not
+know about. Over those 40 seconds, continuously inside the five-second rule, you gained
+**2072 mana**. `GetManaRegen` accounts for 1141 of it. The other **931 (23 mana/s, 116 mp5)**
+arrives as two clean periodic streams in your own log: **exactly 17 every 2.00 s**, and
+**bursts of 13-15 on a ~3 s cycle**. Neither is Dreamstate (you have no points in it — the
+log's regen lines carry no Dreamstate suffix).
+
+The strong suspect is **Blessing of Wisdom** from the party's paladin: a periodic energize, so
+`GetManaRegen` is blind to it exactly as it is to drinking. The ~3 s stream is unidentified.
+
+Nothing is being added to the model on a guess. What settles it:
+
+1. **Solo, out of group, no buffs.** `/md regentest 30` standing still. Then again while
+   chain-casting (`/md fsrtest`). Note the tick sizes in the Mana category.
+2. **Same character, in a party with a paladin, Blessing of Wisdom on you.** Repeat both.
+   Copy the log. If the +17-every-2 s stream appears only in step 2, it is the blessing and
+   the model gets a "buffs that energize" term.
+3. If a stream shows up in step 1 as well, paste the log anyway — that is something on your
+   own character and it is worth 116 mp5, which is more than most gear upgrades.
+
+Also, for reference: `/md simrun` should print **10 tests, all ok**, and `/md simreplay
+fixture` should print `spend ... (exact)` and a `measured ... -> PASS` line. Those two run
+anywhere, including at the character select screen's login, and are worth doing once after
+this update just to confirm nothing about your talents breaks the engine.
 
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the

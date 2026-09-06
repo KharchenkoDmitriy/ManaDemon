@@ -1,0 +1,615 @@
+-- Simulation engine (docs/SPEC-v0.7.md 3). One event-driven loop over one
+-- scenario, driven either by a recorded script (replay) or by a plan that
+-- decides what to cast (v0.7.4). It is the only place healing, mana and time
+-- are advanced, so a replayed fight and a hypothetical plan are scored by
+-- exactly the same code -- which is the whole point: a suggestion the engine
+-- cannot reproduce on the real fight is not a suggestion, it is a guess.
+--
+-- The rank math never runs inside the loop. RankMath:SpellKit() flattens every
+-- known rank into plain numbers once, per form, before Run() starts.
+--
+-- "Zero allocation" means the LOOP allocates nothing: the heap, the per-target
+-- scratch and the result arrays all come from a reused pool slot, and the
+-- recorded timelines are read by index and never copied. Run itself still
+-- builds its handful of local closures once per call -- a few hundred bytes,
+-- which the self-test's 4 KB budget covers -- because the alternative is a
+-- flat function soup nobody can check by reading. The result and every array
+-- on it belong to the slot: read them before the next Run.
+--
+-- Two conventions worth stating because they are NOT arbitrary:
+--
+--  * Mana leaves, and the five-second rule restarts, when a cast SUCCEEDS, not
+--    when it starts. That is what the client does and what the logs show
+--    (.logs/dungeon-BF-1.txt: "[mana] -460" and "[spend] Regrowth cost 460"
+--    carry the same timestamp as "5SR start"). docs/SPEC-v0.7.md 3.6 wrote
+--    "at cast start"; the log wins. A plan is still charged at the moment the
+--    cast lands, so it can never spend mana it would not have had.
+--  * Regen is integrated continuously rather than in 2s ticks. Over a 40s pull
+--    that is worth at most one tick of phase error (~1% of a 7k pool) and it
+--    removes an arbitrary tick alignment the engine has no way to know.
+local _, MD = ...
+
+local SM = {}
+MD.SimModel = SM
+
+-- Event kinds in a recorded stream (Engine/FightRecorder.lua, the fixtures and
+-- this engine all use these numbers -- do not renumber).
+SM.K = {
+    DMG = 1, FHEAL = 2, OWNCAST = 3, OWNHEAL = 4, OWNTICK = 5, CASTSTART = 6,
+    CANCEL = 7, FORM = 8, DIED = 9, ABSORB = 10, CD = 11,
+}
+
+-- The three families that leave something ticking on a target. Everything else
+-- resolves the instant it lands.
+SM.HOT_INDEX = { Rejuvenation = 1, Regrowth = 2, Lifebloom = 3 }
+SM.HOT_NAME = { "Rejuvenation", "Regrowth", "Lifebloom" }
+local HOT_INDEX = SM.HOT_INDEX
+
+local EMPTY = {}
+local LIFEBLOOM_MAX_STACKS = 3
+local GCD = 1.5
+local FSR = 5
+
+--------------------------------------------------------------------------------
+-- Internal heap events, in the tie-break order docs/SPEC-v0.7.md 3.3 fixes for
+-- equal timestamps. Timeline events (damage, foreign heals) are not in the heap
+-- at all -- they are read straight out of the recorded arrays by a cursor, so a
+-- 3,000-event fight costs three integers of state instead of 3,000 heap pushes.
+--------------------------------------------------------------------------------
+local E_TICK, E_EXPIRE, E_LAND, E_DECIDE = 1, 2, 3, 4
+
+--------------------------------------------------------------------------------
+-- Binary heap over parallel arrays, keyed (t, prio, seq). Never allocates once
+-- it has grown: Push writes into slots the previous Run left behind.
+--------------------------------------------------------------------------------
+local function HeapNew()
+    return { t = {}, prio = {}, seq = {}, a = {}, b = {}, c = {}, n = 0, seqN = 0 }
+end
+
+local function HeapLess(h, i, j)
+    local ti, tj = h.t[i], h.t[j]
+    if ti ~= tj then return ti < tj end
+    if h.prio[i] ~= h.prio[j] then return h.prio[i] < h.prio[j] end
+    return h.seq[i] < h.seq[j]
+end
+
+local function HeapSwap(h, i, j)
+    h.t[i], h.t[j] = h.t[j], h.t[i]
+    h.prio[i], h.prio[j] = h.prio[j], h.prio[i]
+    h.seq[i], h.seq[j] = h.seq[j], h.seq[i]
+    h.a[i], h.a[j] = h.a[j], h.a[i]
+    h.b[i], h.b[j] = h.b[j], h.b[i]
+    h.c[i], h.c[j] = h.c[j], h.c[i]
+end
+
+local function HeapPush(h, t, prio, a, b, c)
+    local n = h.n + 1
+    h.n, h.seqN = n, h.seqN + 1
+    h.t[n], h.prio[n], h.seq[n] = t, prio, h.seqN
+    h.a[n], h.b[n], h.c[n] = a, b, c
+    while n > 1 do
+        local p = math.floor(n / 2)
+        if HeapLess(h, n, p) then HeapSwap(h, n, p); n = p else break end
+    end
+end
+
+local function HeapPop(h)
+    local n = h.n
+    if n == 0 then return nil end
+    local t, prio, a, b, c = h.t[1], h.prio[1], h.a[1], h.b[1], h.c[1]
+    HeapSwap(h, 1, n)
+    h.n = n - 1
+    n = h.n
+    local i = 1
+    while true do
+        local l, r, m = i + i, i + i + 1, i
+        if l <= n and HeapLess(h, l, m) then m = l end
+        if r <= n and HeapLess(h, r, m) then m = r end
+        if m == i then break end
+        HeapSwap(h, i, m)
+        i = m
+    end
+    return t, prio, a, b, c
+end
+
+--------------------------------------------------------------------------------
+-- Slot pool. Two slots is enough: the search runs one candidate while holding
+-- the incumbent's result, and nothing else calls Run re-entrantly.
+--------------------------------------------------------------------------------
+SM.pool = {}
+
+local function NewSlot()
+    return {
+        busy = false,
+        heap = HeapNew(),
+        hp = {}, maxHP = {}, dead = {}, tracked = {},
+        hots = {},        -- [target][hotIndex] = state table (reused)
+        byFamily = {}, healByFamily = {}, ohByFamily = {},
+        -- deaths as parallel arrays and one reused "lowest" table: a search
+        -- runs Run thousands of times and a per-run table is pure garbage.
+        deaths = { n = 0, tgt = {}, t = {} },
+        lowest = { tgt = nil, hp = 1, t = 0 },
+        manaCurve = {}, hpCurve = {},
+        result = {},
+    }
+end
+
+local function Acquire()
+    for i = 1, #SM.pool do
+        if not SM.pool[i].busy then SM.pool[i].busy = true; return SM.pool[i] end
+    end
+    local s = NewSlot()
+    s.busy = true
+    SM.pool[#SM.pool + 1] = s
+    return s
+end
+
+local function Release(s) s.busy = false end
+
+local function HotState(S, ti, fi)
+    local row = S.hots[ti]
+    if not row then row = {}; S.hots[ti] = row end
+    local st = row[fi]
+    if not st then
+        st = { active = false, spellID = 0, tick = 0, tickPeriod = 3, ticksLeft = 0,
+               expires = 0, stacks = 0, bloom = 0, gen = 0 }
+        row[fi] = st
+    end
+    return st
+end
+
+--------------------------------------------------------------------------------
+-- Run
+--   scenario  see docs/SPEC-v0.7.md 3.2, plus scenario.kit (RankMath:SpellKit)
+--   plan      nil / { script = {...} } for a scripted run, or an object with
+--             :Decide(S, t) -> spellID, target  for a deciding run
+--   opts      { critMode = "ev" | "roll", seed, abortAbove, trace,
+--               refreshKeepsTicks }
+--------------------------------------------------------------------------------
+function SM:Run(scenario, plan, opts)
+    opts = opts or EMPTY
+    local startClock = (GetTime and GetTime()) or 0
+    local S = Acquire()
+    local h = S.heap
+    h.n, h.seqN = 0, 0
+
+    local kit = scenario.kit
+    local init = scenario.initial or {}
+    local pool = scenario.pool or 0
+    local mana = init.mana or pool
+    local form = init.form or "caster"
+    local baseRate = init.apiBase or 0
+    local castingRate = init.apiCasting or 0
+    -- Periodic energize the client's regen API does not report (a paladin's
+    -- Blessing of Wisdom, a drink, anything else that hands out mana on a
+    -- timer). Carried by the scenario with its own provenance; zero unless a
+    -- recording measured one. See docs/DECISIONS.md v0.7 "unreported energize".
+    local energize = init.energize or 0
+    local floor = scenario.floor or 0.35
+    local grace = scenario.grace or 6
+    local dur = scenario.dur or 0
+    local refreshKeepsTicks = opts.refreshKeepsTicks or false
+    local critMode = opts.critMode or "ev"
+    local crit = (kit and kit.crit) or 0
+
+    -- targets
+    local nT = 0
+    if scenario.targets then
+        nT = #scenario.targets
+        for i = 1, nT do
+            local tg = scenario.targets[i]
+            S.maxHP[i] = tg.maxHP or 1
+            S.hp[i] = tg.hp0 or S.maxHP[i]
+            S.dead[i] = false
+            S.tracked[i] = tg.tracked ~= false
+            local row = S.hots[i]
+            if row then for fi = 1, 3 do local st = row[fi]; if st then st.active = false end end end
+        end
+    end
+
+    for k in pairs(S.byFamily) do S.byFamily[k] = nil end
+    for k in pairs(S.healByFamily) do S.healByFamily[k] = nil end
+    for k in pairs(S.ohByFamily) do S.ohByFamily[k] = nil end
+    S.deaths.n = 0
+    for i = #S.manaCurve, 1, -1 do S.manaCurve[i] = nil end
+
+    local t = 0
+    local manaSpent, casts, lowestMana, oomAt = 0, 0, mana, nil
+    local healed, overhealed, floorSeconds = 0, 0, 0
+    local tickCount, bloomCount = 0, 0
+    local waitTime, busyUntil = 0, 0
+    -- A healer who was idle does not start the next cast the instant the model
+    -- says to. The delay applies ONLY coming out of a wait: the BF-1 log's
+    -- inter-cast gaps (p10/p25 = 1.50/1.52s) show chaining happens at the GCD
+    -- with no delay at all.
+    local reaction = (MD.db and MD.db.simReaction) or 0.5
+    local lastWasWait = false
+    local fsrUntil = init.fsrUntil or -1
+    local lowestTgt, lowestHp, lowestHpT = nil, 1, 0
+
+    ----------------------------------------------------------------------------
+    -- Healing
+    ----------------------------------------------------------------------------
+    local function Land(ti, amount, family)
+        if not ti or ti < 1 or ti > nT or S.dead[ti] or amount <= 0 then return end
+        local maxHP = S.maxHP[ti]
+        local room = maxHP - S.hp[ti]
+        local eff = amount < room and amount or room
+        if eff < 0 then eff = 0 end
+        S.hp[ti] = S.hp[ti] + eff
+        healed = healed + eff
+        overhealed = overhealed + (amount - eff)
+        S.healByFamily[family] = (S.healByFamily[family] or 0) + eff
+        S.ohByFamily[family] = (S.ohByFamily[family] or 0) + (amount - eff)
+    end
+
+    local function Damage(ti, amount)
+        if not ti or ti < 1 or ti > nT or S.dead[ti] then return end
+        local hp = S.hp[ti] - amount
+        if hp <= 0 then
+            S.hp[ti] = 0
+            S.dead[ti] = true
+            local d = S.deaths
+            d.n = d.n + 1
+            d.tgt[d.n], d.t[d.n] = ti, t
+        else
+            S.hp[ti] = hp
+        end
+        local frac = S.hp[ti] / S.maxHP[ti]
+        if S.tracked[ti] and frac < lowestHp then lowestTgt, lowestHp, lowestHpT = ti, frac, t end
+    end
+
+    local function ScheduleHot(ti, fi, st)
+        st.gen = st.gen + 1
+        HeapPush(h, st.nextTick, E_TICK, ti, fi, st.gen)
+        HeapPush(h, st.expires, E_EXPIRE, ti, fi, st.gen)
+    end
+
+    -- Applying a HoT. TBC drops whatever was left when a HoT is refreshed
+    -- (opts.refreshKeepsTicks flips that in one place if the client disagrees);
+    -- Lifebloom instead adds a stack and resets its 7s.
+    local function ApplyHot(ti, fi, e, spellID)
+        local st = HotState(S, ti, fi)
+        local isLB = (fi == HOT_INDEX.Lifebloom)
+        local wasActive = st.active
+        if isLB and wasActive then
+            st.stacks = math.min(LIFEBLOOM_MAX_STACKS, st.stacks + 1)
+        else
+            st.stacks = 1
+        end
+        st.active = true
+        st.spellID = spellID
+        st.tick = e.tick or 0
+        st.tickPeriod = e.tickPeriod or 3
+        st.bloom = e.bloom or 0
+        st.family = e.family
+        if refreshKeepsTicks and wasActive and not isLB then
+            st.ticksLeft = math.max(st.ticksLeft, e.ticks or 0)
+        else
+            st.ticksLeft = e.ticks or 0
+        end
+        st.nextTick = t + st.tickPeriod
+        st.expires = t + (e.duration or (st.ticksLeft * st.tickPeriod))
+        ScheduleHot(ti, fi, st)
+    end
+
+    local function DirectAmount(e)
+        local d = e.direct or 0
+        if d <= 0 then return 0 end
+        if critMode == "ev" then return d * (1 + 0.5 * (e.directCrit or crit)) end
+        return d
+    end
+
+    -- One cast landing. Instants land the moment they are cast; everything else
+    -- lands when its cast bar finishes.
+    local function LandCast(spellID, ti)
+        local e = kit and kit[form] and kit[form][spellID]
+        if not e then return end
+        -- no target (a self-buff, a shapeshift, a recorded cast whose target
+        -- the log did not carry) and no corpse: the mana is still spent.
+        if not ti or ti < 1 or ti > nT or S.dead[ti] then return end
+        if e.type == "direct" then
+            Land(ti, DirectAmount(e), e.family)
+        elseif e.type == "hybrid" then
+            Land(ti, DirectAmount(e), e.family)
+            ApplyHot(ti, HOT_INDEX.Regrowth, e, spellID)
+        elseif e.type == "hot" then
+            ApplyHot(ti, HOT_INDEX.Rejuvenation, e, spellID)
+        elseif e.type == "lifebloom" then
+            ApplyHot(ti, HOT_INDEX.Lifebloom, e, spellID)
+        elseif e.type == "instant" then
+            -- Swiftmend eats Regrowth first, else Rejuvenation.
+            local row = S.hots[ti]
+            local rg = row and row[HOT_INDEX.Regrowth]
+            local rj = row and row[HOT_INDEX.Rejuvenation]
+            if rg and rg.active and e.swiftmendRegrowth then
+                Land(ti, e.swiftmendRegrowth, e.family)
+                rg.active = false
+            elseif rj and rj.active and e.swiftmendRejuv then
+                Land(ti, e.swiftmendRejuv, e.family)
+                rj.active = false
+            end
+        end
+    end
+
+    ----------------------------------------------------------------------------
+    -- Casting. Mana leaves and the 5SR restarts when the cast succeeds.
+    ----------------------------------------------------------------------------
+    local function Succeed(spellID, ti, cost)
+        local e = kit and kit[form] and kit[form][spellID]
+        if cost == nil then cost = (e and e.cost) or 0 end
+        if cost > 0 then
+            mana = mana - cost
+            if mana < 0 then mana = 0 end
+            manaSpent = manaSpent + cost
+        end
+        fsrUntil = t + FSR
+        casts = casts + 1
+        local fam = (e and e.family) or "other"
+        S.byFamily[fam] = (S.byFamily[fam] or 0) + 1
+        if mana < lowestMana then lowestMana = mana end
+        if not oomAt and pool > 0 and mana <= pool * 0.02 then oomAt = t end
+        LandCast(spellID, ti)
+    end
+
+    ----------------------------------------------------------------------------
+    -- Time. Regen is integrated over the interval, splitting it at the moment
+    -- the five-second rule lapses so a single long gap is still exact.
+    ----------------------------------------------------------------------------
+    local function AdvanceTo(nt)
+        local dt = nt - t
+        if dt <= 0 then t = nt > t and nt or t; return end
+        local gain
+        if fsrUntil > t and fsrUntil < nt then
+            gain = castingRate * (fsrUntil - t) + baseRate * (nt - fsrUntil)
+        elseif fsrUntil > t then
+            gain = castingRate * dt
+        else
+            gain = baseRate * dt
+        end
+        mana = mana + gain + energize * dt
+        if mana > pool then mana = pool end
+        if mana < lowestMana then lowestMana = mana end
+        if not oomAt and pool > 0 and mana <= pool * 0.02 then oomAt = t end
+        if nt > grace then
+            local from = t > grace and t or grace
+            local span = nt - from
+            if span > 0 then
+                for i = 1, nT do
+                    if S.tracked[i] and not S.dead[i] and (S.hp[i] / S.maxHP[i]) < floor then
+                        floorSeconds = floorSeconds + span
+                    end
+                end
+            end
+        end
+        t = nt
+    end
+
+    ----------------------------------------------------------------------------
+    -- Cursors over the recorded arrays. Nothing here is copied.
+    ----------------------------------------------------------------------------
+    local ev = scenario.ev
+    local evN = ev and #ev.t or 0
+    local evi = 1
+    local forms, formN, formI = scenario.forms, scenario.forms and #scenario.forms or 0, 1
+    local rates, rateN, rateI = scenario.rates, scenario.rates and #scenario.rates or 0, 1
+    local script = plan and plan.script or scenario.script
+    local scriptN, scriptI = script and #script or 0, 1
+    local samples, sampleN, sampleI = scenario.sampleT, scenario.sampleT and #scenario.sampleT or 0, 1
+    local deciding = plan and plan.Decide and true or false
+
+    ----------------------------------------------------------------------------
+    -- Initial state
+    ----------------------------------------------------------------------------
+    if init.auras then
+        for _, a in ipairs(init.auras) do
+            local sd = MD.SpellData.spells[a.spellID]
+            local fi = sd and HOT_INDEX[sd.family]
+            local e = kit and kit[form] and kit[form][a.spellID]
+            if fi and e then
+                local st = HotState(S, a.target, fi)
+                st.active, st.spellID = true, a.spellID
+                st.tick, st.tickPeriod = e.tick or 0, e.tickPeriod or 3
+                st.bloom, st.family = e.bloom or 0, e.family
+                st.stacks = a.stacks or 1
+                local remaining = a.remaining or 0
+                st.expires = remaining
+                st.ticksLeft = math.max(1, math.floor(remaining / st.tickPeriod + 0.5))
+                st.nextTick = remaining - (st.ticksLeft - 1) * st.tickPeriod
+                if st.nextTick < 0 then st.nextTick = 0 end
+                ScheduleHot(a.target, fi, st)
+            end
+        end
+    end
+    if deciding then HeapPush(h, 0, E_DECIDE, 0, 0, 0) end
+
+    local function TakeSample()
+        S.manaCurve[#S.manaCurve + 1] = mana
+    end
+
+    ----------------------------------------------------------------------------
+    -- Main loop
+    ----------------------------------------------------------------------------
+    local aborted = false
+    while true do
+        -- The next thing that happens, in the priority order equal timestamps
+        -- resolve by: rates and form first (they must be in effect for the
+        -- event at that instant), then the recorded timeline, then the script,
+        -- then the heap.
+        local nt, src = dur, 0
+        if rates and rateI <= rateN and rates[rateI][1] < nt then nt, src = rates[rateI][1], 1 end
+        if forms and formI <= formN and forms[formI][1] < nt then nt, src = forms[formI][1], 2 end
+        if ev and evi <= evN and ev.t[evi] < nt then nt, src = ev.t[evi], 3 end
+        if script and scriptI <= scriptN and script[scriptI][1] < nt then nt, src = script[scriptI][1], 4 end
+        if h.n > 0 and h.t[1] < nt then nt, src = h.t[1], 5 end
+
+        -- Samples strictly before the next event. A sample that sits exactly ON
+        -- an event's timestamp is therefore taken on a LATER pass, once every
+        -- event at that instant has been applied -- which is what a recorded
+        -- mana sample means: the log's line at a cast's timestamp is the mana
+        -- AFTER the cast paid for itself.
+        while samples and sampleI <= sampleN and samples[sampleI] < nt do
+            AdvanceTo(samples[sampleI])
+            TakeSample()
+            sampleI = sampleI + 1
+        end
+
+        AdvanceTo(nt)
+        if src == 0 then break end
+
+        if src == 1 then
+            baseRate, castingRate = rates[rateI][2], rates[rateI][3]
+            rateI = rateI + 1
+        elseif src == 2 then
+            form = forms[formI][2]
+            formI = formI + 1
+        elseif src == 3 then
+            local k, tg, amt, x = ev.kind[evi], ev.tgt[evi], ev.amt[evi], ev.x[evi]
+            evi = evi + 1
+            if k == SM.K.DMG then
+                Damage(tg, amt)
+            elseif k == SM.K.FHEAL then
+                Land(tg, amt, "foreign")
+            elseif k == SM.K.FORM then
+                form = (amt == 1) and "tree" or "caster"
+            elseif k == SM.K.CD then
+                if amt and amt > 0 then
+                    mana = mana + amt
+                    if mana > pool then mana = pool end
+                end
+            elseif k == SM.K.DIED then
+                if tg and tg >= 1 and tg <= nT and not S.dead[tg] then
+                    S.dead[tg] = true
+                    S.hp[tg] = 0
+                    local d = S.deaths
+                    d.n = d.n + 1
+                    d.tgt[d.n], d.t[d.n] = tg, t
+                end
+            end
+            -- ABSORB, OWNHEAL, OWNTICK, OWNCAST, CASTSTART and CANCEL are read
+            -- by the recorder's own validation, not by the engine: the engine
+            -- generates its own heals and is charged by the script.
+        elseif src == 4 then
+            local c = script[scriptI]
+            scriptI = scriptI + 1
+            Succeed(c[2], c[4] or -1, c[3])
+        elseif src == 5 then
+            local et, prio, a, b, aux = HeapPop(h)
+            if prio == E_TICK then
+                local st = S.hots[a] and S.hots[a][b]
+                if st and st.active and st.gen == aux and st.ticksLeft > 0 and not S.dead[a] then
+                    Land(a, st.tick * st.stacks, st.family or "hot")
+                    tickCount = tickCount + 1
+                    st.ticksLeft = st.ticksLeft - 1
+                    if st.ticksLeft > 0 then
+                        st.nextTick = et + st.tickPeriod
+                        HeapPush(h, st.nextTick, E_TICK, a, b, aux)
+                    end
+                end
+            elseif prio == E_EXPIRE then
+                local st = S.hots[a] and S.hots[a][b]
+                if st and st.active and st.gen == aux then
+                    if b == HOT_INDEX.Lifebloom and st.bloom > 0 and not S.dead[a] then
+                        Land(a, st.bloom, st.family or "Lifebloom")
+                        bloomCount = bloomCount + 1
+                    end
+                    st.active = false
+                end
+            elseif prio == E_LAND then
+                Succeed(a, b, aux)   -- aux carries the committed cast's cost
+            elseif prio == E_DECIDE and deciding then
+                local spellID, ti = plan:Decide(S, t, mana, form)
+                if spellID and lastWasWait and reaction > 0 then
+                    -- Coming out of idle: pay the reaction delay, then ask
+                    -- again. Asking again rather than committing now keeps the
+                    -- plan causal -- it may well have a better answer by then.
+                    lastWasWait = false
+                    HeapPush(h, t + reaction, E_DECIDE, 0, 0, 0)
+                elseif spellID then
+                    local e = kit and kit[form] and kit[form][spellID]
+                    local castTime = (e and e.cast) or GCD
+                    local instant = e == nil or e.type == "hot" or e.type == "lifebloom"
+                        or e.type == "instant"
+                    -- Cast commitment: once started, the cast is locked in and
+                    -- the plan is not asked again until it has landed.
+                    local succeedAt = instant and t or (t + castTime)
+                    if instant then
+                        Succeed(spellID, ti, e and e.cost or nil)
+                    else
+                        HeapPush(h, succeedAt, E_LAND, spellID, ti, e and e.cost or nil)
+                    end
+                    busyUntil = succeedAt > t + GCD and succeedAt or (t + GCD)
+                    HeapPush(h, busyUntil, E_DECIDE, 0, 0, 0)
+                else
+                    -- waiting is a real action; ask again at the next thing
+                    -- that could change the answer, and never later than 0.5s
+                    lastWasWait = true
+                    local nextT = h.n > 0 and h.t[1] or (t + 0.5)
+                    if nextT > t + 0.5 then nextT = t + 0.5 end
+                    if nextT <= t then nextT = t + 0.5 end
+                    waitTime = waitTime + (nextT - t)
+                    if nextT < dur then HeapPush(h, nextT, E_DECIDE, 0, 0, 0) end
+                end
+            end
+        end
+
+        if opts.abortAbove and manaSpent > opts.abortAbove then aborted = true; break end
+    end
+
+    while samples and sampleI <= sampleN do
+        AdvanceTo(samples[sampleI])
+        TakeSample()
+        sampleI = sampleI + 1
+    end
+
+    local r = S.result
+    r.ok = (S.deaths.n == 0) and floorSeconds == 0 and not aborted
+    r.aborted = aborted
+    r.deaths = S.deaths
+    r.floorSeconds = floorSeconds
+    r.manaSpent, r.manaEnd, r.lowestMana, r.oomAt = manaSpent, mana, lowestMana, oomAt
+    r.healed, r.overhealed = healed, overhealed
+    r.casts, r.byFamily = casts, S.byFamily
+    r.ticks, r.blooms = tickCount, bloomCount
+    r.healByFamily, r.ohByFamily = S.healByFamily, S.ohByFamily
+    r.manaCurve = S.manaCurve
+    S.lowest.tgt, S.lowest.hp, S.lowest.t = lowestTgt, lowestHp, lowestHpT
+    r.lowest = S.lowest
+    r.waitFraction = dur > 0 and (waitTime / dur) or 0
+    r.evals = 1
+    r.ms = ((GetTime and GetTime()) or 0) - startClock
+    -- The result and its arrays belong to the pool slot: read them before the
+    -- next Run, or copy what you need. That is the price of the zero-allocation
+    -- rule and it is stated here rather than discovered later.
+    Release(S)
+    return r
+end
+
+--------------------------------------------------------------------------------
+-- Plans
+--------------------------------------------------------------------------------
+
+-- Replay: cast exactly what was cast, when it was cast, at the recorded cost.
+-- rec.casts entries are { t, spellID, cost, tgt }.
+function SM.ReplayPlan(rec)
+    return { script = rec.casts, replay = true }
+end
+
+-- Chain-cast one spell as long as it is affordable. Used by the self-tests to
+-- reproduce the dashboard's "To OOM" column inside the engine.
+function SM.ChainPlan(spellID, target, kit, form)
+    return {
+        -- plan:Decide(S, t, mana, form) -- the colon call passes the plan first
+        Decide = function(_, _, _, mana)
+            local e = kit[form or "caster"][spellID]
+            if not e or mana < e.cost then return nil end
+            return spellID, target
+        end,
+    }
+end
+
+-- Cast a fixed list of { t, spellID, cost, tgt } -- the scripted form, shared
+-- with replay so the self-tests exercise the same code path.
+function SM.ScriptPlan(list)
+    return { script = list }
+end

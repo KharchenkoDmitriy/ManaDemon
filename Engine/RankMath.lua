@@ -74,7 +74,21 @@ end
 -- was still in the strip).
 function RankMath:Context(opts)
     local SD = MD.SpellData
-    local sim = (opts and opts.live) and EMPTY or (MD.sim or EMPTY)
+    -- opts.healer (v0.7.1): the simulator's own stat overrides, applied exactly
+    -- where the Simulate strip's are and nowhere else, so a simulated healer
+    -- and a simulated dashboard row go down one code path. `inTree` is the
+    -- strip's `tree` under the name the scenario uses.
+    local sim
+    if opts and opts.healer then
+        local h = opts.healer
+        sim = { heal = h.heal, crit = h.crit, casting = h.casting, base = h.base,
+                mana = h.mana, tree = h.inTree, moonglow = h.moonglow }
+        if next(sim) == nil then sim = EMPTY end
+    elseif opts and opts.live then
+        sim = EMPTY
+    else
+        sim = MD.sim or EMPTY
+    end
 
     local liveBonus = BonusHealing()
     local statBonus = sim.heal or liveBonus
@@ -192,6 +206,11 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
     local heal, castTime, calc
 
     local castBase, ngCrit
+    -- Lifebloom's two halves, kept for the overheal weighting below. These
+    -- were GLOBALS until v0.7.1 -- harmless by luck (only the lifebloom branch
+    -- reads them, and it always writes them first) but a _G write on a path
+    -- the dashboard runs every 2s.
+    local lbHot, lbBloom
 
     if info.type == "direct" then
         castBase = math.max(s.cast - ctx.naturalist - relicCast, 1.5)
@@ -370,6 +389,112 @@ function RankMath:RowFor(spellID, ctx, variant, explain)
         row.calc = calc
     end
     return row
+end
+
+--------------------------------------------------------------------------------
+-- SpellKit (v0.7.1): every known rank of every family, priced and valued once
+-- per form, in the flat shape the simulator's inner loop reads. The engine must
+-- never call RowFor -- it allocates, reads the live client and would be run
+-- thousands of times inside a search -- so this is the single boundary between
+-- the rank math and the simulation (docs/SPEC-v0.7.md 3.1).
+--
+--   kit.caster[spellID] / kit.tree[spellID] = {
+--     family, rank, type, cost, cast, gcd,
+--     direct, directCrit,                  -- direct / hybrid; NEVER crit-loaded
+--     tick, ticks, tickPeriod, duration,   -- hot / hybrid / lifebloom
+--     bloom,                               -- lifebloom
+--     swiftmendRejuv, swiftmendRegrowth,   -- instant
+--     channelTick, channelTicks, dataMissing }
+--
+-- Crit is stripped from `direct` on purpose: RowFor bakes E[crit] in for a
+-- throughput column, but the engine decides per cast whether to use the
+-- expectation or a seeded roll, and it cannot un-bake a multiplier it did not
+-- apply.
+--------------------------------------------------------------------------------
+local KIT_FORMS = { "caster", "tree" }
+
+-- TBC Swiftmend: consumes Regrowth for 18s of its ticks, else Rejuvenation for
+-- 12s (Rejuvenation's whole duration). Valued off the highest known rank of
+-- each, which is what a healer would actually have out.
+local SWIFTMEND_REJUV_SECONDS, SWIFTMEND_REGROWTH_SECONDS = 12, 18
+
+function RankMath:SpellKit(opts)
+    local SD = MD.SpellData
+    local kit = { caster = {}, tree = {} }
+
+    for _, form in ipairs(KIT_FORMS) do
+        local healer = { inTree = (form == "tree") }
+        if opts and opts.healer then
+            for k, v in pairs(opts.healer) do healer[k] = v end
+            healer.inTree = (form == "tree")
+        end
+        local ctx = RankMath:Context({ live = true, healer = healer })
+        local out = kit[form]
+
+        for family, list in pairs(SD.known) do
+            local info = SD.families[family]
+            for _, id in ipairs(list) do
+                local s = SD.spells[id]
+                local e = { family = family, rank = s.rank, type = info and info.type or "direct",
+                            gcd = 1.5 }
+                local row = RankMath:RowFor(id, ctx, nil, true)
+                local c = row and row.calc
+                if c then
+                    e.cost, e.cast = row.cost, row.cast
+                    if c.kind == "direct" then
+                        e.direct = row.heal / (c.critMult or 1)
+                        e.directCrit = c.crit or 0
+                    elseif c.kind == "hot" then
+                        e.ticks = c.ticks
+                        e.tickPeriod, e.duration = 3, c.duration
+                        e.tick = row.heal / c.ticks
+                    elseif c.kind == "hybrid" then
+                        e.direct = c.direct / (c.critMult or 1)
+                        e.directCrit = c.crit or 0
+                        e.ticks = c.duration / 3
+                        e.tickPeriod, e.duration = 3, c.duration
+                        e.tick = c.hot / e.ticks
+                    elseif c.kind == "lifebloom" then
+                        e.tick = c.tick                 -- per stack, at x1
+                        e.ticks, e.tickPeriod, e.duration = 7, 1, 7
+                        e.bloom = c.bloom
+                    end
+                else
+                    -- Swiftmend and Tranquility have no heal values in
+                    -- Data/SpellData.lua, so RowFor returns nothing for them.
+                    -- Swiftmend is derived below; Tranquility is carried with
+                    -- dataMissing so a planner can see it exists and refuse to
+                    -- use a number nobody has measured.
+                    e.cost = ctx.CostFor(id) or s.cost or 0
+                    e.cast = s.cast or 1.5
+                    if family == "Tranquility" then
+                        e.channelTicks, e.dataMissing = 4, true
+                    end
+                end
+                out[id] = e
+            end
+        end
+
+        -- Swiftmend's value is the HoT it eats, so it is priced after the rest.
+        local rejuvID, regrowthID = SD.maxRank.Rejuvenation, SD.maxRank.Regrowth
+        local rejuv, regrowth = rejuvID and out[rejuvID], regrowthID and out[regrowthID]
+        local smID = SD.maxRank.Swiftmend
+        local sm = smID and out[smID]
+        if sm then
+            if rejuv and rejuv.tick then
+                sm.swiftmendRejuv = rejuv.tick * math.min(rejuv.ticks,
+                    SWIFTMEND_REJUV_SECONDS / rejuv.tickPeriod)
+            end
+            if regrowth and regrowth.tick then
+                sm.swiftmendRegrowth = regrowth.tick * math.min(regrowth.ticks,
+                    SWIFTMEND_REGROWTH_SECONDS / regrowth.tickPeriod)
+            end
+            sm.cast = 1.5
+        end
+    end
+
+    kit.crit = RankMath:Context({ live = true, healer = opts and opts.healer }).crit
+    return kit
 end
 
 -- One row plus its full breakdown, for the dashboard tooltip. Rebuilt from a

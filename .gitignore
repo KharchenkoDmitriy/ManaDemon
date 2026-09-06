@@ -1,3 +1,4 @@
 dist/
 .claude/worktrees/
-.logs
+.logs/
+tools/.lua/

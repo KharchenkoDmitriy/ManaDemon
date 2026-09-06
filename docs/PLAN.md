@@ -94,8 +94,10 @@ one commit with its "verifiable by" line in the spec §0.
 - [x] **v0.7.0** HP-at-cast + cost + form on every own cast; 20 s pre-pull ring; plan-free
   labels; summaries to 200 rows; the one-line "N of M casts on targets above 85%" summary.
   *(shipped; in-game check is TESTING §15)*
-- [ ] **v0.7.1** `RankMath:SpellKit`; `Engine/SimModel.lua`; `/md simrun` self-tests;
-  `/md simreplay fixture` against `Data/SimFixture_BF1.lua` (already generated).
+- [x] **v0.7.1** `RankMath:SpellKit`; `Engine/SimModel.lua`; `/md simrun` self-tests;
+  `/md simreplay fixture` against `Data/SimFixture_BF1.lua`. *(shipped; ten self-tests and the
+  fixture gate pass offline via `tools/run.sh tools/simcheck.lua`. The fixture exposed ~23
+  mana/s of unreported energize — TESTING §16.)*
 - [ ] **v0.7.2** `Engine/FightRecorder.lua`; `/md export` recording section.
 - [ ] **v0.7.3** HP half of replay; the six gates; Validate.
 - [ ] **v0.7.4** `Engine/SimPlanner.lua` rules + classifier; card; loop closure.
