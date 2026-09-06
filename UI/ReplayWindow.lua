@@ -15,15 +15,40 @@
 local _, MD = ...
 local UI = MD.UI
 
-local COL_W, FRAME_H, FRAME_GAP = 360, 38, 6
+local COL_W = 300              -- the healer strip's width; a column is at least this wide
 local GUTTER = 14
 local HEADER_H, STRIP_H, SCRUB_H = 26, 92, 78
-local NAME_X, BAR_X, PCT_W = 58, 142, 44
 local DT_STEP_MAX = 0.25       -- never advance more than this per frame at 1x (a hitch is not a skip)
-local FLASH_CAST, FLASH_TEXT, FLASH_FOREIGN, PULSE_DMG = 0.8, 2.0, 0.4, 0.4
+local FLASH_CAST, FLASH_TEXT, FLASH_FOREIGN, PULSE_DMG = 0.8, 0.8, 0.4, 0.4
+local ICON_HOLD = 1.0          -- the landed cast's icon stays on the target this long
 local GCD = 1.5                -- an instant still locks the healer for this long
 local SPEEDS = { 0.25, 0.5, 1, 2, 4 }
 local TICK_FADE = 5            -- the recorder's snapshot cadence
+
+-- The author's Cell layout ("default"), copied from their SavedVariables on
+-- 2026-09-06 -- NOT read from Cell at runtime, by their request. The frames
+-- here are shaped to it so a replay reads like the raid frames the healer
+-- actually plays on: same button, same icon slots, same colours. When the
+-- Cell layout changes, change this table.
+local CELL = {
+    size = { 66, 46 }, spacingX = 3, spacingY = 3, unitsPerColumn = 5, powerSize = 2,
+    lossFactor = 0.2,                                   -- lossColor = class_color_dark (class * 0.2)
+    lossFlash = { 0.667, 0, 0 },                        -- the custom loss red, used for the damage pulse
+    nameWidth = 0.75,                                   -- nameText textWidth 75% of the bar
+    roleIcon = { "TOPLEFT", 0, 0, 11 },
+    statusIcon = { "TOP", 0, -3, 18 },                  -- Cell's statusIcon slot: our cast-target icon
+    hots = { "TOPRIGHT", 0, 3, 13, -1 },                -- indicator1 "Healers": 13px, right-to-left
+    defensives = { "LEFT", -2, 5, 12, 20, 1, 2 },       -- 12x20, left-to-right, 2
+    debuffs = { "BOTTOMLEFT", 1, 4, 13, 1, 3 },         -- 13px, left-to-right, 3
+    healthText = { "BOTTOMRIGHT", 0, 0 },               -- deficit_short
+    statusText = { "BOTTOM", 0, 0 },                    -- 11px with background: cast name, label, dead
+}
+-- Blizzard's role atlas, the coordinates Cell's roleIcon uses
+local ROLE_TEX = "Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES"
+local ROLE_COORD = {
+    TANK = { 0, 19 / 64, 22 / 64, 41 / 64 }, HEALER = { 20 / 64, 39 / 64, 1 / 64, 20 / 64 },
+    DAMAGER = { 20 / 64, 39 / 64, 22 / 64, 41 / 64 },
+}
 
 -- Family colours, one table (spec 3.2). Utility and shifts are grey.
 local FAMILY_COLOR = {
@@ -32,18 +57,14 @@ local FAMILY_COLOR = {
     other = { 0.6, 0.6, 0.6 },
 }
 -- Label colours (spec 4.2): what the classifier said about each recorded cast,
--- shown under the cast text as it lands and on the scrubber's cast ticks.
+-- shown in the status slot as the cast lands and on the scrubber's cast ticks.
 local LABEL_COLOR = {
     late = { 1, 0.3, 0.3 }, overheal = { 1, 0.6, 0.2 }, early = { 1, 0.9, 0.3 }, stack = { 1, 0.9, 0.3 },
     spell = { 0.8, 0.8, 0.8 }, rank = { 0.8, 0.8, 0.8 }, fine = { 0.5, 0.5, 0.5 },
     unclassified = { 0.5, 0.5, 0.5 },
 }
 local LABEL_FLASH = 1.5
-local HOT_SQ, HOT_GAP = 14, 2  -- the three HoT icons under the role letter
 local SWIFTMEND = 18562
-local ICON_DEBUFF, ICON_DEF, MAX_DEBUFF_ICONS = 14, 16, 3
-local ROLE_LETTER = { TANK = "T", HEALER = "H", DAMAGER = "D" }
-local ROLE_ORDER = { TANK = 1, HEALER = 2, DAMAGER = 3 }
 
 local frame, scrubber, playBtn, timeFS, headerFS, speedHighlight, speedButtons
 local left, right          -- the two columns: { state, frames = {}, strip = {}, title }
@@ -110,32 +131,79 @@ local function CreateBar(parent, width, height)
 end
 
 local function CreateUnitFrame(parent, x, y)
+    local W, H = CELL.size[1], CELL.size[2]
     local f = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    f:SetSize(COL_W, FRAME_H)
+    f:SetSize(W, H)
     f:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
-    UI.StylizeFrame(f, { 0.1, 0.1, 0.1, 1 }, { 0, 0, 0, 1 })
+    UI.StylizeFrame(f, { 0, 0, 0, 1 }, { 0, 0, 0, 1 })
 
-    f.role = f:CreateFontString(nil, "OVERLAY", UI.FONT)
-    f.role:SetPoint("TOPLEFT", f, "TOPLEFT", 6, -3)
-    f.role:SetWidth(12)
-    f.role:SetJustifyH("LEFT")
-    f.role:SetTextColor(0.7, 0.7, 0.7)
+    -- the health bar fills the button inside its 1px border, above the power strip
+    f.bar = CreateBar(f, W - 2, H - 2 - CELL.powerSize)
+    f.bar:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
+    f.power = CreateBar(f, W - 2, CELL.powerSize)
+    f.power:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 1)
+    f.power:SetStatusBarColor(0, 0.5, 1)
+    f.power.bg:SetColorTexture(0.15, 0.15, 0.15, 1)
 
-    f.name = f:CreateFontString(nil, "OVERLAY", UI.FONT)
-    f.name:SetPoint("LEFT", f, "LEFT", NAME_X, 0)
-    f.name:SetWidth(BAR_X - NAME_X - 4)
-    f.name:SetJustifyH("LEFT")
+    -- the damage pulse: the loss red washed over the bar, fading
+    f.pulse = f.bar:CreateTexture(nil, "ARTWORK", nil, 1)
+    f.pulse:SetAllPoints(f.bar)
+    f.pulse:SetColorTexture(CELL.lossFlash[1], CELL.lossFlash[2], CELL.lossFlash[3], 0)
+
+    -- the snapshot tick (left column only): the truth over the reconstruction
+    f.tick = f.bar:CreateTexture(nil, "OVERLAY")
+    f.tick:SetSize(2, H - 2 - CELL.powerSize)
+    f.tick:SetColorTexture(1, 1, 1, 0)
+    f.tick:SetPoint("LEFT", f.bar, "LEFT", 0, 0)
+
+    -- nameText: centred on the bar, class colour, 75% of the bar's width
+    f.name = f.bar:CreateFontString(nil, "OVERLAY", UI.FONT)
+    f.name:SetPoint("CENTER", f.bar, "CENTER", 0, 0)
+    f.name:SetWidth((W - 2) * CELL.nameWidth)
+    f.name:SetJustifyH("CENTER")
     f.name:SetWordWrap(false)
 
-    -- One icon builder for HoTs, defensives and debuffs: the spell's texture,
-    -- a Cell-style VERTICAL sweep (the elapsed share of the icon dimmed from
-    -- the top down, a 1px spark at the edge -- Cell/Indicators/Base.lua's
-    -- VerticalCooldown, done with an overlay rather than a mask because the
-    -- window paints every frame anyway), a stack count bottom-right, and a
-    -- lettered fallback when no texture resolves.
-    local function Icon(size)
+    -- healthText: deficit_short, bottom-right of the bar
+    local ht = CELL.healthText
+    f.pct = f.bar:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    f.pct:SetPoint(ht[1], f.bar, ht[1], ht[2], ht[3])
+    f.pct:SetJustifyH("RIGHT")
+
+    -- roleIcon, top-left
+    local ri = CELL.roleIcon
+    f.role = f:CreateTexture(nil, "OVERLAY")
+    f.role:SetSize(ri[4], ri[4])
+    f.role:SetPoint(ri[1], f, ri[1], ri[2], ri[3])
+    pcall(f.role.SetTexture, f.role, ROLE_TEX)
+
+    -- statusText: the bottom strip with a background -- the landed cast's
+    -- name, then the classifier's label, or DEAD
+    local stt = CELL.statusText
+    f.statusBG = f:CreateTexture(nil, "OVERLAY", nil, 3)
+    f.statusBG:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 1 + CELL.powerSize)
+    f.statusBG:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1 + CELL.powerSize)
+    f.statusBG:SetHeight(12)
+    f.statusBG:SetColorTexture(0, 0, 0, 0.6)
+    f.statusBG:Hide()
+    f.cast = f:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    f.cast:SetPoint(stt[1], f, stt[1], stt[2], stt[3] + CELL.powerSize + 1)
+    f.cast:SetJustifyH("CENTER")
+    f.cast:SetText("")
+    f.label = f:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    f.label:SetPoint(stt[1], f, stt[1], stt[2], stt[3] + CELL.powerSize + 1)
+    f.label:SetJustifyH("CENTER")
+    f.label:SetText("")
+
+    -- One icon builder for HoTs, defensives, debuffs and the cast-target icon:
+    -- the spell's texture, a Cell-style VERTICAL sweep (the elapsed share of
+    -- the icon dimmed from the top down, a 1px spark at the edge --
+    -- Cell/Indicators/Base.lua's VerticalCooldown, done with an overlay rather
+    -- than a mask because the window paints every frame anyway), a stack count
+    -- bottom-right, and a lettered fallback when no texture resolves.
+    local function Icon(w, h)
+        h = h or w
         local ic = CreateFrame("Frame", nil, f, "BackdropTemplate")
-        ic:SetSize(size, size)
+        ic:SetSize(w, h)
         UI.StylizeFrame(ic, { 0.15, 0.15, 0.15, 1 }, { 0, 0, 0, 1 })
         ic.tex = ic:CreateTexture(nil, "ARTWORK")
         ic.tex:SetPoint("TOPLEFT", ic, "TOPLEFT", 1, -1)
@@ -163,72 +231,52 @@ local function CreateUnitFrame(parent, x, y)
             if MD.Tip and self.tip then MD.Tip:Show(self, "ANCHOR_RIGHT", self.tip) end
         end)
         ic:SetScript("OnLeave", function() if MD.Tip then MD.Tip:Hide() end end)
-        ic.size = size
+        ic.size = h
         ic:Hide()
         return ic
     end
     f.Icon = Icon
 
-    -- HoT icons (Rejuvenation, Regrowth, Lifebloom in SM.HOT_INDEX order)
-    -- and the Swiftmend-ready dot after them
+    -- indicator1 "Healers": the HoT icons top-right, growing to the left
+    local ho = CELL.hots
     f.hots = {}
     for fi = 1, 3 do
-        local ic = Icon(HOT_SQ)
-        ic:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 6 + (fi - 1) * (HOT_SQ + HOT_GAP), 3)
+        local ic = Icon(ho[4])
+        ic:SetPoint(ho[1], f, ho[1], ho[2] + ho[5] * (fi - 1) * ho[4], ho[3])
         f.hots[fi] = ic
     end
+    -- the Swiftmend-ready dot, under them at the right edge
     f.dot = f:CreateTexture(nil, "OVERLAY")
     f.dot:SetSize(5, 5)
-    f.dot:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 6 + 3 * (HOT_SQ + HOT_GAP), 5)
+    f.dot:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -(ho[4] + 4))
     f.dot:SetColorTexture(1, 0.6, 0.2, 1)
     f.dot:Hide()
 
-    -- v0.8.3: a defensive cooldown as one icon with the accent border, up
-    -- front; up to three debuffs over the bar's right end, with their stacks.
-    -- Recorded and drawn, never modelled -- the damage they changed was
-    -- recorded as changed.
-    f.defIcon = Icon(ICON_DEF)
-    f.defIcon:SetPoint("TOPLEFT", f, "TOPLEFT", 24, -3)
+    -- the cast-target icon in Cell's statusIcon slot: the spell in flight to
+    -- this unit (border in the family colour meanwhile), held a moment after
+    -- it lands. Cell has no such thing; this is the one addition.
+    local si = CELL.statusIcon
+    f.castIcon = Icon(si[4])
+    f.castIcon:SetPoint(si[1], f, si[1], si[2], si[3])
+    f.castIcon:EnableMouse(false)
+
+    -- defensiveCooldowns on the left edge, debuffs bottom-left (v0.8.3):
+    -- recorded and drawn, never modelled -- the damage they changed was
+    -- recorded as changed
+    local de = CELL.defensives
+    f.defIcon = Icon(de[4], de[5])
+    f.defIcon:SetPoint(de[1], f, de[1], de[2], de[3])
     f.defIcon:SetBackdropBorderColor(UI.accent[1], UI.accent[2], UI.accent[3], 1)
+    local db = CELL.debuffs
     f.debuffs = {}
-    for i = 1, MAX_DEBUFF_ICONS do
-        local ic = Icon(ICON_DEBUFF)
-        ic:SetPoint("RIGHT", f.bar, "RIGHT", -(i - 1) * (ICON_DEBUFF + 1) - 1, 0)
+    for i = 1, db[6] do
+        local ic = Icon(db[4])
+        ic:SetPoint(db[1], f, db[1], db[2] + db[5] * (i - 1) * db[4], db[3])
         f.debuffs[i] = ic
     end
     f.auraBuf = {}
 
-    f.bar = CreateBar(f, COL_W - BAR_X - PCT_W - 6, FRAME_H - 8)
-    f.bar:SetPoint("LEFT", f, "LEFT", BAR_X, 0)
-
-    -- the damage pulse: a red wash over the bar's empty part
-    f.pulse = f.bar:CreateTexture(nil, "ARTWORK")
-    f.pulse:SetAllPoints(f.bar)
-    f.pulse:SetColorTexture(0.9, 0.15, 0.1, 0)
-
-    -- the snapshot tick (left column only): the truth over the reconstruction
-    f.tick = f.bar:CreateTexture(nil, "OVERLAY")
-    f.tick:SetSize(2, FRAME_H - 8)
-    f.tick:SetColorTexture(1, 1, 1, 0)
-    f.tick:SetPoint("LEFT", f.bar, "LEFT", 0, 0)
-
-    f.pct = f:CreateFontString(nil, "OVERLAY", UI.FONT)
-    f.pct:SetPoint("RIGHT", f, "RIGHT", -6, 0)
-    f.pct:SetWidth(PCT_W - 6)
-    f.pct:SetJustifyH("RIGHT")
-
-    -- the cast text INSIDE the bar (Cell draws its text over the bar too), and
-    -- the classifier's label under it, right-aligned (left column only)
-    f.cast = f.bar:CreateFontString(nil, "OVERLAY", UI.FONT)
-    f.cast:SetPoint("TOPLEFT", f.bar, "TOPLEFT", 4, -2)
-    f.cast:SetJustifyH("LEFT")
-    f.cast:SetText("")
-    f.label = f.bar:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-    f.label:SetPoint("BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", -4, 2)
-    f.label:SetJustifyH("RIGHT")
-    f.label:SetText("")
-
-    f.flashUntil, f.textUntil, f.labelUntil, f.pulseUntil, f.tickAt = 0, 0, 0, 0, nil
+    f.flashUntil, f.textUntil, f.labelFrom, f.labelUntil, f.pulseUntil, f.iconUntil = 0, 0, 0, 0, 0, 0
     return f
 end
 
@@ -301,17 +349,19 @@ local function MakeOnEvent(col)
                 local c = FAMILY_COLOR[family] or FAMILY_COLOR.other
                 f:SetBackdropBorderColor(c[1], c[2], c[3], 1)
                 f.flashUntil = now + FLASH_CAST
+                f.iconSpell, f.iconUntil = a, now + ICON_HOLD
                 f.cast:SetText(label)
                 f.cast:SetTextColor(c[1], c[2], c[3])
                 f.textUntil = now + FLASH_TEXT
-                -- the classifier's word for this cast (left column, plan present)
+                -- the classifier's word for this cast (left column, plan present),
+                -- in the same slot once the name has had its moment
                 local lc = col.state and col.state.lastCast
                 local cl = col.isLeft and rp.casts and lc and rp.casts[lc.n]
                 if cl and cl.label and cl.label ~= "utility" and cl.label ~= "shift" then
                     local lcol = LABEL_COLOR[cl.label] or LABEL_COLOR.unclassified
                     f.label:SetText(cl.label)
                     f.label:SetTextColor(lcol[1], lcol[2], lcol[3])
-                    f.labelUntil = now + LABEL_FLASH
+                    f.labelFrom, f.labelUntil = now + FLASH_TEXT, now + FLASH_TEXT + LABEL_FLASH
                 end
             end
             local tgtName = rp.rec.roster[tgt] and rp.rec.roster[tgt].name
@@ -406,29 +456,59 @@ local function PaintIcon(ic, a, t, isDef)
     ic:Show()
 end
 
+local function Deficit(hp, maxHP)
+    local d = (1 - (hp or 0)) * (maxHP or 0)
+    if d < 1 then return "" end
+    if d >= 1000 then return string.format("-%.1fk", d / 1000) end
+    return string.format("-%d", d + 0.5)
+end
+
 local function PaintFrame(f, st, ti, isLeft, now)
     local hp = st:Hp(ti)
     local dead = st:Dead(ti)
+    local c = f.classColor
+    local maxHP = rp.scenario.targets[ti] and rp.scenario.targets[ti].maxHP or 0
     if dead then
         f.bar:SetValue(0)
         f.pct:SetText("dead")
-        f.pct:SetTextColor(0.5, 0.5, 0.5)
+        f.pct:SetTextColor(1, 0.19, 0.19)
         f.name:SetTextColor(0.5, 0.5, 0.5)
     else
         f.bar:SetValue(hp or 0)
-        f.pct:SetText(string.format("%d%%", (hp or 0) * 100 + 0.5))
+        f.pct:SetText(Deficit(hp, maxHP))
         f.pct:SetTextColor(1, 1, 1)
-        local c = f.classColor
         f.name:SetTextColor(c[1], c[2], c[3])
     end
+    if f.isHealer then f.power:SetValue((st:Mana() or 0) / (rp.scenario.pool or 1)) end
 
-    if f.flashUntil > now then
-        -- keep the colour set by the event
+    -- the cast in flight to this unit: family border + the spell in the
+    -- statusIcon slot; after it lands the icon is held a moment
+    local casting = st:Casting()
+    local inFlight = casting and casting.target == ti and casting.castTime and casting.castTime > 0
+    if inFlight then
+        local _, family = SpellLabel(casting.spellID)
+        local fc = FAMILY_COLOR[family] or FAMILY_COLOR.other
+        f:SetBackdropBorderColor(fc[1], fc[2], fc[3], 1)
+        SetIcon(f.castIcon, casting.spellID, family)
+        Sweep(f.castIcon, casting.startedAt, casting.startedAt + casting.castTime, st.t)
+        f.castIcon:Show()
+    elseif f.iconUntil > now and f.iconSpell then
+        SetIcon(f.castIcon, f.iconSpell, "?")
+        f.castIcon.dim:Hide(); f.castIcon.spark:Hide()
+        f.castIcon:Show()
+        if f.flashUntil <= now then f:SetBackdropBorderColor(0, 0, 0, 1) end
     else
-        f:SetBackdropBorderColor(0, 0, 0, 1)
+        f.castIcon:Hide()
+        if f.flashUntil <= now then f:SetBackdropBorderColor(0, 0, 0, 1) end
     end
+
+    -- the status slot: the landed cast's name, then its label; DEAD wins
     if f.textUntil <= now and f.cast:GetText() ~= "" then f.cast:SetText("") end
+    local showLabel = f.labelFrom <= now and now < f.labelUntil and f.label:GetText() ~= ""
     if f.labelUntil <= now and f.label:GetText() ~= "" then f.label:SetText("") end
+    Shown(f.label, showLabel and not dead)
+    Shown(f.cast, f.cast:GetText() ~= "" and not showLabel and not dead)
+    Shown(f.statusBG, dead or showLabel or (f.cast:GetText() ~= ""))
 
     -- HoT icons with the vertical sweep of their remaining time; Lifebloom
     -- shows its stacks and its border turns white in the last second (the
@@ -458,25 +538,26 @@ local function PaintFrame(f, st, ti, isLeft, now)
     end
     Shown(f.dot, eatable and st:Ready(SWIFTMEND))
 
-    -- auras: the first defensive up front, the first three debuffs on the bar
+    -- auras: the defensive on the left edge, the debuffs bottom-left
     local auras = st:Auras(ti, f.auraBuf)
     local defShown, nDeb = false, 0
     for _, a in ipairs(auras) do
         if a.buff and not defShown then
             PaintIcon(f.defIcon, a, st.t, true)
             defShown = true
-        elseif not a.buff and nDeb < MAX_DEBUFF_ICONS then
+        elseif not a.buff and nDeb < #f.debuffs then
             nDeb = nDeb + 1
             PaintIcon(f.debuffs[nDeb], a, st.t, false)
         end
     end
     if not defShown then f.defIcon:Hide() end
-    for i = nDeb + 1, MAX_DEBUFF_ICONS do f.debuffs[i]:Hide() end
+    for i = nDeb + 1, #f.debuffs do f.debuffs[i]:Hide() end
+
     if f.pulseUntil > now then
         local left = (f.pulseUntil - now) / PULSE_DMG
-        f.pulse:SetColorTexture(0.9, 0.15, 0.1, (f.pulseAlpha or 0.4) * left)
+        f.pulse:SetColorTexture(CELL.lossFlash[1], CELL.lossFlash[2], CELL.lossFlash[3], (f.pulseAlpha or 0.4) * left)
     else
-        f.pulse:SetColorTexture(0.9, 0.15, 0.1, 0)
+        f.pulse:SetColorTexture(CELL.lossFlash[1], CELL.lossFlash[2], CELL.lossFlash[3], 0)
     end
 
     -- the snapshot tick: the latest recorded HP at or before t, fading until
@@ -585,7 +666,7 @@ local function SeekTo(t)
         for _, col in ipairs({ left, right }) do
             local f = col and col.frames[ti]
             if f then
-                f.flashUntil, f.textUntil, f.labelUntil, f.pulseUntil, f.tickIdx = 0, 0, 0, 0, nil
+                f.flashUntil, f.textUntil, f.labelFrom, f.labelUntil, f.pulseUntil, f.iconUntil, f.tickIdx = 0, 0, 0, 0, 0, 0, nil
                 f.cast:SetText(""); f.label:SetText("")
             end
         end
@@ -761,21 +842,31 @@ end
 -- Opening a fight
 --------------------------------------------------------------------------------
 local function Layout()
-    -- rows: tanks, healers, the rest, roster order within each
+    -- roster order, as the author's layout has sortByRole off; columns of
+    -- unitsPerColumn, a raid's subgroup and main tanks filling the next ones
     rows = {}
     for _, ti in ipairs(rp.rec.tracked or {}) do rows[#rows + 1] = ti end
+    table.sort(rows)
     local roster = rp.rec.roster
-    table.sort(rows, function(a, b)
-        local ra, rb = ROLE_ORDER[roster[a] and roster[a].role] or 4, ROLE_ORDER[roster[b] and roster[b].role] or 4
-        if ra ~= rb then return ra < rb end
-        return a < b
-    end)
+    local healerIdx = nil
+    for i, r in ipairs(roster) do if r.name == MD.player.name then healerIdx = i end end
 
+    local W, H = CELL.size[1], CELL.size[2]
+    local perCol = CELL.unitsPerColumn
+    local nCols = math.max(1, math.ceil(#rows / perCol))
+    local gridW = nCols * W + (nCols - 1) * CELL.spacingX
+    local gridH = math.min(#rows, perCol) * H + (math.min(#rows, perCol) - 1) * CELL.spacingY
+    local pitch = math.max(COL_W, gridW)          -- a column is the strip or the grid, whichever is wider
     local hasRight = rp.right ~= nil
-    local width = hasRight and (2 * COL_W + 3 * GUTTER) or (COL_W + 2 * GUTTER)
-    local height = HEADER_H + STRIP_H + #rows * (FRAME_H + FRAME_GAP) + SCRUB_H + 8
+    local width = hasRight and (2 * pitch + 3 * GUTTER) or (pitch + 2 * GUTTER)
+    local height = HEADER_H + STRIP_H + gridH + SCRUB_H + 12
     frame:SetSize(width, height)
     frame.hint:SetWidth(width - 2 * GUTTER)
+    right.x = 2 * GUTTER + pitch
+    right.title:ClearAllPoints()
+    right.title:SetPoint("TOPLEFT", frame, "TOPLEFT", right.x, -(HEADER_H + 6))
+    right.strip.mana:ClearAllPoints()
+    right.strip.mana:SetPoint("TOPLEFT", frame, "TOPLEFT", right.x, -(HEADER_H + 30))
     Shown(right.title, hasRight)
     for _, k in ipairs({ "mana", "cast", "form", "wait", "score" }) do Shown(right.strip[k], hasRight) end
     scrubber:SetWidth(width - 2 * GUTTER)
@@ -785,27 +876,32 @@ local function Layout()
     end
     local y0 = -(HEADER_H + STRIP_H + 4)
     for n, ti in ipairs(rows) do
-        local y = y0 - (n - 1) * (FRAME_H + FRAME_GAP)
+        local cI, rI = math.floor((n - 1) / perCol), (n - 1) % perCol
+        local dx, y = cI * (W + CELL.spacingX), y0 - rI * (H + CELL.spacingY)
         for ci, col in ipairs({ left, right }) do
             if ci == 1 or hasRight then
                 local f = col.frames[ti]
                 if not f then
-                    f = CreateUnitFrame(frame, col.x, y)
+                    f = CreateUnitFrame(frame, col.x + dx, y)
                     col.frames[ti] = f
                 else
                     f:ClearAllPoints()
-                    f:SetPoint("TOPLEFT", frame, "TOPLEFT", col.x, y)
+                    f:SetPoint("TOPLEFT", frame, "TOPLEFT", col.x + dx, y)
                 end
                 local r = roster[ti] or {}
                 f.classColor = ClassColor(r.class)
-                f.role:SetText(ROLE_LETTER[r.role] or "?")
+                f.isHealer = (ti == healerIdx)
+                local rc = ROLE_COORD[r.role]
+                if rc then f.role:SetTexCoord(rc[1], rc[2], rc[3], rc[4]); f.role:Show() else f.role:Hide() end
                 f.name:SetText(r.name or ("#" .. ti))
                 local c = f.classColor
-                f.bar:SetStatusBarColor(c[1] * 0.85, c[2] * 0.85, c[3] * 0.85)
-                f.flashUntil, f.textUntil, f.labelUntil, f.pulseUntil, f.tickIdx = 0, 0, 0, 0, nil
+                f.bar:SetStatusBarColor(c[1], c[2], c[3])
+                f.bar.bg:SetColorTexture(c[1] * CELL.lossFactor, c[2] * CELL.lossFactor, c[3] * CELL.lossFactor, 1)
+                f.power:SetValue(f.isHealer and 1 or 0)
+                f.flashUntil, f.textUntil, f.labelFrom, f.labelUntil, f.pulseUntil, f.iconUntil, f.tickIdx = 0, 0, 0, 0, 0, 0, nil
                 f.cast:SetText(""); f.label:SetText("")
                 f:SetBackdropBorderColor(0, 0, 0, 1)
-                f.defIcon.spellID = nil
+                f.defIcon.spellID, f.castIcon.spellID = nil, nil
                 for _, ic in ipairs(f.debuffs) do ic.spellID = nil end
                 for _, ic in ipairs(f.hots) do ic.spellID = nil end
                 f:Show()

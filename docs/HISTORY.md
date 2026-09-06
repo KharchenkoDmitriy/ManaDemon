@@ -1284,3 +1284,26 @@ picture without mask textures. One icon builder serves all three kinds; textures
 per spell with the `GetSpellInfo` fallback and a debug line when neither resolves.
 `tools/replayui.lua` now asserts the Rejuvenation icon's overlay partway down the icon while
 it runs (42). Six suites green.
+
+## 2026-09-06 — v0.8.6: the frames are the author's Cell frames
+
+Two more screenshots and the real point: a row per unit cannot hold 25 people twice, and the
+author's raid frames already exist. "Mimic what is in my saved settings; no need to read Cell
+at runtime." So the layout was read once, from `WTF/.../Cell.lua` in the parent checkout,
+into one `CELL` table at the top of `UI/ReplayWindow.lua` with its provenance: 66 × 46
+buttons, vertical, five per column, 3 px spacing, `sortByRole` off; bar in the class colour
+over a loss area at class × 0.2 (Cell's `class_color_dark`), a 2 px power strip; name centred
+at 75% width; health text bottom-right as a short deficit; the 11 px role icon top-left from
+Blizzard's role atlas; the author's `indicator1` "Healers" slot (top-right, 13 px, right to
+left — Rejuvenation, Regrowth, Lifebloom first in its aura list) for the HoT icons;
+`defensiveCooldowns` 12 × 20 on the left edge; `debuffs` bottom-left, 13 px, three; the
+bottom status strip for the landed cast's name, then its label, or `dead`. A raid's tracked
+set fills the next columns; two grids side by side.
+
+**The one addition Cell has no slot for: the cast target.** The spell in flight to a unit is
+drawn in Cell's `statusIcon` slot (top centre, 18 px) with the vertical sweep of its cast time,
+the button's border in the family colour meanwhile, and the icon held a moment after it lands.
+Foreign heals still flash the border white.
+
+`tools/replayui.lua` now asserts roster order, Cell-sized buttons and the cast-target icon
+sweeping on the tank during the Regrowth (43). Six suites green.

@@ -415,7 +415,12 @@ after this update is the usual `/md simrun` (10 tests, all ok) and `/md coach 1`
 recorded fight, because `Plan:Decide` now returns a third value and Coach caches its plan
 for the window — both are invisible if they work and loud if they do not.
 
-## 23. The replay window (v0.8.1) — one recorded pull, 5 min
+## 23. The replay window (v0.8.1; Cell-shaped since v0.8.6) — one recorded pull, 5 min
+The frames are your Cell `default` layout, copied from your saved settings (66 × 46, five per
+column, your icon slots) — if anything sits differently from your raid frames, say what: the
+whole layout is one table at the top of `UI/ReplayWindow.lua`. The one thing Cell has no slot
+for is the **cast target**: the spell in flight appears in the top-centre icon slot with its
+cast-time sweep and the button's border in the family colour; it holds a moment after landing.
 Review tab → select a recorded fight → **Play** (or `/md replay 1`). Two columns if you have
 pressed Coach on that fight, one if not — the header says which and why.
 

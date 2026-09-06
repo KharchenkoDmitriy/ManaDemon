@@ -228,10 +228,20 @@ Drives the `reccheck` scripted pull, then `SP.Replay` on the recording with a ma
 - **Frame order**: tanks, then healers, then the rest, each group in roster order. Raid = the
   tracked set (the player's subgroup plus main tanks — what the recorder kept). The healer is
   a tracked target like anyone else and has a frame.
-- **Frame** (360 × 38 since v0.8.4, Cell-like): role letter `T/H/D/?` from `roster[i].role`;
-  name in class colour (`RAID_CLASS_COLORS[class]`, grey when unknown); HP bar in the class
-  colour over `UI`'s dark panel; percentage right-aligned. **The cast text and its label are
-  drawn inside the bar** — above it they collided with the strip. Dead: bar empty, name grey, `dead` instead of
+- **Frame — the author's Cell button, since v0.8.6.** The row layout could not hold 25 × 2,
+  and the author's raid frames already exist: the window is shaped to the `default` layout in
+  their Cell SavedVariables (copied on 2026-09-06 into one `CELL` table at the top of the
+  file; **not read from Cell at runtime, by the author's request**). 66 × 46 buttons, vertical,
+  5 per column, 3 px spacing, columns for a raid's tracked set; health bar in the class colour
+  with the loss area at class × 0.2 and a 2 px power strip (the healer's mana); name centred at
+  75% width in the class colour; health text bottom-right as a short deficit; role icon
+  top-left 11 px; Cell's `indicator1` "Healers" slot top-right (13 px, right-to-left) for the
+  HoT icons; defensives 12 × 20 on the left edge; debuffs bottom-left 13 px × 3; the status
+  strip at the bottom for the landed cast's name, then its label, or `dead`. **The one thing
+  Cell has no slot for is the cast target**: the spell in flight is drawn in Cell's
+  `statusIcon` slot (top, 18 px) with the vertical sweep of its cast time, the button's border
+  in the family colour meanwhile, and the icon held a moment after it lands. Roster order
+  (`sortByRole` is off in the layout). Dead: bar empty, name grey, `dead` instead of
   the percentage. Untracked roster members are not shown.
 - **Snapshot ticks** (left column only): a 1 px vertical line on the bar at the latest
   recorded snapshot's fraction, drawn in white at 90% and fading to 30% over the 5 s until the

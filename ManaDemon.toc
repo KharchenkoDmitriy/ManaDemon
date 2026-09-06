@@ -2,7 +2,7 @@
 ## Title: ManaDemon
 ## Notes: Mana dynamics, time-to-OOM prediction and healing rank analysis for TBC healers
 ## Author: NeRgY
-## Version: 0.8.5
+## Version: 0.8.6
 ## SavedVariables: ManaDemonDB
 ## OptionalDeps: ElvUI
 

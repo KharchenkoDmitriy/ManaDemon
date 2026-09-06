@@ -36,8 +36,12 @@ local W = MD.Replay._state()
 check("window shown", W.frame and W.frame:IsShown())
 check("five rows", #W.rows == 5, tostring(#W.rows))
 local roster = rec.roster
-check("tank first", roster[W.rows[1]] and roster[W.rows[1]].role == "TANK", roster[W.rows[1]] and roster[W.rows[1]].role)
-check("healer second", roster[W.rows[2]] and roster[W.rows[2]].role == "HEALER", roster[W.rows[2]] and roster[W.rows[2]].role)
+-- the author's Cell layout has sortByRole off: roster order, as on their frames
+local inOrder = true
+for i = 2, #W.rows do if W.rows[i] < W.rows[i - 1] then inOrder = false end end
+check("rows in roster order (Cell: sortByRole off)", inOrder)
+check("buttons are Cell-sized", W.left.frames[W.rows[1]]:GetWidth() == 66 and W.left.frames[W.rows[1]]:GetHeight() == 46,
+    string.format("%dx%d", W.left.frames[W.rows[1]]:GetWidth(), W.left.frames[W.rows[1]]:GetHeight()))
 check("right column built", W.right and W.right.state ~= nil and W.right.title:IsShown())
 check("time text", W.timeFS:GetText():match("^0:00%.0 / 0:%d%d%.%d$") ~= nil, W.timeFS:GetText())
 
@@ -59,8 +63,9 @@ end
 
 -- play through at 1x: one 0.1s frame at a time
 MD.Replay._setPlaying(true)
-local tankRow, lockRow, mageRow = W.rows[1], nil, nil
+local tankRow, lockRow, mageRow = nil, nil, nil
 for _, ti in ipairs(W.rows) do
+    if roster[ti].name == "Destroyka" then tankRow = ti end
     if roster[ti].name == "Abufaisall" then lockRow = ti end
     if roster[ti].name == "Alkandari" then mageRow = ti end
 end
@@ -69,6 +74,7 @@ local sawRegrowth, sawDamage = false, false
 local sawEarly, sawLBStack, sawRejuvDigit, sawDot, sawWhy, sawBand = false, false, false, false, false, false
 local sawDefIcon, sawDebuff2 = false, false
 local sawCastProgress, castProgressDetail = false, ""
+local sawTargetIcon = false
 local sawGcdSweep = false
 local frames = 0
 local HOT_INDEX = SM.HOT_INDEX
@@ -96,6 +102,7 @@ while MD.Replay._state().playing and frames < 2000 do
         sawCastProgress = true; castProgressDetail = string.format("%.2f at %s", v, txt)
     end
     if txt:find("instant") and v > 0 and v < 1 then sawGcdSweep = true end
+    if W.left.frames[tankRow].castIcon:IsShown() and W.left.frames[tankRow].castIcon.dim:IsShown() then sawTargetIcon = true end
     if W.left.frames[tankRow].defIcon:IsShown() then sawDefIcon = true end
     if mageRow and W.left.frames[mageRow].debuffs[1]:IsShown() and W.left.frames[mageRow].debuffs[1].count:GetText() == "2" then sawDebuff2 = true end
     if W.right.strip.band.color and W.right.strip.band.color[4] > 0 then sawBand = true end
@@ -128,6 +135,7 @@ end
 check("scrubber tick coloured by label", labelled >= 1, tostring(labelled))
 -- v0.8.4
 check("cast bar progresses during the Regrowth", sawCastProgress, castProgressDetail)
+check("cast-target icon sweeps on the tank in flight", sawTargetIcon)
 check("instant sweeps the GCD", sawGcdSweep)
 check("last cast name stays after the fight", W.left.strip.castFS:GetText() ~= "", W.left.strip.castFS:GetText())
 check("five speeds incl. 1/4x", #W.speeds == 5 and W.speeds[1].id == 0.25, tostring(#W.speeds))
