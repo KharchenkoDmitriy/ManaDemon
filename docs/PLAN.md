@@ -130,6 +130,14 @@ ticks. Spec: **`docs/SPEC-v0.8.md`**; the three calls are in `docs/DECISIONS.md`
   icons on the frames. *(shipped; every id in `Data/AuraList.lua` is VERIFY until seen in a
   recording — TESTING §25)*
 
+### Phase 1.9 — the loop closes offline
+- [x] **`tools/import.lua`** (2026-09-06): the game's SavedVariables as the addon's database;
+  list / validate / replay / coach / export on real recordings without the game. First run on
+  three solo fights measured the character's own unreported regen at ~31 mp5 (TESTING §16 A).
+- [ ] **Run recording** (v0.9): manual `/md run start|stop` checkpoints (auto-start reserved),
+  every pull of a dungeon plus the gaps, stored separately, a run selector on Review.
+- [ ] **Measured item mp5 into the model** — decision pending (see DECISIONS §v0.7.1 addendum).
+
 ## Phase 2 — other classes (after 1 is green)
 
 Generic parts already work for any mana class: the OOM clock, widget, datatexts,

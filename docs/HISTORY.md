@@ -1372,3 +1372,30 @@ from the anchor; ours do now (placed in `PaintFrame`, cached per slot). "Lifeblo
 deficit and the status strip shared the bottom-right corner; the deficit steps up above the
 strip while it has text. The Swiftmend icon is 9 px at Cell's size (31 px at ×3.5), at the
 right edge under the HoT row, where it clears the name at ×1. `tools/replayui.lua` 50.
+
+## 2026-09-06 — v0.8.12: the loop closes offline, and stream A is yours
+
+`tools/import.lua`: the game's SavedVariables — the only file an addon can write — loaded as
+the addon's own database under the stub, and the same engine the Review tab runs on the real
+recordings without the game: `list` with a validate verdict per fight, `validate N`,
+`replay N` (every own cast with its target and label, each target's lowest health), `coach N
+[force]` (the search pumped through stub frames, the card), `export N` (the `/md export` text
+into `.logs/recordings/`). The author's install path is the default; `--file` / `$MD_SAVEDVARS`
+/ `.logs/ManaDemon.lua` otherwise. The kit is the harness's (the profile is not in the file),
+which the tool says on every run: costs are exact, heals are the model at those stats.
+
+**The first run answered TESTING §16.** Three solo recordings from this afternoon, no party:
+recorded mana runs ahead of the two-rate model by +5.4 / +6.2 / +6.8 mana/s — 27–34 mp5 —
+and the 2 s samples show gains of +49 where the casting tick is 35: a constant ~14 per 2 s
+beside the spirit tick, with nobody there to bless anyone. That is the character's own mp5
+bucket, today's gear. It is why the 87 s fight fails the mana gate (+410 by its end) and would
+pass with it modelled. The ruling holds — it does not enter the model as a constant, because
+it is gear — and `docs/DECISIONS.md` carries the two honest ways in (measure it with the
+regentest histogram per character, or read it off equipped-item tooltips) for the author to
+choose between.
+
+Three small things the run exposed: `%%` printed literally (the tool's own `Say`), the stub
+reporting version 0.7.1 (it reads the `.toc` now), and a card saying *waited 101% of the
+fight* (the last wait's span ran past the end; clamped). And the "ticks" checkbox is anchored
+from the window's right edge with its label's width, so it cannot fall off a one-column
+window a third time; a column is 460 wide.

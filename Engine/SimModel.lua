@@ -697,6 +697,8 @@ function SM:Run(scenario, plan, opts)
                     if nextT > t + 0.5 then nextT = t + 0.5 end
                     if nextT <= t then nextT = t + 0.5 end
                     local span = nextT - t
+                    if t + span > dur then span = dur - t end   -- "101% of the fight" otherwise
+                    if span < 0 then span = 0 end
                     waitTime = waitTime + span
                     waitRun = waitRun + span
                     if waitRun > maxWaitRun then maxWaitRun, maxWaitAt = waitRun, t + span end

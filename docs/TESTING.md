@@ -489,6 +489,13 @@ prevented was recorded as prevented — they *explain* the dips.
 Report: which defensives showed, which did not, and — the design question from the reserved
 list — whether seeing the tank's cooldown up would have changed what you cast.
 
+## 26. Nothing to do in-game: the import tool reads your recordings
+`tools/run.sh tools/import.lua list` finds your SavedVariables (your install path is the
+default), lists every recording with its validate verdict, and `validate N` / `replay N` /
+`coach N force` / `export N` run the same engine on them offline. **Every recording you make
+now reaches the engine without a paste.** The one thing that still needs you: `/reload` (or
+logout) after a fight, because the client writes the file only then.
+
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
 raw numbers. `/md profile` output is welcome with any report. I turn them into

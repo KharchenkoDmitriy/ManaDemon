@@ -23,7 +23,14 @@ function time() return 1757000000 end
 function date(fmt, t) return os.date(fmt, t or 1757000000) end
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function strsplit(sep, s) return s end
-function GetAddOnMetadata() return "0.7.1" end
+function GetAddOnMetadata()
+    local f = io.open((S.root or ".") .. "/ManaDemon.toc", "r")
+    if f then
+        for line in f:lines() do local v = line:match("^## Version: (.+)$"); if v then f:close(); return v end end
+        f:close()
+    end
+    return "0.0.0"
+end
 function GetLocale() return "enUS" end
 
 S.mana, S.manaMax = 7009, 7009

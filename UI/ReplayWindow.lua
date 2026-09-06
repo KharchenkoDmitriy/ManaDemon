@@ -15,7 +15,7 @@
 local _, MD = ...
 local UI = MD.UI
 
-local COL_W = 420              -- the healer strip's width; a column is at least this wide
+local COL_W = 460              -- the healer strip's width; a column is at least this wide
 local GUTTER = 16
 local HEADER_H, STRIP_H, SCRUB_H = 26, 96, 96
 local DT_STEP_MAX = 0.25       -- never advance more than this per frame at 1x (a hitch is not a skip)
@@ -900,7 +900,11 @@ local function Build()
         Paint()
     end, "Snapshot ticks", "The recorder's real HP every 5s, drawn over the",
         "engine's reconstruction on the left bars.")
-    ticksCB:SetPoint("LEFT", timeFS, "RIGHT", 12, 0)
+    -- anchored from the right edge, label included, so it cannot fall off a
+    -- one-column window (it did, twice)
+    local labelW = (ticksCB.label and ticksCB.label.GetStringWidth and ticksCB.label:GetStringWidth()) or 32
+    ticksCB:SetPoint("RIGHT", frame, "RIGHT", -(GUTTER + labelW + 6), 0)
+    ticksCB:SetPoint("BOTTOM", playBtn, "BOTTOM", 0, 4)
     ticksCB:SetChecked(MD.db.replayTicks ~= false)
     frame.ticksCB = ticksCB
 

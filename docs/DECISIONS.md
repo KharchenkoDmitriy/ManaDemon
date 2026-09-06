@@ -532,6 +532,19 @@ names only, and the classes in it had been carried over from a mockup table in
 a size is *what* a source gives, a cadence is *which* source it is. Reading it off a chat
 line beats hand-decomposing a 400 KB log.
 
+**Addendum (2026-09-06, evening): stream A measured on the character alone.** The import tool
+ran the engine on three real *solo* recordings (Hellfire Peninsula, 21 / 58 / 87 s, no party).
+Recorded mana runs ahead of the two-rate model by **+5.4 / +6.2 / +6.8 mana/s (27–34 mp5)**,
+steadily, and the 2 s samples show why: gains of **+49** where the casting tick is 35
+(17.58/s × 2) — a constant ~14 per 2 s beside the spirit tick. Nobody else was there. That is
+the item-mp5 bucket on this character today (BF-1's 17 per 2 s was other gear and possibly a
+blessing on top). It is why the 87 s recording fails the mana gate (+410 by the end, 6.5% of
+the pool) and would pass with it modelled. **Ruling unchanged: it does not enter
+`RM:Unreported()` as a constant.** The value is gear, so the model must *measure* it — the
+regentest histogram's 2 s beat, stored per character with its date and re-taken on a gear
+change — or *read* it (equipped-item tooltip scan for "mana per 5 sec"). Which, is the
+author's call; both are honest, the constant is not.
+
 Consequently `/md simreplay fixture` reports three numbers rather than one pass/fail: `spend`
 (must be exact), `modelled` (the fit `GetManaRegen` alone can produce — mean 6.3%, max 12.1%
 on BF-1) and `measured` (with the fixture's recorded energize — mean 1.3%, max 2.8%, which

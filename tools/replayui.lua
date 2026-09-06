@@ -41,7 +41,7 @@ local inOrder = true
 for i = 2, #W.rows do if W.rows[i] < W.rows[i - 1] then inOrder = false end end
 check("rows in roster order (Cell: sortByRole off)", inOrder)
 -- five people: x1.6 tall, stretched across the column
-check("party buttons stretched to the column", W.left.frames[W.rows[1]]:GetWidth() == 420 and math.abs(W.left.frames[W.rows[1]]:GetHeight() - 46 * 1.6) < 0.01,
+check("party buttons stretched to the column", W.left.frames[W.rows[1]]:GetWidth() == 460 and math.abs(W.left.frames[W.rows[1]]:GetHeight() - 46 * 1.6) < 0.01,
     string.format("%dx%d", W.left.frames[W.rows[1]]:GetWidth(), W.left.frames[W.rows[1]]:GetHeight()))
 check("right column built", W.right and W.right.state ~= nil and W.right.title:IsShown())
 check("time text", W.timeFS:GetText():match("^0:00%.0 / 0:%d%d%.%d$") ~= nil, W.timeFS:GetText())
