@@ -57,6 +57,7 @@ local LIFEBLOOM_MAX_STACKS = 3
 -- Spell cooldowns the engine has to respect. Only the ones a plan can choose;
 -- Innervate and potions are recorded events, not decisions (spec 13).
 local SPELL_CD = { [18562] = 15 }   -- Swiftmend
+SM.SPELL_CD = SPELL_CD              -- read by Engine/ReplayTrace.lua for the Swiftmend-ready dot
 -- Trailing damage per target, kept as a small circular buffer. This is the ONE
 -- derived input a plan is allowed (see the causality note in SimPlanner).
 local DMG_RING = 32

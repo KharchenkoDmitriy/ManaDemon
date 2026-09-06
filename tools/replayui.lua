@@ -64,8 +64,11 @@ for _, ti in ipairs(W.rows) do
     if roster[ti].name == "Abufaisall" then lockRow = ti end
     if roster[ti].name == "Alkandari" then mageRow = ti end
 end
-local sawRegrowth, sawDamage, sawTwoK = false, false, false
+local sawRegrowth, sawDamage = false, false
+-- v0.8.2: indicators and labels seen at some point during the play-through
+local sawEarly, sawLBStack, sawRejuvDigit, sawDot, sawWhy, sawBand = false, false, false, false, false, false
 local frames = 0
+local HOT_INDEX = SM.HOT_INDEX
 while MD.Replay._state().playing and frames < 2000 do
     S.Tick(0.1); frames = frames + 1
     local f = W.left.frames[tankRow]
@@ -73,6 +76,17 @@ while MD.Replay._state().playing and frames < 2000 do
     -- the tank's hit is at t = 0 (initial state, never fires); the mage's is at 6.5s
     local m = mageRow and W.left.frames[mageRow]
     if m and m.pulse.color and m.pulse.color[4] > 0 then sawDamage = true end
+    for _, ti in ipairs(W.rows) do
+        local lf = W.left.frames[ti]
+        if lf.label:GetText() == "early" then sawEarly = true end
+        local lb = lf.hots[HOT_INDEX.Lifebloom]
+        if lb:IsShown() and lb.text:GetText() == "1" then sawLBStack = true end
+        local rj = lf.hots[HOT_INDEX.Rejuvenation]
+        if rj:IsShown() and rj.text:GetText():match("^%d$") then sawRejuvDigit = true end
+        if lf.dot:IsShown() then sawDot = true end
+    end
+    if W.right.strip.why then sawWhy = true end
+    if W.right.strip.band.color and W.right.strip.band.color[4] > 0 then sawBand = true end
 end
 check("played to the end", not MD.Replay._state().playing and W.left.state:AtEnd(), string.format("%d frames", frames))
 check("cast text appeared on the tank", sawRegrowth)
@@ -85,9 +99,31 @@ check("score line painted", W.left.strip.score:GetText():find("spent") ~= nil, W
 local bad = Pipes()
 check("no bare pipe in painted text", #bad == 0, bad[1])
 
+-- v0.8.2
+check("'early' label shown under its cast", sawEarly)
+check("Lifebloom square counts a stack", sawLBStack)
+check("Rejuvenation square shows seconds", sawRejuvDigit)
+check("Swiftmend-ready dot shown", sawDot)
+check("right cast bar carries a why", sawWhy)
+check("wait band drawn while the plan holds", sawBand)
+local enter = W.right.strip.cast:GetScript("OnEnter")
+local okTip = pcall(enter, W.right.strip.cast)
+check("why tooltip does not error", okTip)
+local labelled = 0
+for _, m in ipairs(W.scrubber.markers) do
+    if m:IsShown() and m.color and m.color[1] == 1 and m.color[2] == 0.9 and m.color[3] == 0.3 then labelled = labelled + 1 end
+end
+check("scrubber tick coloured by label", labelled >= 1, tostring(labelled))
+
 -- seek back to the start: effects cleared, bars back
 MD.Replay._seek(0)
 check("seek clears the cast text", W.left.frames[tankRow].cast:GetText() == "")
+local anyLabel = false
+for _, ti in ipairs(W.rows) do if W.left.frames[ti].label:GetText() ~= "" then anyLabel = true end end
+check("seek clears the labels", not anyLabel)
+local anyHot = false
+for _, ti in ipairs(W.rows) do for fi = 1, 3 do if W.left.frames[ti].hots[fi]:IsShown() then anyHot = true end end end
+check("no HoT squares at t=0", not anyHot)
 check("seek resets the clock", W.timeFS:GetText():match("^0:00%.0") ~= nil, W.timeFS:GetText())
 check("warlock alive again at 0", W.left.frames[lockRow].pct:GetText() ~= "dead", W.left.frames[lockRow].pct:GetText())
 

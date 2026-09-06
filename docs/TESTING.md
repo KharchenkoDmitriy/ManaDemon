@@ -436,6 +436,27 @@ pressed Coach on that fight, one if not — the header says which and why.
 Report: the fight number, anything that glided, any tick that sat outside its bar for more
 than one snapshot, and whether the window felt readable at 1× — that is the design question.
 
+## 24. Indicators and labels in the replay (v0.8.2) — a coached pull, 5 min
+Coach a fight, then Play it.
+
+1. **HoT squares** under the role letter: Rejuvenation, Regrowth, Lifebloom, in the family
+   colours. Rejuvenation and Regrowth count down their last 9 seconds as a digit; Lifebloom
+   shows its stacks, brightens per stack, and turns **white in its last second** — the bloom is
+   coming. Watch one Lifebloom roll 1-2-3 and whiten; watch one Rejuvenation reach `0` and go.
+2. **The orange dot** after the squares: Swiftmend is ready *and* has something to eat. It
+   should vanish for 15 s after every Swiftmend you cast.
+3. **Labels** under the cast text on the left, in the card's colours: `late` red, `overheal`
+   orange, `early` / `stack` yellow, `spell` / `rank` grey. The scrubber's cast ticks carry the
+   same colours, so before pressing play you can see where the yellow and red are. Find the one
+   `overheal` you remember and check it lands on that cast.
+4. **The right column's waits**: a grey band over its cast bar and `waiting 1.2s` while the
+   plan holds. **Hover the right cast bar**: it names the rule behind the current cast
+   (`rule 3: keep Lifebloom rolling on the anchor`) or says why it is waiting.
+
+Report: whether a label ever seemed wrong (say which cast and what you would call it — this
+is how the classifier gets corrected), and whether the squares are readable at the frame's
+size.
+
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
 raw numbers. `/md profile` output is welcome with any report. I turn them into

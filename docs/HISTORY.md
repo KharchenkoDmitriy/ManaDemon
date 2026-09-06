@@ -1183,3 +1183,26 @@ that would have been a nil error on the first press of Play in-game.
 
 Six suites green: simcheck 10, reccheck 34, simwindow 8, regencheck 8, replaycheck 27,
 replayui 23. What only the game can answer is TESTING §23 — whether it *reads* at 1×.
+
+## 2026-09-06 — v0.8.2: indicators and labels
+
+The frames now carry what a healer's eye looks for. Three **HoT squares** under the role
+letter — Rejuvenation, Regrowth, Lifebloom in the family colours — counting down their last
+nine seconds as a digit; Lifebloom shows its stacks, brightens per stack, and goes **white in
+its last second**, the bloom's warning. An orange **Swiftmend-ready dot** after them while
+there is something to eat and the cooldown is up (`State:Ready`, from the trace's own casts
+and `SM.SPELL_CD`, now exported). The classifier's **label under each left cast** as it
+lands — `late` red, `overheal` orange, `early` / `stack` yellow — and the scrubber's cast
+ticks in the same colours, so the fight's shape reads before play is pressed. On the right,
+a **grey band** over the cast bar while the plan waits, and **hovering the bar names the
+rule** behind the current cast (`rule 3: keep Lifebloom rolling on the anchor`) or says why
+it is waiting — the `why` column from v0.8.0, rendered for the first time and the smallest
+possible start of the coach-in-replay highlights the author reserved.
+
+`tools/replayui.lua` grew to 33 assertions: during the play-through it sees the `early` label
+on its cast, a Lifebloom square counting `1`, a Rejuvenation digit, the dot, a `why` on the
+right bar, the band while waiting; the tooltip script runs without error; a labelled tick sits
+on the scrubber; a seek clears the labels and no square shows at t = 0.
+
+Six suites green. What only the game can answer is TESTING §24 — and the one question that
+matters there: **did any label look wrong**, because that is how the classifier gets fixed.

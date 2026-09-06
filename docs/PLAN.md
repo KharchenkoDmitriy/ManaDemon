@@ -123,8 +123,9 @@ ticks. Spec: **`docs/SPEC-v0.8.md`**; the three calls are in `docs/DECISIONS.md`
 - [x] **v0.8.1** `UI/ReplayWindow.lua` — frames, healer strip, damage pulses, cast flashes,
   snapshot ticks, scrubber; `/md replay [n]`; Play on the Review row. *(shipped; painted
   offline by `tools/replayui.lua`, the look itself is TESTING §23)*
-- [ ] **v0.8.2** HoT indicators; per-cast labels at the moment of the cast; the right column's
-  waits.
+- [x] **v0.8.2** HoT indicators; per-cast labels at the moment of the cast; the right column's
+  waits. *(shipped; `tools/replayui.lua` sees the squares, the dot, the `early` label and the
+  wait band; the look is TESTING §24)*
 - [ ] **v0.8.3** recorder: defensive cooldowns (whitelist) and debuffs on tracked targets;
   icons on the frames.
 

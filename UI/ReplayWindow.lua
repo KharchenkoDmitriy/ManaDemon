@@ -28,6 +28,16 @@ local FAMILY_COLOR = {
     HealingTouch = { 0.35, 0.60, 1.00 }, Swiftmend = { 1.00, 0.60, 0.20 }, Tranquility = { 0.30, 0.85, 0.85 },
     other = { 0.6, 0.6, 0.6 },
 }
+-- Label colours (spec 4.2): what the classifier said about each recorded cast,
+-- shown under the cast text as it lands and on the scrubber's cast ticks.
+local LABEL_COLOR = {
+    late = { 1, 0.3, 0.3 }, overheal = { 1, 0.6, 0.2 }, early = { 1, 0.9, 0.3 }, stack = { 1, 0.9, 0.3 },
+    spell = { 0.8, 0.8, 0.8 }, rank = { 0.8, 0.8, 0.8 }, fine = { 0.5, 0.5, 0.5 },
+    unclassified = { 0.5, 0.5, 0.5 },
+}
+local LABEL_FLASH = 1.5
+local HOT_SQ, HOT_GAP = 8, 2   -- the three HoT squares under the role letter
+local SWIFTMEND = 18562
 local ROLE_LETTER = { TANK = "T", HEALER = "H", DAMAGER = "D" }
 local ROLE_ORDER = { TANK = 1, HEALER = 2, DAMAGER = 3 }
 
@@ -100,10 +110,30 @@ local function CreateUnitFrame(parent, x, y)
     f.role:SetTextColor(0.7, 0.7, 0.7)
 
     f.name = f:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-    f.name:SetPoint("LEFT", f, "LEFT", 18, 0)
-    f.name:SetWidth(78)
+    f.name:SetPoint("LEFT", f, "LEFT", 42, 0)
+    f.name:SetWidth(56)
     f.name:SetJustifyH("LEFT")
     f.name:SetWordWrap(false)
+
+    -- HoT squares (Rejuvenation, Regrowth, Lifebloom in SM.HOT_INDEX order),
+    -- Cell-indicator style, and the Swiftmend-ready dot after them
+    f.hots = {}
+    for fi = 1, 3 do
+        local sq = CreateFrame("Frame", nil, f, "BackdropTemplate")
+        sq:SetSize(HOT_SQ, HOT_SQ)
+        sq:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 5 + (fi - 1) * (HOT_SQ + HOT_GAP), 3)
+        UI.StylizeFrame(sq, { 0.15, 0.15, 0.15, 1 }, { 0, 0, 0, 1 })
+        sq.text = sq:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+        sq.text:SetPoint("CENTER", sq, "CENTER", 0, 0)
+        sq.text:SetText("")
+        sq:Hide()
+        f.hots[fi] = sq
+    end
+    f.dot = f:CreateTexture(nil, "OVERLAY")
+    f.dot:SetSize(5, 5)
+    f.dot:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 5 + 3 * (HOT_SQ + HOT_GAP), 4)
+    f.dot:SetColorTexture(1, 0.6, 0.2, 1)
+    f.dot:Hide()
 
     f.bar = CreateBar(f, COL_W - 100 - 42, FRAME_H - 10)
     f.bar:SetPoint("LEFT", f, "LEFT", 100, 0)
@@ -124,13 +154,18 @@ local function CreateUnitFrame(parent, x, y)
     f.pct:SetWidth(36)
     f.pct:SetJustifyH("RIGHT")
 
-    -- the cast text, above the bar's right end
+    -- the cast text, above the bar's right end, and the classifier's label
+    -- under it (left column only)
     f.cast = f:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
     f.cast:SetPoint("BOTTOMRIGHT", f.bar, "TOPRIGHT", 0, -1)
     f.cast:SetJustifyH("RIGHT")
     f.cast:SetText("")
+    f.label = f:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    f.label:SetPoint("TOPRIGHT", f.bar, "BOTTOMRIGHT", 0, 1)
+    f.label:SetJustifyH("RIGHT")
+    f.label:SetText("")
 
-    f.flashUntil, f.textUntil, f.pulseUntil, f.tickAt = 0, 0, 0, nil
+    f.flashUntil, f.textUntil, f.labelUntil, f.pulseUntil, f.tickAt = 0, 0, 0, 0, nil
     return f
 end
 
@@ -154,6 +189,17 @@ local function CreateStrip(parent, x, y)
     s.wait = parent:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
     s.wait:SetPoint("LEFT", s.cast, "RIGHT", 6, 0)
     s.wait:SetTextColor(0.6, 0.6, 0.6)
+    -- the wait band: a grey wash over the cast bar while the plan holds
+    s.band = s.cast:CreateTexture(nil, "ARTWORK")
+    s.band:SetAllPoints(s.cast)
+    s.band:SetColorTexture(0.5, 0.5, 0.5, 0)
+    -- hovering the cast bar names the rule behind the current cast or wait
+    s.cast:EnableMouse(true)
+    s.cast:SetScript("OnEnter", function(self)
+        if not (MD.Tip and s.why) then return end
+        MD.Tip:Show(self, "ANCHOR_TOP", s.why)
+    end)
+    s.cast:SetScript("OnLeave", function() if MD.Tip then MD.Tip:Hide() end end)
 
     s.score = parent:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
     s.score:SetPoint("TOPLEFT", s.cast, "BOTTOMLEFT", 0, -4)
@@ -190,6 +236,15 @@ local function MakeOnEvent(col)
                 f.cast:SetText(label)
                 f.cast:SetTextColor(c[1], c[2], c[3])
                 f.textUntil = now + FLASH_TEXT
+                -- the classifier's word for this cast (left column, plan present)
+                local lc = col.state and col.state.lastCast
+                local cl = col.isLeft and rp.casts and lc and rp.casts[lc.n]
+                if cl and cl.label and cl.label ~= "utility" and cl.label ~= "shift" then
+                    local lcol = LABEL_COLOR[cl.label] or LABEL_COLOR.unclassified
+                    f.label:SetText(cl.label)
+                    f.label:SetTextColor(lcol[1], lcol[2], lcol[3])
+                    f.labelUntil = now + LABEL_FLASH
+                end
             end
             col.strip.flashUntil = now + 0.3
             col.strip.lastCast = label
@@ -235,6 +290,36 @@ local function PaintFrame(f, st, ti, isLeft, now)
         f:SetBackdropBorderColor(0, 0, 0, 1)
     end
     if f.textUntil <= now and f.cast:GetText() ~= "" then f.cast:SetText("") end
+    if f.labelUntil <= now and f.label:GetText() ~= "" then f.label:SetText("") end
+
+    -- HoT squares: remaining seconds as one digit (nothing above 9), Lifebloom
+    -- its stack count, brighter per stack and white in its last second (the
+    -- bloom is coming). The dot: Swiftmend has something to eat and is ready.
+    local HOT_INDEX = MD.SimModel.HOT_INDEX
+    local eatable = false
+    for fi = 1, 3 do
+        local sq = f.hots[fi]
+        local h = (not dead) and st:Hot(ti, fi) or nil
+        if h then
+            local fam = MD.SimModel.HOT_NAME[fi]
+            local c = FAMILY_COLOR[fam] or FAMILY_COLOR.other
+            if fi == HOT_INDEX.Lifebloom then
+                local k = 0.45 + 0.25 * (h.stacks or 1)
+                if h.remaining <= 1 then sq:SetBackdropColor(1, 1, 1, 1)
+                else sq:SetBackdropColor(c[1] * k, c[2] * k, c[3] * k, 1) end
+                sq.text:SetText(tostring(h.stacks or 1))
+            else
+                sq:SetBackdropColor(c[1], c[2], c[3], 1)
+                local r = math.floor(h.remaining)
+                sq.text:SetText(r <= 9 and tostring(r) or "")
+                eatable = true
+            end
+            sq:Show()
+        else
+            sq:Hide()
+        end
+    end
+    Shown(f.dot, eatable and st:Ready(SWIFTMEND))
     if f.pulseUntil > now then
         local left = (f.pulseUntil - now) / PULSE_DMG
         f.pulse:SetColorTexture(0.9, 0.15, 0.1, (f.pulseAlpha or 0.4) * left)
@@ -292,6 +377,19 @@ local function PaintStrip(s, st, pool, now)
     end
     local w = st:Waiting()
     s.wait:SetText(w and string.format("waiting %.1fs", w) or "")
+    s.band:SetColorTexture(0.5, 0.5, 0.5, w and 0.35 or 0)
+
+    -- the rule behind what the bar shows, for the hover (right column: the
+    -- plan's reasons; left: none are on record)
+    local why = (c and c.why) or (st.lastCast and st.lastCast.why) or 0
+    if why and why > 0 and MD.SimPlanner.RULE_NAMES[why] then
+        s.why = { { l = string.format("rule %d: %s", why, MD.SimPlanner.RULE_NAMES[why]), r = "" } }
+    elseif w then
+        s.why = { { l = "waiting: no rule fired", r = "" },
+                  { l = "|cff888888nobody under a threshold, or nothing affordable|r", r = "" } }
+    else
+        s.why = nil
+    end
 
     local spent, lowest, deaths = st:Score()
     s.score:SetText(string.format("spent %s   lowest %d%%   %s", K(spent), lowest * 100 + 0.5,
@@ -326,7 +424,10 @@ local function SeekTo(t)
     for _, ti in ipairs(rows) do
         for _, col in ipairs({ left, right }) do
             local f = col and col.frames[ti]
-            if f then f.flashUntil, f.textUntil, f.pulseUntil, f.tickIdx = 0, 0, 0, nil; f.cast:SetText("") end
+            if f then
+                f.flashUntil, f.textUntil, f.labelUntil, f.pulseUntil, f.tickIdx = 0, 0, 0, 0, nil
+                f.cast:SetText(""); f.label:SetText("")
+            end
         end
     end
     left.strip.flashUntil = 0
@@ -378,6 +479,7 @@ local function Build()
 
     left = CreateColumn(GUTTER, "ACTUAL")
     right = CreateColumn(2 * GUTTER + COL_W, "SUGGESTED")
+    left.isLeft = true
 
     -- scrubber row, anchored to the bottom
     playBtn = UI.CreateButton(frame, ">", "accent-hover", { 24, 18 }, false, false, nil, nil,
@@ -459,8 +561,18 @@ local function PlaceMarkers()
     end
     local TK, K = MD.SimModel.TK, MD.SimModel.K
     local L = rp.left.trace
+    local n = 0
     for i = 1, L.nEv do
-        if L.ev.kind[i] == TK.CAST then Mark(L.ev.t[i], 1, 1, 1, 0.25, 6) end
+        if L.ev.kind[i] == TK.CAST then
+            n = n + 1
+            local cl = rp.casts and rp.casts[n]
+            local lc = cl and LABEL_COLOR[cl.label]
+            if lc and cl.label ~= "fine" and cl.label ~= "unclassified" then
+                Mark(L.ev.t[i], lc[1], lc[2], lc[3], 0.9, 8)
+            else
+                Mark(L.ev.t[i], 1, 1, 1, 0.25, 6)
+            end
+        end
     end
     local big = (MD.db.simBigHit or 0.15)
     local sev = rp.scenario.ev
@@ -523,8 +635,8 @@ local function Layout()
                 f.name:SetText(r.name or ("#" .. ti))
                 local c = f.classColor
                 f.bar:SetStatusBarColor(c[1] * 0.85, c[2] * 0.85, c[3] * 0.85)
-                f.flashUntil, f.textUntil, f.pulseUntil, f.tickIdx = 0, 0, 0, nil
-                f.cast:SetText("")
+                f.flashUntil, f.textUntil, f.labelUntil, f.pulseUntil, f.tickIdx = 0, 0, 0, 0, nil
+                f.cast:SetText(""); f.label:SetText("")
                 f:SetBackdropBorderColor(0, 0, 0, 1)
                 f:Show()
             end

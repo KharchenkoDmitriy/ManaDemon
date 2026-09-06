@@ -37,6 +37,7 @@ function RT.New(trace, scenario, opts)
         hots = {}, dead = {}, form = nil, casting = nil,
         waitStart = nil, waitLen = 0,
         spent = 0, deaths = 0, lowest = 1, lowestTgt = nil, casts = 0,
+        cdUntil = {},
     }, State)
     for i = 1, (trace.nT or 0) do st.hots[i] = {} end
     st:Seek(0)
@@ -71,6 +72,8 @@ function State:Apply(i, fire)
         self.spent = self.spent + (b or 0)
         self.casts = self.casts + 1
         self.lastCast = { spellID = a, target = tgt, t = t, why = e.why[i], n = self.casts }
+        local cd = MD.SimModel.SPELL_CD and MD.SimModel.SPELL_CD[a]
+        if cd then self.cdUntil[a] = t + cd end
     elseif kind == TK.CANCEL then
         self.casting = nil
     elseif kind == TK.HOT then
@@ -106,6 +109,7 @@ local function Reset(self)
     self.waitStart, self.waitLen = nil, 0
     self.spent, self.deaths, self.casts = 0, 0, 0
     self.lowest, self.lowestTgt = 1, nil
+    for k in pairs(self.cdUntil) do self.cdUntil[k] = nil end
 end
 
 -- Lowest tracked HP so far, from the grid points crossed. Checked at grid
@@ -230,6 +234,13 @@ function State:Waiting()
     local left = self.waitStart + self.waitLen - self.t
     if left <= 0 then return nil end
     return left
+end
+
+-- Is this spell off cooldown at st.t? Only the cooldowns the engine respects
+-- (SM.SPELL_CD: Swiftmend) -- everything else is always ready.
+function State:Ready(spellID)
+    local until_ = self.cdUntil[spellID]
+    return not until_ or self.t >= until_
 end
 
 -- Recorded damage on `ti` in the trailing `window` seconds (for the pulse).
