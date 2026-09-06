@@ -1595,3 +1595,32 @@ survivable now.
 
 Suites: simcheck 10, reccheck 38, simwindow 8, regencheck 18, replaycheck 33, replayui 50,
 runcheck 69, reviewui 26.
+
+## 2026-09-06 — v0.9.4: the run strip, and the map a dungeon needs
+
+`docs/SPEC-v0.9.md` §6, the last of v0.9. When the pull in the replay window belongs to a run,
+a strip appears under the header: the whole run on one line, each pull a block as wide as it was
+long (the one playing bright, the ones under the recording gate grey), drinks in blue, deaths as
+red marks, and the gaps left as gaps. Hover a block for its number, length, position in the run,
+casts and mana; click it and the window re-opens on that pull with the same clock controls.
+
+The strip pushes the columns down by its own height and nothing else moves: a single fight has
+no strip and the window is the size it was in v0.8. `/md replay run 2` opens run 2 at its first
+pull, and the Review tab's Play does the same when a run is shown.
+
+**The next pull follows on its own.** Playing a pull to the end inside a run opens the next one
+and keeps going (`db.replayNextPull`, default on) — the author's default answer to the spec's
+open question, because pull-by-pull *is* the way through a dungeon and stopping to click at
+every boundary makes it a chore. There is still no run-level play-through: half an hour at 1×
+is not review, and the strip is the map instead.
+
+`tools/reviewui.lua` 26 → 31: the strip is drawn for a pull inside a run and not for a single
+fight, its blocks are proportional to the pulls' lengths, clicking one opens that pull, and
+`/md replay run 1` opens the first.
+
+**v0.9 is complete**: the measured character (v0.9.0), the run recorder (v0.9.1), the Review tab
+and the tools (v0.9.2), the run in the engine with the drink model and a time-first score
+(v0.9.3), and the strip (v0.9.4). What it needs now is a dungeon: TESTING §27 to §31, in order.
+
+Suites: simcheck 10, reccheck 38, simwindow 8, regencheck 18, replaycheck 33, replayui 50,
+runcheck 69, reviewui 31.

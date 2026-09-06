@@ -215,6 +215,8 @@ function MD.DashboardParts.CreateReview(parent, width)
     end)
     exportBtn:SetScript("OnClick", function() if MD.RunExport then MD:RunExport() end end)
     -- runtime lookup: UI/ReplayWindow.lua loads after this file
+    -- on a run with no pull selected yet, Play opens its first pull with the
+    -- run strip; the strip is the map from there
     playBtn:SetScript("OnClick", function()
         if MD.Replay then MD.Replay:Open(Spec()) end
     end)

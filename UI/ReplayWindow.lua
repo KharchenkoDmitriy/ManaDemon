@@ -18,6 +18,7 @@ local UI = MD.UI
 local COL_W = 460              -- the healer strip's width; a column is at least this wide
 local GUTTER = 16
 local HEADER_H, STRIP_H, SCRUB_H = 26, 96, 96
+local RUNSTRIP_H = 26          -- the run strip, drawn only when the pull belongs to a run
 local DT_STEP_MAX = 0.25       -- never advance more than this per frame at 1x (a hitch is not a skip)
 local FLASH_CAST, FLASH_TEXT, FLASH_FOREIGN, PULSE_DMG = 0.8, 0.8, 0.4, 0.4
 local GCD = 1.5                -- an instant still locks the healer for this long
@@ -80,6 +81,9 @@ local LABEL_FLASH = 1.5
 local SWIFTMEND = 18562
 
 local frame, scrubber, playBtn, timeFS, headerFS, speedHighlight, speedButtons
+local runStrip                  -- the run's pulls and drinks on one timeline (v0.9.4)
+local runIdx, pullIdx, curRun   -- which pull of which run is open, if any
+local topH = HEADER_H           -- header, plus the run strip when there is one
 local left, right          -- the two columns: { state, frames = {}, strip = {}, title }
 local rp                   -- the SP.Replay result being shown
 local rows = {}            -- roster indices in display order
@@ -815,7 +819,20 @@ local function OnUpdate(_, elapsed)
     left.state:Advance(dt)
     if right and right.state then right.state:Advance(dt) end
     Paint()
-    if left.state:AtEnd() then SetPlaying(false) end
+    if left.state:AtEnd() then
+        -- inside a run, the next pull follows on its own: pull by pull IS the
+        -- way a dungeon is reviewed, and stopping at every boundary to click
+        -- makes it a chore. db.replayNextPull turns it off.
+        local nextK = pullIdx and (pullIdx + 1)
+        if curRun and runIdx and nextK and curRun.pulls[nextK]
+           and MD.db.replayNextPull ~= false then
+            SetPlaying(false)
+            MD:OpenReplay(runIdx .. ":" .. nextK)
+            SetPlaying(true)
+            return
+        end
+        SetPlaying(false)
+    end
 end
 
 --------------------------------------------------------------------------------
@@ -842,6 +859,15 @@ local function Build()
     headerFS:SetPoint("TOPLEFT", frame, "TOPLEFT", GUTTER, -6)
     headerFS:SetJustifyH("LEFT")
     headerFS:SetWidth(2 * COL_W + GUTTER)
+
+    runStrip = CreateFrame("Frame", nil, frame)
+    runStrip:SetPoint("TOPLEFT", frame, "TOPLEFT", GUTTER, -(HEADER_H - 2))
+    runStrip:SetSize(2 * COL_W + GUTTER, 18)
+    runStrip.pulls, runStrip.drinks, runStrip.marks = {}, {}, {}
+    runStrip.label = frame:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    runStrip.label:SetPoint("TOPLEFT", runStrip, "BOTTOMLEFT", 0, -1)
+    runStrip.label:SetJustifyH("LEFT")
+    runStrip:Hide()
 
     left = CreateColumn(GUTTER, "ACTUAL")
     right = CreateColumn(2 * GUTTER + COL_W, "SUGGESTED")
@@ -968,6 +994,108 @@ local function PlaceMarkers()
 end
 
 --------------------------------------------------------------------------------
+-- The run strip (docs/SPEC-v0.9.md 6): the whole dungeon on one line -- each
+-- pull a block as wide as it was long, the drinks between them in blue, deaths
+-- as red marks, and the gaps left as gaps. The pull being played is bright.
+--
+-- It is the map a run needs and a scrubber cannot be: half an hour at 1x is not
+-- review, so there is no "play the run through". Click a block and the window
+-- re-opens on that pull, keeping the same clock controls.
+--------------------------------------------------------------------------------
+local function RunBlock(kind, i)
+    local pool = runStrip[kind]
+    local b = pool[i]
+    if not b then
+        b = CreateFrame("Button", nil, runStrip)
+        b.tex = b:CreateTexture(nil, "ARTWORK")
+        b.tex:SetAllPoints()
+        pool[i] = b
+    end
+    b:Show()
+    return b
+end
+
+local function PaintRunStrip(width)
+    if not runStrip then return end
+    for _, kind in ipairs({ "pulls", "drinks", "marks" }) do
+        for _, b in ipairs(runStrip[kind]) do b:Hide() end
+    end
+    if not curRun then runStrip:Hide(); return end
+    runStrip:Show()
+    runStrip:SetWidth(width)
+
+    local wall = (curRun.stats and curRun.stats.wall) or 0
+    if wall <= 0 then runStrip:Hide(); return end
+    local W = width
+    local function X(t) return math.max(0, math.min(W, (t / wall) * W)) end
+
+    local ar, ag, ab = UI.GetAccentColorRGB()
+    for k, rec in ipairs(curRun.pulls or {}) do
+        local x0, x1 = X(rec.runT0 or 0), X((rec.runT0 or 0) + (rec.dur or 0))
+        local b = RunBlock("pulls", k)
+        b:ClearAllPoints()
+        b:SetPoint("TOPLEFT", runStrip, "TOPLEFT", x0, -2)
+        b:SetSize(math.max(2, x1 - x0), 14)
+        local on = (k == pullIdx)
+        if rec.short then
+            b.tex:SetColorTexture(0.45, 0.45, 0.45, on and 1 or 0.55)
+        else
+            b.tex:SetColorTexture(ar, ag, ab, on and 1 or 0.5)
+        end
+        b.pull = k
+        b:SetScript("OnClick", function(self)
+            if runIdx then MD:OpenReplay(runIdx .. ":" .. self.pull) end
+        end)
+        b:SetScript("OnEnter", function(self)
+            if not MD.Tip then return end
+            MD.Tip:Show(self, "ANCHOR_BOTTOM", {
+                { l = string.format("pull %d%s", self.pull, rec.short and " (short)" or ""),
+                  r = Clock(rec.dur or 0) },
+                { l = "into the run", r = Clock(rec.runT0 or 0) },
+                { l = rec.zone or "", r = string.format("%d casts, %s mana", rec.ownCasts or 0, K(rec.spent or 0)) },
+                { l = "|cff888888click to play this pull|r", r = "" },
+            })
+        end)
+        b:SetScript("OnLeave", function() if MD.Tip then MD.Tip:Hide() end end)
+    end
+
+    -- drinks and deaths from the run's own timeline
+    local RR = MD.RunRecorder
+    local ev = curRun.ev or {}
+    local nD, nM, openDrink = 0, 0, nil
+    for i = 1, #(ev.t or {}) do
+        local k = ev.kind[i]
+        if k == RR.K.DRINK then
+            openDrink = ev.t[i]
+        elseif k == RR.K.DRINK_END and openDrink then
+            nD = nD + 1
+            local b = RunBlock("drinks", nD)
+            local x0, x1 = X(openDrink), X(ev.t[i])
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", runStrip, "TOPLEFT", x0, -2)
+            b:SetSize(math.max(2, x1 - x0), 14)
+            b.tex:SetColorTexture(0.35, 0.6, 1, 0.8)
+            b:EnableMouse(false)
+            openDrink = nil
+        elseif k == RR.K.DEAD then
+            nM = nM + 1
+            local b = RunBlock("marks", nM)
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", runStrip, "TOPLEFT", X(ev.t[i]) - 1, 0)
+            b:SetSize(2, 18)
+            b.tex:SetColorTexture(1, 0.2, 0.2, 1)
+            b:EnableMouse(false)
+        end
+    end
+
+    local st = curRun.stats or {}
+    runStrip.label:SetText(string.format("|cffffcc00%s|r  %s, %d pull(s)%s%s", curRun.name or "run",
+        Clock(st.wall or 0), st.pulls or 0,
+        (st.drinks or 0) > 0 and string.format(", %d drink(s)", st.drinks) or "",
+        (st.deaths or 0) > 0 and string.format(", %d death(s)", st.deaths) or ""))
+end
+
+--------------------------------------------------------------------------------
 -- Opening a fight
 --------------------------------------------------------------------------------
 local function Layout()
@@ -999,14 +1127,22 @@ local function Layout()
     local overhang = CELL.hots[3] * sc + 4        -- the HoT slot sits above the button's top edge
     local hasRight = rp.right ~= nil
     local width = hasRight and (2 * pitch + 3 * GUTTER) or (pitch + 2 * GUTTER)
-    local height = HEADER_H + STRIP_H + overhang + gridH + SCRUB_H + 12
+    -- the run strip pushes everything below it down, and only exists when this
+    -- pull belongs to a run
+    topH = HEADER_H + (curRun and RUNSTRIP_H or 0)
+    local height = topH + STRIP_H + overhang + gridH + SCRUB_H + 12
     frame:SetSize(width, height)
     frame.hint:SetWidth(width - 2 * GUTTER)
+    left.title:ClearAllPoints()
+    left.title:SetPoint("TOPLEFT", frame, "TOPLEFT", left.x, -(topH + 6))
+    left.strip.mana:ClearAllPoints()
+    left.strip.mana:SetPoint("TOPLEFT", frame, "TOPLEFT", left.x, -(topH + 30))
     right.x = 2 * GUTTER + pitch
     right.title:ClearAllPoints()
-    right.title:SetPoint("TOPLEFT", frame, "TOPLEFT", right.x, -(HEADER_H + 6))
+    right.title:SetPoint("TOPLEFT", frame, "TOPLEFT", right.x, -(topH + 6))
     right.strip.mana:ClearAllPoints()
-    right.strip.mana:SetPoint("TOPLEFT", frame, "TOPLEFT", right.x, -(HEADER_H + 30))
+    right.strip.mana:SetPoint("TOPLEFT", frame, "TOPLEFT", right.x, -(topH + 30))
+    PaintRunStrip(width - 2 * GUTTER)
     Shown(right.title, hasRight)
     for _, k in ipairs({ "mana", "cast", "form", "wait", "score" }) do Shown(right.strip[k], hasRight) end
     scrubber:SetWidth(width - 2 * GUTTER)
@@ -1014,7 +1150,7 @@ local function Layout()
     for _, col in ipairs({ left, right }) do
         for _, f in pairs(col.frames) do f:Hide() end
     end
-    local y0 = -(HEADER_H + STRIP_H + overhang)
+    local y0 = -(topH + STRIP_H + overhang)
     for k, ti in ipairs(rows) do
         local cI, rI = math.floor((k - 1) / perCol), (k - 1) % perCol
         local dx, y = cI * (W + spX), y0 - rI * (H + spY)
@@ -1058,10 +1194,15 @@ function MD:OpenReplay(n)
         MD:Print("replay: not in combat - it is a review tool.")
         return
     end
-    -- "3" is a single fight, "2:7" the seventh pull of run 2 (v0.9.2)
-    local rec, label, run, pullK = MD:GetRecording(n)
+    -- "3" is a single fight, "2:7" the seventh pull of run 2 (v0.9.2); "run 2"
+    -- opens the first pull of run 2 with its strip (v0.9.4)
+    local spec = tostring(n or 1)
+    local r = spec:match("^run%s*(%d+)$")
+    if r then spec = r .. ":1" end
+    local rec, label, run, pullK = MD:GetRecording(spec)
     if not rec then MD:Print("replay: no recording " .. tostring(n) .. ".") return end
     n = label
+    curRun, runIdx, pullIdx = run, run and tonumber(label:match("^(%d+):")) or nil, pullK
 
     Build()
     playing = false
@@ -1122,6 +1263,12 @@ MD.Replay = {
     -- for tools/replayui.lua: what the window is showing, read-only
     _state = function() return { frame = frame, left = left, right = right, rows = rows, rp = rp,
                                  scrubber = scrubber, timeFS = timeFS, playing = playing, speeds = speedButtons } end,
+    _runStrip = function()
+        if not runStrip then return nil end
+        return { shown = runStrip:IsShown(), pulls = runStrip.pulls, drinks = runStrip.drinks,
+                 marks = runStrip.marks, label = runStrip.label:GetText(), run = curRun,
+                 pull = pullIdx, runIdx = runIdx }
+    end,
     _setPlaying = function(on) SetPlaying(on) end,
     _seek = function(t) SeekTo(t) end,
 }

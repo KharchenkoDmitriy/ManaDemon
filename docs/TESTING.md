@@ -633,6 +633,23 @@ order after seeing a card, say so — it is a decision, not a fact (`docs/DECISI
 
 Offline, the same thing without the game: `tools/run.sh tools/import.lua coach --run 1`.
 
+## 31. Play a dungeon pull by pull (v0.9.4)
+`/md replay run 1` (or Play on a run in the Review tab) opens the run's first pull with a new
+**run strip** under the header: the whole dungeon on one line, each pull a block as wide as it
+was long, the one you are watching bright, short pulls grey, drinks in blue, deaths as red
+marks, and the gaps left as gaps.
+
+1. Hover a block: pull number, length, where it sits in the run, casts and mana.
+2. Click one: the window re-opens on that pull, same controls, same speed.
+3. Let a pull play to the end. **The next pull opens and keeps playing** — that is the intended
+   way through a dungeon. There is no "play the whole run": half an hour at 1x is not review.
+4. A single fight (the Fights list) has no strip at all, and the window is the same height it
+   was in v0.8.
+
+Report: whether the strip's shape matches the run you remember (long boss pull in the right
+place, drinks where you sat down), and whether auto-advance is welcome or annoying. It is one
+setting (`db.replayNextPull`) either way.
+
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
 raw numbers. `/md profile` output is welcome with any report. I turn them into

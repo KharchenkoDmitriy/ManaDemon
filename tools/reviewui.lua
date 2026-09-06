@@ -176,7 +176,44 @@ end)()
 check("the replay header names the run and the pull", headText ~= nil, headText or "not painted")
 MD.SimModel.Validate = realValidate
 
+-- the run strip: the pulls of the run on one line, click to play one
+local W2 = MD.Replay._state()
+check("the run strip is drawn for a pull inside a run", (function()
+    local st = MD.Replay._runStrip and MD.Replay._runStrip()
+    return st ~= nil and st.shown == true and #st.pulls == 2
+end)(), (function()
+    local st = MD.Replay._runStrip and MD.Replay._runStrip()
+    return st and tostring(st.shown) .. ", " .. #st.pulls or "no strip"
+end)())
+check("the strip's blocks are as wide as the pulls were long", (function()
+    local st = MD.Replay._runStrip()
+    local a, b = st.pulls[1], st.pulls[2]
+    if not (a and b) then return false end
+    -- pull 1 is 40s, pull 2 is 9s: the first block must be much the wider
+    return a:GetWidth() > b:GetWidth() * 2
+end)())
+check("clicking a block opens that pull", (function()
+    local st = MD.Replay._runStrip()
+    local fn = st.pulls[2]:GetScript("OnClick")
+    if not fn then return false end
+    fn(st.pulls[2])
+    for _, f in ipairs(S.allFrames) do
+        local t = f.GetText and f:GetText() or ""
+        if type(t) == "string" and t:find("Ramparts test pull 2") then return true end
+    end
+    return false
+end)())
+
 -- the same address from the command line
+MD:OpenReplay("1:2")
+MD:OpenReplay("run 1")
+check("/md replay run 1 opens the run's first pull", (function()
+    for _, f in ipairs(S.allFrames) do
+        local t = f.GetText and f:GetText() or ""
+        if type(t) == "string" and t:find("Ramparts test pull 1") then return true end
+    end
+    return false
+end)())
 MD:OpenReplay("1:2")
 check("/md replay 1:2 opens the second pull", (function()
     for _, f in ipairs(S.allFrames) do
@@ -201,6 +238,16 @@ rows = Rows()
 check("switching back shows the single fights", (function()
     for _, r in ipairs(rows) do if CellText(r, "zone") == "Blood Furnace" then return true end end
     return false
+end)())
+
+-- a single fight has no run strip at all
+MD:OpenReplay(1)
+check("no run strip for a single fight", (function()
+    local st = MD.Replay._runStrip()
+    return st and st.shown == false and st.run == nil
+end)(), (function()
+    local st = MD.Replay._runStrip()
+    return st and (tostring(st.shown) .. ", run " .. tostring(st.run)) or "no strip"
 end)())
 
 local bad = {}

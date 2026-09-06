@@ -155,7 +155,9 @@ Spec: **`docs/SPEC-v0.9.md`**; the calls in `docs/DECISIONS.md` §v0.9.
   `/md coachrun N`, Coach run on the tab, `import.lua coach --run K`. Innervates in the gaps are
   counted, not modelled: the recording carries the total regen rate, not the spirit split.
   In-game: TESTING §30.)*
-- [ ] **v0.9.4** the run strip in the replay window; pull-by-pull Play through a dungeon.
+- [x] **v0.9.4** the run strip in the replay window; pull-by-pull Play through a dungeon.
+  *(2026-09-06; `/md replay run N`, click a block to jump, the next pull follows on its own
+  unless `db.replayNextPull` is off. In-game: TESTING §31.)*
 
 ## Phase 2 — other classes (after 1 is green)
 
