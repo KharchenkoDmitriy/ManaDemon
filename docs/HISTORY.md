@@ -926,3 +926,40 @@ exactly (2199 labelled vs 2199 spent) and the coach's refusal path is tested as 
 card, because silence on a bad fight is the more important behaviour.
 
 **Next:** v0.7.5 — the coordinate-descent search.
+
+## 2026-09-06 — v0.7.5: the search
+
+Coordinate descent from four seeds (max-rank baseline, HoTs-only, the player's binds with
+default thresholds, one random point), sweeping one parameter at a time over its small domain
+and accepting improvements until a full pass changes nothing. At most 300 evaluations, with
+the incumbent's mana as an early-abort bound on every candidate. Alternates within 5% of the
+winner with fewer binds are collected for the card's tooltip. Full-grid enumeration was
+rejected in the debate and stays rejected; coordinate descent can stop on a ridge, so the
+alternates are listed rather than hidden.
+
+**The bug worth recording: `GetTime()` does not advance inside a frame.** It is the frame's
+timestamp, so slicing the coroutine on it (`while GetTime() - started < 8ms`) would have run
+the entire search in one frame and frozen the client for seconds — in exactly the moment the
+feature is wanted, between two pulls. The search now slices on `debugprofilestop()`, the
+sub-frame clock, with a fixed resume count as the fallback when it is missing. Both paths are
+exercised by the harness.
+
+Two more corrections the harness forced:
+
+- **The physical-floor assertion only holds when nobody died.** A plan that let a target die
+  did not have to heal the damage that target took, so the bound does not apply; the first run
+  printed `IMPOSSIBLE, engine is wrong` about a plan that was merely allowed to lose someone.
+- **Binds are the five families a rule can use.** They were being built from every family in
+  the spell table, which put Tranquility in the count (6 binds, and the score's tie-break
+  cares) — and Tranquility has no heal values in `Data/SpellData.lua` at all, so no plan may
+  spend mana on it.
+
+`/md coach [n]` now searches before drawing the card, across frames, with `/md coach cancel`.
+`heldOn` — whether the winning plan also survives the other retained recordings — is computed
+after the search, because that is the difference between a strategy and a curve fitted to one
+pull.
+
+**Verified:** `tools/reccheck.lua` is 34 assertions. The search finishes inside its budget,
+beats the max-rank baseline it was seeded with, and yields across frames.
+
+**Next:** v0.7.6 — the Review tab.

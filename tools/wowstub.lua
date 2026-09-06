@@ -16,6 +16,9 @@ _G.STUB = S
 
 S.now = 0
 function GetTime() return S.now end
+-- The sub-frame clock the search slices on. In the client this advances inside
+-- a frame while GetTime() does not, which is the whole reason it is used.
+function debugprofilestop() return os.clock() * 1000 end
 function time() return 1757000000 end
 function date(fmt, t) return os.date(fmt, t or 1757000000) end
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end

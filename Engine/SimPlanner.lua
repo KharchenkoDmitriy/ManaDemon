@@ -32,6 +32,11 @@ SP.DOMAINS = {
 }
 SP.PARAM_ORDER = { "swiftmendBelow", "directBelow", "rollStacks", "hotBelow", "filler" }
 
+-- The families a rule can bind. Tranquility is deliberately absent: the spell
+-- table carries no heal values for it, so no plan may spend the player's mana
+-- on a number nobody has measured (spec 13 also rules it out of v0.7 planning).
+SP.BINDABLE = { "Lifebloom", "Rejuvenation", "Regrowth", "HealingTouch", "Swiftmend" }
+
 --------------------------------------------------------------------------------
 -- Binds: which rank of which family the plan uses. Fixed by default to the
 -- ranks the player actually cast, because a card that silently rebinds every
@@ -53,7 +58,7 @@ function SP.BindsFromRecording(rec, kit)
         end
     end
     local binds = {}
-    for family in pairs(SD.families) do
+    for _, family in ipairs(SP.BINDABLE) do
         local best, bestN
         for id, n in pairs(counts[family] or {}) do
             if not bestN or n > bestN then best, bestN = id, n end
@@ -65,7 +70,7 @@ end
 
 function SP.MaxRankBinds()
     local SD, binds = MD.SpellData, {}
-    for family in pairs(SD.families) do binds[family] = SD.maxRank[family] end
+    for _, family in ipairs(SP.BINDABLE) do binds[family] = SD.maxRank[family] end
     return binds
 end
 
@@ -638,4 +643,256 @@ function SP.Coach(rec, opts)
     local progress = SP.Progress(rec.zone)
     if progress then card[#card + 1] = "  " .. progress end
     return card, validation, cls, best
+end
+
+--------------------------------------------------------------------------------
+-- The search (docs/SPEC-v0.7.md 6). Coordinate descent from four seeds, at most
+-- 300 evaluations, sliced across frames in a coroutine so the game never
+-- stutters. Full-grid enumeration was rejected: the domains multiply out to 108
+-- points per bind set, each ~10-20 ms, and the answer is not 108x better.
+--
+-- Coordinate descent can stop in a local minimum. It is used anyway, and the
+-- reason is on the card: the alternatives within 5% are listed, so a player can
+-- see that the search found a ridge rather than a peak.
+--------------------------------------------------------------------------------
+local MAX_EVALS = 300
+local SLICE_MS = 8       -- milliseconds of work per frame
+local SLICE_STEPS = 3    -- fallback when the client has no sub-frame clock
+
+-- GetTime() is the frame's timestamp and does NOT advance inside a frame, so
+-- slicing on it would run the whole search in one frame and freeze the client
+-- for seconds. debugprofilestop() is the sub-frame clock; if it is missing, fall
+-- back to a fixed number of coroutine resumes per frame.
+local function NowMs()
+    if debugprofilestop then
+        local ok, v = pcall(debugprofilestop)
+        if ok and type(v) == "number" then return v end
+    end
+    return nil
+end
+
+local function RandomParams()
+    local p = {}
+    for _, name in ipairs(SP.PARAM_ORDER) do
+        local dom = SP.DOMAINS[name]
+        p[name] = dom[math.random(#dom)]
+    end
+    return p
+end
+
+-- Search(scenario, opts, onProgress, onDone)
+--   opts = { kit, binds, rec, maxEvals, abortAbove }
+--   onProgress(evals, bestScore)   called at most once per slice
+--   onDone(best, bestResult, evals, alternates)
+-- Returns a handle with :Cancel(). The whole thing runs on an OnUpdate frame:
+-- a search that froze the client for ten seconds would be unusable in exactly
+-- the moment it is wanted (between two pulls).
+function SP.Search(scenario, opts, onProgress, onDone)
+    SM = SM or MD.SimModel
+    opts = opts or {}
+    local kit = opts.kit or MD.RankMath:SpellKit()
+    local binds = opts.binds or SP.MaxRankBinds()
+    local maxEvals = opts.maxEvals or MAX_EVALS
+    local evals = 0
+    local best, bestScore, bestResult = nil, nil, nil
+    local seen = {}
+    local alternates = {}
+
+    local function Key(p)
+        return string.format("%.2f|%.2f|%d|%.2f|%s", p.swiftmendBelow, p.directBelow,
+            p.rollStacks, p.hotBelow, tostring(p.filler))
+    end
+
+    local function Eval(params)
+        local key = Key(params)
+        if seen[key] then return seen[key] end
+        if evals >= maxEvals then return nil end
+        local plan = SP.NewPlan(binds, params, kit)
+        local r = SP.RunPlan(scenario, plan, {
+            critMode = "ev",
+            -- no candidate that has already spent more than the incumbent can win
+            abortAbove = bestScore and bestScore[1] == 0 and bestScore[2] == 0
+                and bestScore[3] or nil,
+        })
+        evals = evals + 1
+        local snap = { manaSpent = r.manaSpent, healed = r.healed, overhealed = r.overhealed,
+                       lowestMana = r.lowestMana, lowest = { hp = r.lowest.hp },
+                       floorSeconds = r.floorSeconds, deaths = { n = r.deaths.n },
+                       waitFraction = r.waitFraction, maxWaitRun = r.maxWaitRun,
+                       aborted = r.aborted }
+        local score = snap.aborted and nil or SP.Score(snap, plan, 0)
+        local out = { plan = plan, result = snap, score = score, params = params }
+        seen[key] = out
+        if score and SP.Better(score, bestScore) then
+            best, bestScore, bestResult = plan, score, snap
+        end
+        return out
+    end
+
+    local seeds = {
+        { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 3, hotBelow = 0.80, filler = false },
+        { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 3, hotBelow = 0.80, filler = false,
+          noDirect = true },
+        { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 3, hotBelow = 0.80, filler = false },
+        RandomParams(),
+    }
+
+    local co = coroutine.create(function()
+        for _, seed in ipairs(seeds) do
+            local cur = {}
+            for k, v in pairs(seed) do cur[k] = v end
+            Eval(cur)
+            coroutine.yield()
+            local improved = true
+            while improved and evals < maxEvals do
+                improved = false
+                for _, name in ipairs(SP.PARAM_ORDER) do
+                    local baseline = Eval(cur)
+                    for _, value in ipairs(SP.DOMAINS[name]) do
+                        if value ~= cur[name] then
+                            local trial = {}
+                            for k, v in pairs(cur) do trial[k] = v end
+                            trial[name] = value
+                            local out = Eval(trial)
+                            if out and out.score and baseline and baseline.score
+                               and SP.Better(out.score, baseline.score) then
+                                cur, improved = trial, true
+                                baseline = out
+                            end
+                        end
+                        if evals >= maxEvals then break end
+                    end
+                    coroutine.yield()
+                    if evals >= maxEvals then break end
+                end
+            end
+        end
+    end)
+
+    -- alternates: anything within 5% of the winner's mana with fewer binds
+    local function CollectAlternates()
+        if not bestScore then return end
+        for _, out in pairs(seen) do
+            if out.score and out ~= best and out.result.manaSpent <= bestResult.manaSpent * 1.05
+               and out.score[1] == bestScore[1] and out.score[2] <= bestScore[2] + 1e-9 then
+                alternates[#alternates + 1] = out
+            end
+        end
+        table.sort(alternates, function(a, b) return a.result.manaSpent < b.result.manaSpent end)
+    end
+
+    local frame = CreateFrame("Frame")
+    local handle = { cancelled = false, evals = 0 }
+    function handle:Cancel() self.cancelled = true end
+
+    frame:SetScript("OnUpdate", function()
+        if handle.cancelled then
+            frame:SetScript("OnUpdate", nil)
+            MD:Debug("sim", "search cancelled after %d evaluation(s)", evals)
+            if onDone then onDone(nil, nil, evals, nil) end
+            return
+        end
+        local started, steps = NowMs(), 0
+        while coroutine.status(co) == "suspended"
+              and (started and (NowMs() - started) < SLICE_MS or (not started and steps < SLICE_STEPS)) do
+            steps = steps + 1
+            local ok, err = coroutine.resume(co)
+            if not ok then
+                frame:SetScript("OnUpdate", nil)
+                MD:Debug("sim", "search error: %s", tostring(err))
+                if onDone then onDone(nil, nil, evals, nil) end
+                return
+            end
+        end
+        handle.evals = evals
+        if onProgress then onProgress(evals, bestScore) end
+        if coroutine.status(co) == "dead" or evals >= maxEvals then
+            frame:SetScript("OnUpdate", nil)
+            CollectAlternates()
+            MD:Debug("sim", "search done: %d evaluation(s), best (deaths %d, floor %.1fs, mana %d, binds %d)",
+                evals, bestScore and bestScore[1] or -1, bestScore and bestScore[2] or -1,
+                bestScore and bestScore[3] or -1, bestScore and bestScore[5] or -1)
+            -- The physical floor: no plan can spend less than the damage taken
+            -- divided by the best healing-per-mana available. Never shown on a
+            -- card (spec 13), but a best that beats it means the engine is wrong.
+            -- ...and only when nobody died: a plan that let a target die did not
+            -- have to heal the damage that target took, so the bound does not
+            -- apply to it.
+            if bestResult and opts.rec and bestScore and bestScore[1] == 0 then
+                local damage = 0
+                for i = 1, (opts.rec.n or 0) do
+                    if opts.rec.ev.kind[i] == SM.K.DMG then damage = damage + (opts.rec.ev.amt[i] or 0) end
+                end
+                local bestHpm = 0
+                for _, e in pairs(kit.caster) do
+                    if e.cost and e.cost > 0 then
+                        local heal = (e.direct or 0) + (e.tick or 0) * (e.ticks or 0) + (e.bloom or 0)
+                        local hpm = heal / e.cost
+                        if hpm > bestHpm then bestHpm = hpm end
+                    end
+                end
+                if bestHpm > 0 then
+                    local floorMana = damage / bestHpm
+                    MD:Debug("sim", "physical floor %.0f mana vs best %.0f%s", floorMana,
+                        bestResult.manaSpent,
+                        bestResult.manaSpent < floorMana * 0.99 and "  <- IMPOSSIBLE, engine is wrong" or "")
+                end
+            end
+            if onDone then onDone(best, bestResult, evals, alternates) end
+        end
+    end)
+    return handle
+end
+
+--------------------------------------------------------------------------------
+-- CoachAsync: the search, then the card. Split from SP.Coach so the synchronous
+-- path (baselines only) stays testable and the async one is a thin wrapper.
+--
+-- `heldOn` is computed here rather than in the search: it asks whether the
+-- winning plan also survives the OTHER fights that were kept, which is the
+-- difference between a strategy and a curve fitted to one pull.
+--------------------------------------------------------------------------------
+local function HeldOn(plan, kit, exceptID)
+    local held, of = 0, 0
+    for _, other in ipairs(MD.FightRecorder and MD.FightRecorder:List() or {}) do
+        if other.id ~= exceptID then
+            of = of + 1
+            local sc = SM.ScenarioFromRecording(other, kit)
+            local r = SP.RunPlan(sc, plan, { critMode = "ev" })
+            if r.deaths.n == 0 and r.floorSeconds == 0 then held = held + 1 end
+        end
+    end
+    return held, of
+end
+
+function SP.CoachAsync(rec, opts, onDone)
+    SM = SM or MD.SimModel
+    opts = opts or {}
+    local kit = MD.RankMath:SpellKit()
+    local validation = SM:Validate(rec, kit)
+    if not opts.force and validation and not validation.ok then
+        onDone(select(1, SP.Coach(rec, opts)), validation)
+        return nil
+    end
+
+    local scenario = SM.ScenarioFromRecording(rec, kit)
+    local binds = SP.BindsFromRecording(rec, kit)
+    if MD.db and MD.db.simAllowRebinds then binds = SP.MaxRankBinds() end
+
+    MD:Print("coach: searching (this runs across frames; /md coach cancel stops it)...")
+    return SP.Search(scenario, { kit = kit, binds = binds, rec = rec },
+        function(evals) MD:Debug("sim", "search %d evaluations", evals) end,
+        function(best, bestResult, evals)
+            if not best then
+                onDone({ "coach: search cancelled." }, validation)
+                return
+            end
+            best.heldOn, best.heldOf = HeldOn(best, kit, rec.id)
+            local lines = SP.Coach(rec, {
+                n = opts.n, force = true,
+                extra = { { name = "best (search)", plan = best } },
+            })
+            lines[#lines + 1] = string.format("  search: %d plans evaluated", evals)
+            onDone(lines, validation)
+        end)
 end

@@ -169,5 +169,37 @@ if rec then
     check("coach mark written", MD.cdb.coachMarks and MD.cdb.coachMarks["Blood Furnace"] ~= nil)
 end
 
+-- The search: drive it across frames the way the client would.
+if rec then
+    print("\n-- search --")
+    local done, bestPlan, bestRes, evalCount = false, nil, nil, 0
+    local sc = MD.SimModel.ScenarioFromRecording(rec, MD.RankMath:SpellKit())
+    local t0 = os.clock()
+    MD.SimPlanner.Search(sc, { rec = rec, maxEvals = 300 }, nil,
+        function(b, r, evals) done, bestPlan, bestRes, evalCount = true, b, r, evals end)
+    local frames = 0
+    while not done and frames < 5000 do S.Tick(0.016); frames = frames + 1 end
+    check("search finished", done, string.format("%d frames, %d evals, %.0f ms",
+        frames, evalCount, (os.clock() - t0) * 1000))
+    check("search stayed in budget", evalCount <= 300, tostring(evalCount))
+    check("search found a plan", bestPlan ~= nil)
+    if bestPlan then
+        print(string.format("  best: swiftmend<%.0f%% direct<%.0f%% roll x%d hot<%.0f%% filler=%s -> %.0f mana, lowest %.0f%%",
+            bestPlan.swiftmendBelow * 100, bestPlan.directBelow * 100, bestPlan.rollStacks,
+            bestPlan.hotBelow * 100, tostring(bestPlan.filler), bestRes.manaSpent,
+            (bestRes.lowest.hp or 0) * 100))
+        -- the search must not lose to a baseline it was seeded with
+        local base = MD.SimPlanner.RunPlan(sc, MD.SimPlanner.Baselines(rec, MD.RankMath:SpellKit())[1].plan,
+            { critMode = "ev" })
+        local baseSnap = { manaSpent = base.manaSpent, healed = base.healed, overhealed = base.overhealed,
+                           floorSeconds = base.floorSeconds, deaths = { n = base.deaths.n },
+                           lowest = { hp = base.lowest.hp } }
+        local bs = MD.SimPlanner.Score(baseSnap, bestPlan, 0)
+        local ws = MD.SimPlanner.Score(bestRes, bestPlan, 0)
+        check("search beats or ties max rank", not MD.SimPlanner.Better(bs, ws),
+            string.format("best %.0f vs max-rank %.0f mana", bestRes.manaSpent, base.manaSpent))
+    end
+end
+
 print(string.format("\n%d ok, %d failed", ok, #fails))
 if #fails > 0 then for _, m in ipairs(fails) do print("  FAIL " .. m) end; os.exit(1) end

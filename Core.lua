@@ -42,6 +42,7 @@ local DEFAULTS = {
     simGateHpMean = 0.05,     -- mean |delta| on one target's health, fraction of its max
     simGateHpMax = 0.15,      -- worst single health snapshot
     simForeignShare = 0.25,   -- above this share of foreign healing, replay is fiction
+    simAllowRebinds = false,  -- let the search change which RANKS you bind, not just the thresholds
     healAmountGross = nil, -- latched from the combat log: does SPELL_HEAL's "amount" include the overheal?
     firstRun = true,
     minimap = { hide = false, angle = 220 },
@@ -327,7 +328,7 @@ MD.COMMANDS = {
     { "/md spamtest",     "arm, then chain-cast one spell to OOM: checks the dashboard's To OOM column" },
     { "/md simrun",       "self-tests for the simulation engine (heals, HoT refresh, GCD, 5SR)" },
     { "/md simreplay [n]", "replay recorded fight n (or the BF-1 fixture) and score it against the log" },
-    { "/md coach [n]",    "what a plan would have done on recorded fight n, and where your mana went" },
+    { "/md coach [n]",    "search for a better plan on recorded fight n and show the card (cancel stops it)" },
     { "/md debug",        "toggle the debug console (enable logging there, Copy to export)" },
 }
 

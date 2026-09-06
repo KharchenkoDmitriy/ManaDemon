@@ -338,6 +338,13 @@ Two things to judge, and they are the whole point:
 
 Also check the debug `sim` line `classifier: N labelled vs M spent` — those two must match.
 
+**v0.7.5:** `/md coach` now searches for a better plan before drawing the card. It runs across
+frames; `/md coach cancel` stops it. **Watch for a freeze** — if the client hitches at all when
+you run it, say so: the slicing uses `debugprofilestop()` and if that behaves differently on
+this client the whole search would land in one frame. The debug `sim` category prints
+`search done: N evaluation(s)` with the winning tuple, and a physical-floor line that must
+never say `IMPOSSIBLE` (that would mean the engine is healing for free).
+
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
 raw numbers. `/md profile` output is welcome with any report. I turn them into
