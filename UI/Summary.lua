@@ -185,11 +185,27 @@ end
 -- between pulls is exactly the sort of casting whose overheal belongs in the
 -- average.
 MD:On("COMBAT_LOG_EVENT_UNFILTERED", function()
+    -- One unpack for the whole addon. The 11-field prefix is fixed; what p1..p10
+    -- mean depends on the subevent (docs/SPEC-v0.7.md 1), so they are named
+    -- generically here and interpreted by whoever needs them. For the heal
+    -- events this file cares about: p1 spellID, p2 spellName, p4 amount,
+    -- p5 overheal, p7 critical.
     local _, subevent, _, sourceGUID, _, _, _, destGUID, destName, _, _,
-        spellID, spellName, _, amount, overheal, _, critical = CombatLogGetCurrentEventInfo()
+        p1, p2, p3, p4, p5, p6, p7, p8, p9, p10 = CombatLogGetCurrentEventInfo()
+    local spellID, spellName, amount, overheal, critical = p1, p2, p4, p5, p7
     -- group members' own casts (Life Tap) before the player-only gate
     if subevent == "SPELL_CAST_SUCCESS" and MD.Targets then
         MD.Targets:NoteCast(sourceGUID, spellName)
+    end
+    -- The recorder sees everything, including other people's damage and heals;
+    -- it decides for itself what is worth keeping (Engine/FightRecorder.lua).
+    if MD.FightRecorder and MD.FightRecorder.active then
+        if subevent == "UNIT_DIED" then
+            MD.FightRecorder:Died(destGUID, destName)
+        else
+            MD.FightRecorder:Event(subevent, sourceGUID, destGUID, destName,
+                p1, p2, p3, p4, p5, p6, p7, p8, p9, p10)
+        end
     end
     if sourceGUID ~= MD.player.guid then return end
     -- SPELL_CAST_SUCCESS carries the cast's target in the prefix destGUID /
@@ -286,12 +302,14 @@ MD:On("PLAYER_REGEN_DISABLED", function()
         fight.startMana, UnitPowerMax("player", 0), MD.Regen.base, MD.Regen.casting,
         GetRealZoneText and GetRealZoneText() or "?")
     MD:Debug("sim", "pull: %d cast(s) in the last %ds carried into the fight", #fight.precasts, RING_WINDOW)
+    if MD.FightRecorder then MD.FightRecorder:Start(now) end
     if MD.Targets then MD:Debug("combat", "roster: %s", MD.Targets:RosterLine()) end
 end)
 
 -- OOM detection (below 2% counts as dry) and the fight's mana low-water mark.
 MD:OnTick(function()
     if not fight then return end
+    if MD.FightRecorder then MD.FightRecorder:Tick() end
     local manaMax = UnitPowerMax("player", 0)
     if manaMax <= 0 then return end
     local frac = UnitPower("player", 0) / manaMax
@@ -417,6 +435,7 @@ MD:On("PLAYER_REGEN_ENABLED", function()
     local ST = MD.Spend
     if duration < 15 or ST.combat.spent <= 0 then
         MD:Debug("combat", "end: %.0fs, spent %d - too short to record", duration, ST.combat.spent)
+        if MD.FightRecorder then MD.FightRecorder:Finish(duration) end
         return
     end
 
@@ -526,6 +545,9 @@ MD:On("PLAYER_REGEN_ENABLED", function()
         end
     end
 
+    local stream
+    if MD.FightRecorder then stream = MD.FightRecorder:Finish(duration, labels) end
+
     -- Fights with almost no casting say nothing about how the healer played and
     -- would poison both the spend seed and the habit counts, so they are not
     -- kept at all (SPEC-v0.7 §2.3).
@@ -551,10 +573,10 @@ MD:On("PLAYER_REGEN_ENABLED", function()
         labelCasts = labelCasts,
         hpBuckets = hpBuckets,
         prehot = prehotMana,
-        foreignShare = nil,   -- v0.7.2, when the recorder sees other healers
+        foreignShare = stream and stream.foreignShare or nil,
         lowestMana = f.lowestMana,
         ownCasts = f.ownCasts,
-        streamID = nil,       -- v0.7.2
+        streamID = stream and stream.id or nil,
     }
     if #MD.fightHistory > MAX_HISTORY then
         table.remove(MD.fightHistory, 1)

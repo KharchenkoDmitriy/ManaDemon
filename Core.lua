@@ -33,6 +33,8 @@ local DEFAULTS = {
                           -- chained casts go out at the GCD with no delay at all
     simMinActivity = 0,   -- minimum fraction of the fight a plan must spend casting (0 = off;
                           -- waiting is a legitimate action for a 5-man healer)
+    recordFights = true,  -- keep the full event stream of the last 8 interesting pulls so they
+                          -- can be replayed (Engine/FightRecorder.lua). Summaries run regardless
     healAmountGross = nil, -- latched from the combat log: does SPELL_HEAL's "amount" include the overheal?
     firstRun = true,
     minimap = { hide = false, angle = 220 },

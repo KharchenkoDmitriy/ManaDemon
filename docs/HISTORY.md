@@ -815,3 +815,37 @@ on a path the dashboard runs every 2 s.
 
 **Next:** v0.7.2 — `Engine/FightRecorder.lua` (full streams) and the `/md export` recording
 section.
+
+## 2026-09-06 — v0.7.2: the fight recorder
+
+`Engine/FightRecorder.lua` (spec §4). The full stream of one pull as parallel arrays of
+numbers: damage on tracked targets (minus overkill), full absorbs, foreign heals, own casts,
+own heals and ticks with the crit flag, cast starts with a synthesized `CANCEL` when no
+success follows, form changes, mana samples every 2 s, HP snapshots every 5 s, deaths, the
+initial aura scan and the 20 s pre-pull ring. Indexed by the **same session roster the v0.7.0
+cast records use**, so a precast's `tgt` and a damage event's `tgt` mean the same person with
+no translation anywhere.
+
+Tracked is the party in a 5-man and the player's subgroup plus main tanks in a raid; nothing
+about an untracked unit is recorded at all. Gate `dur >= 20 and ownCasts >= 5`; eight streams
+kept, and the one that goes is the cheapest fight that is neither pinned nor one of the three
+most recent — mana spent is the proxy for "did this pull have anything to teach". `/md export`
+gained the `# recording n` blocks (roster, initial, precasts, ev, hp, mana).
+
+`UI/Summary.lua`'s single handler now unpacks the 11-field prefix plus ten generic payload
+slots and forwards them; the recorder decides what is worth keeping. That keeps the promise of
+one `CombatLogGetCurrentEventInfo()` call per event.
+
+**`tools/reccheck.lua`** drives a whole fake pull — a party of five, damage on the tank and the
+mage, own casts including a utility buff, a Rejuvenation refreshed with ticks pending, a
+Lifebloom on a full-health target, a foreign heal, a death, pre-pull HoTs that all overheal —
+through the real handler, and asserts twenty things about the stream, the labels, the summary
+row and `/md export`. All twenty pass. It found two real bugs while being written:
+
+- `FightRecorder:Start` snapshotted the roster **before** the tracked set assigned indices to
+  group members nobody had healed yet, so every stream's roster had one entry.
+- and (in the test itself, which is worth recording because it is the trap CLAUDE.md names)
+  splicing a helper's eleven return values into a non-final argument position truncated them
+  to one, silently swallowing every scripted combat-log event.
+
+**Next:** v0.7.3 — the HP half of replay, the six gates, `/md simreplay [n]`, Validate.

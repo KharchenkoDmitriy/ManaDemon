@@ -324,6 +324,69 @@ function MD:Export()
         for _, row in ipairs(MD.Targets:ExportRows()) do out[#out + 1] = row end
     end
 
+    -- Recorded streams (v0.7.2): the parallel arrays as they are, one event per
+    -- row. This is the raw material for offline replay, so it is dumped
+    -- verbatim rather than summarised -- a summary of a stream is what the
+    -- Review tab is for.
+    if MD.FightRecorder then
+        for n, r in ipairs(MD.FightRecorder:List()) do
+            add("# recording " .. n, r.id or "", r.zone or "",
+                string.format("%.1f", r.dur or 0), "pool " .. (r.pool or 0),
+                (r.ownCasts or 0) .. " casts", (r.spent or 0) .. " mana",
+                string.format("foreign %.0f%%", (r.foreignShare or 0) * 100),
+                r.truncated and "TRUNCATED" or "", r.pinned and "pinned" or "")
+            add("# roster")
+            add("idx", "name", "class", "role", "roleSource", "maxHP", "tracked")
+            local trackedSet = {}
+            for _, idx in ipairs(r.tracked or {}) do trackedSet[idx] = true end
+            for i, e in ipairs(r.roster or {}) do
+                add(i, e.name or "", e.class or "", e.role or "", e.roleSource or "",
+                    e.maxHP or -1, trackedSet[i] and "y" or "")
+            end
+            local init = r.initial or {}
+            add("# initial", "mana " .. (init.mana or 0), "base " .. (init.apiBase or 0),
+                "casting " .. (init.apiCasting or 0), init.form or "?")
+            for _, a in ipairs(init.auras or {}) do
+                add("aura", a.target, a.spellID, a.stacks, string.format("%.1f", a.remaining or 0))
+            end
+            for _, b in ipairs(init.buffs or {}) do
+                add("buff", b.spellID or 0, b.name or "", string.format("%.1f", b.remaining or 0))
+            end
+            add("# precasts")
+            add("t", "spellID", "cost", "tgt", "hpAtCast", "form")
+            for _, c in ipairs(r.precasts or {}) do
+                add(string.format("%.2f", c[1]), c[2], c[3], c[4],
+                    string.format("%.3f", c[5] or -1), c[6])
+            end
+            add("# ev")
+            add("t", "kind", "tgt", "amt", "x")
+            local ev = r.ev or {}
+            for i = 1, #(ev.t or {}) do
+                add(string.format("%.2f", ev.t[i]), ev.kind[i], ev.tgt[i],
+                    string.format("%.0f", ev.amt[i] or 0), ev.x[i])
+            end
+            add("# hp")
+            local hp = r.hp or {}
+            local head = { "t" }
+            for _, idx in ipairs(r.tracked or {}) do head[#head + 1] = "hp" .. idx end
+            for _, idx in ipairs(r.tracked or {}) do head[#head + 1] = "max" .. idx end
+            add(unpack(head))
+            for i = 1, #(hp.t or {}) do
+                local row = { string.format("%.1f", hp.t[i]) }
+                for _, idx in ipairs(r.tracked or {}) do row[#row + 1] = hp.hp[idx][i] or -1 end
+                for _, idx in ipairs(r.tracked or {}) do row[#row + 1] = hp.max[idx][i] or -1 end
+                add(unpack(row))
+            end
+            add("# mana")
+            add("t", "v", "base", "cast")
+            local mn = r.mana or {}
+            for i = 1, #(mn.t or {}) do
+                add(string.format("%.1f", mn.t[i]), mn.v[i],
+                    string.format("%.2f", mn.base[i] or 0), string.format("%.2f", mn.cast[i] or 0))
+            end
+        end
+    end
+
     if MD.Calibration and MD.Calibration.ExportRows then
         add("# calibration")
         add("spellID", "kind", "n", "obs", "pred")

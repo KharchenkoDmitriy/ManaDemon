@@ -10,7 +10,7 @@ exposed a sim leak (fixed). Also found: a false "cooldown used: Innervate" on ev
 (the GCD; fixed) and the `/md profile` paste came out **empty** (see §2b).
 
 **Still to do, in this order:** §0b · §2b · **§12 roster in a group** (the biggest unknown)
-· **§15 (new in v0.7.0, and it depends on §12 working)** · **§16 (new in v0.7.1)** · §5 (needs a hard pull) · §9
+· **§15 (new in v0.7.0, and it depends on §12 working)** · **§16 (new in v0.7.1)** · §17 · §5 (needs a hard pull) · §9
 (needs one Innervate) · §11 again after a dungeon night · §13 · §14. §1, §3, §4, §4b, §7
 are regression-only.
 
@@ -274,6 +274,27 @@ Also, for reference: `/md simrun` should print **10 tests, all ok**, and `/md si
 fixture` should print `spend ... (exact)` and a `measured ... -> PASS` line. Those two run
 anywhere, including at the character select screen's login, and are worth doing once after
 this update just to confirm nothing about your talents breaks the engine.
+
+## 17. Fight recording (one dungeon, v0.7.2) — NEW
+Nothing to do but play. After a few pulls, `/md export` should carry `# recording 1` ..
+`# recording 8` blocks, each with a roster, the initial auras, the pre-pull casts and the raw
+event stream. Paste one export after a dungeon night.
+
+What to look at yourself, in the Debug Console with **Sim** on:
+
+- `recording started: N tracked, M initial aura(s), K precast(s)` at each pull. In a 5-man
+  N should be 5. **If M is 0 while you had HoTs rolling, say so** — the aura scan is the one
+  part of this that could not be tested offline.
+- `stream <id> recorded: 40s, 312 events, 19 casts, 6169 mana, foreign 22%` at the end.
+  *foreign* is how much of the healing on your group was somebody else's; in a 5-man with one
+  healer it should be small. If it is over ~50%, replay of that fight will be fiction and the
+  Review tab will say so.
+- `stream discarded` for short pulls is normal (under 20 s or under 5 casts).
+
+Size: eight streams is the cap and the cheapest non-recent, non-pinned pull is the one that
+gets replaced. If your `ManaDemonDB` starts feeling large, tell me the file size — the budget
+was ~180 KB for the streams and that is worth checking against reality. `db.recordFights =
+false` turns recording off entirely; summaries keep working.
 
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the

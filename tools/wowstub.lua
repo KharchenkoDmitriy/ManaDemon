@@ -17,37 +17,52 @@ _G.STUB = S
 S.now = 0
 function GetTime() return S.now end
 function time() return 1757000000 end
+function date(fmt, t) return os.date(fmt, t or 1757000000) end
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function strsplit(sep, s) return s end
 function GetAddOnMetadata() return "0.7.1" end
 function GetLocale() return "enUS" end
 
 S.mana, S.manaMax = 7009, 7009
-S.health, S.healthMax = 5000, 5000
 S.stats = { [4] = 425, [5] = 380 } -- Int, Spirit
 S.level = 64
-S.talents = {}
+
+-- Unit model. Only what the engine path reads: a token -> one table. Party
+-- slots can be added by a harness script (see tools/reccheck.lua).
+S.units = {
+    player = { guid = "Player-1", name = "Penek", class = "DRUID", role = "HEALER",
+               hp = 5000, hpMax = 5000 },
+}
+S.unitOrder = { "player" }
+function S.AddUnit(token, t)
+    S.units[token] = t
+    S.unitOrder[#S.unitOrder + 1] = token
+    return t
+end
+local function U(u) return S.units[u] end
 
 function UnitPower(u, t) return S.mana end
 function UnitPowerMax(u, t) return S.manaMax end
 function UnitPowerType(u) return 0 end
-function UnitHealth(u) return S.health end
-function UnitHealthMax(u) return S.healthMax end
-function UnitGUID(u) return u == "player" and "Player-1" or nil end
-function UnitName(u) return "Penek" end
-function UnitClass(u) return "Druid", "DRUID" end
+function UnitHealth(u) local x = U(u); return x and x.hp or 0 end
+function UnitHealthMax(u) local x = U(u); return x and x.hpMax or 1 end
+function UnitGUID(u) local x = U(u); return x and x.guid or nil end
+function UnitName(u) local x = U(u); return x and x.name or nil end
+function UnitClass(u) local x = U(u); return x and x.class or "DRUID", x and x.class or "DRUID" end
 function UnitLevel(u) return S.level end
 function UnitStat(u, i) return S.stats[i] or 0, S.stats[i] or 0, 0, 0 end
-function UnitExists(u) return u == "player" end
+function UnitExists(u) return U(u) ~= nil end
 function UnitIsUnit(a, b) return a == b end
 function UnitAffectingCombat() return false end
-function UnitGroupRolesAssigned() return "NONE" end
+function UnitGroupRolesAssigned(u) local x = U(u); return x and x.role or "NONE" end
 function GetPartyAssignment() return false end
 function GetRealmName() return "Anniversary" end
 function GetRealZoneText() return "Blood Furnace" end
 function IsInRaid() return false end
-function GetNumGroupMembers() return 1 end
+function GetNumGroupMembers() return #S.unitOrder end
+function GetRaidRosterInfo() return nil end
 function InCombatLockdown() return false end
+function UnitAura() return nil end
 
 function GetManaRegen() return 69.24, 28.33 end
 function GetSpellBonusHealing() return 450 end
@@ -55,7 +70,15 @@ function GetSpellCritChance() return 15 end
 function GetInventoryItemID() return nil end
 function GetItemInfo() return nil end
 function GetSpellCooldown() return 0, 0, 1 end
-function GetSpellPowerCost() return nil end  -- force the static cost table
+-- Live costs: nil for the druid healing table (so Data/SpellData.lua's static
+-- maths is exercised), a real answer for the spells that table does not know --
+-- which is exactly the split the live client produces.
+S.liveCosts = { [9885] = 445, [26992] = 400, [2782] = 135, [33891] = 332, [17116] = 0 }
+function GetSpellPowerCost(id)
+    local c = S.liveCosts[id]
+    if c then return { { type = 0, cost = c } } end
+    return nil
+end
 function IsSpellKnown(id) return S.known[id] == true end
 function IsPlayerSpell(id) return S.known[id] == true end
 function GetSpellInfo(id)
@@ -65,8 +88,15 @@ end
 function GetNumTalentTabs() return 3 end
 function GetNumTalents() return 0 end
 function GetTalentInfo() return nil end
-function CombatLogGetCurrentEventInfo() return 0, "NONE" end
-function UnitBuff() return nil end
+-- Scripted combat log: S.Combat(subevent, ...) sets the payload and fires the
+-- event, exactly as the client would.
+S.clog = { 0, "NONE" }
+function CombatLogGetCurrentEventInfo() return unpack(S.clog, 1, S.clogN or #S.clog) end
+function S.Combat(...)
+    S.clog = { ... }
+    S.clogN = select("#", ...)
+    S.Fire("COMBAT_LOG_EVENT_UNFILTERED")
+end
 function GetWeaponEnchantInfo() return false end
 function IsUsableSpell() return true end
 function GetItemCount() return 0 end
