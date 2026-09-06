@@ -993,3 +993,39 @@ Two API notes for future UI work here: `Enable()`/`Disable()` rather than `SetEn
 wrong first time and only a careful read caught them, since no harness covers UI.
 
 **Next:** v0.7.7 — `UI/SimWindow.lua`, `Data/SimPresets.lua`, `FromRecordings`, Monte Carlo.
+
+## 2026-09-06 — v0.7.7: the Simulation window, and the end of the v0.7 spec
+
+`Data/SimPresets.lua` (party / incoming damage / situation, plus `BuildScenario` which turns a
+preset into events on a 1 s grid), `SimPlanner.FromRecordings`, `SimPlanner.MonteCarlo` and
+`UI/SimWindow.lua` (`/md sim`).
+
+**The header of the presets file is the important part:** every number in it is a placeholder,
+one healer's impression of what a 5-man feels like, written down so the window has something
+to run before any fight has been recorded. The window says so in grey, and **From recordings**
+replaces them with `FromRecordings` measurement — per target, tagged by role, splitting a
+steady rate from "big hits" (a second's damage worth ≥ `db.simBigHit` of that target's max
+health) with p50/p90 sizes and the provenance string printed next to it.
+
+Monte Carlo runs in the synthetic window and nowhere else — not inside the search, not on a
+replay card, both of which the debate rejected. Thirty replicates with damage perturbed and
+**crits rolled**, answering one question: how often does this plan lose somebody when the
+fight is not exactly average? The first run answered it usefully — the mana-optimal plan on
+the dungeon preset holds everyone deterministically and violates the floor in **every**
+replicate. A plan that only works on average crits is a bad plan, and this is the only place
+that shows it.
+
+That test also exposed that `critMode = "roll"` had never been implemented (it silently
+returned the non-crit amount). It now rolls a seeded LCG, so a replicate is reproducible on
+any client and `math.random`'s global state is never touched.
+
+`tools/simwindow.lua` covers the synthetic path: all 120 preset combinations build a scenario
+with sorted events, the search completes on one, the winner is no worse than the baseline it
+was seeded with, the replicates run, and — the assertion worth having — **the replicates
+restore the damage array they perturbed**, since the scenario is reused by the caller.
+
+**v0.7 is now complete**: v0.7.0 labels, v0.7.1 engine, v0.7.2 recorder, v0.7.3 replay and
+gates, v0.7.4 plans and the card, v0.7.5 search, v0.7.6 Review tab, v0.7.7 simulation. Three
+offline harnesses (`simcheck` 10, `reccheck` 34, `simwindow` 8) all pass. Everything that
+remains is in-game: TESTING §15-§21, and §16 (the 116 mp5 the regen API does not report) is
+still the single most valuable one.

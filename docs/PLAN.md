@@ -108,7 +108,9 @@ one commit with its "verifiable by" line in the spec §0.
   sliced on `debugprofilestop`. Beats both baselines on the harness fight.)*
 - [x] **v0.7.6** `UI/Dashboard_Review.lua` (Review tab) + the Fight recording settings pane.
   *(shipped; UI is in-game-only verification -- TESTING §20.)*
-- [ ] **v0.7.7** `UI/SimWindow.lua`, `Data/SimPresets.lua`, `FromRecordings`, Monte Carlo.
+- [x] **v0.7.7** `UI/SimWindow.lua`, `Data/SimPresets.lua`, `FromRecordings`, Monte Carlo.
+  *(shipped; the synthetic path is covered by `tools/run.sh tools/simwindow.lua`, the window
+  itself only in-game -- TESTING §21.)*
 
 ## Phase 2 — other classes (after 1 is green)
 

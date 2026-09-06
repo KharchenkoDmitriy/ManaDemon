@@ -333,6 +333,7 @@ MD.COMMANDS = {
     { "/md simrun",       "self-tests for the simulation engine (heals, HoT refresh, GCD, 5SR)" },
     { "/md simreplay [n]", "replay recorded fight n (or the BF-1 fixture) and score it against the log" },
     { "/md coach [n]",    "search for a better plan on recorded fight n and show the card (cancel stops it)" },
+    { "/md sim",          "simulation window: build a fight and find the cheapest plan that holds it" },
     { "/md debug",        "toggle the debug console (enable logging there, Copy to export)" },
 }
 
@@ -403,6 +404,8 @@ SlashCmdList.MANADEMON = function(msg)
         if MD.RunSimReplay then MD:RunSimReplay(arg) end
     elseif cmd == "coach" then
         if MD.RunCoach then MD:RunCoach(arg) end
+    elseif cmd == "sim" then
+        if MD.ToggleSimWindow then MD:ToggleSimWindow() end
     elseif cmd == "debug" then
         if MD.ToggleDebugConsole then MD:ToggleDebugConsole() end
     else

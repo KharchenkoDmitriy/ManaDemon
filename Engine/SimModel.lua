@@ -321,11 +321,25 @@ function SM:Run(scenario, plan, opts)
         ScheduleHot(ti, fi, st)
     end
 
+    -- Crits. "ev" multiplies by the expectation, which is right for comparing
+    -- plans; "roll" rolls a seeded generator, which is what the Monte Carlo
+    -- replicates need -- a plan that only holds on average crits is a plan that
+    -- loses somebody one fight in five. The generator is a plain LCG so a seed
+    -- reproduces a replicate exactly, on any client, without touching
+    -- math.random's global state.
+    local rngState = (opts.seed or 1) * 2654435761 % 2147483647
+    local function Roll()
+        rngState = (rngState * 1103515245 + 12345) % 2147483648
+        return rngState / 2147483648
+    end
     local function DirectAmount(e)
         local d = e.direct or 0
         if d <= 0 then return 0 end
-        if critMode == "ev" then return d * (1 + 0.5 * (e.directCrit or crit)) end
-        return d
+        local p = e.directCrit or crit
+        if critMode == "roll" then
+            return Roll() < p and d * 1.5 or d
+        end
+        return d * (1 + 0.5 * p)
     end
 
     -- One cast landing. Instants land the moment they are cast; everything else

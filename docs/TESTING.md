@@ -10,7 +10,7 @@ exposed a sim leak (fixed). Also found: a false "cooldown used: Innervate" on ev
 (the GCD; fixed) and the `/md profile` paste came out **empty** (see §2b).
 
 **Still to do, in this order:** §0b · §2b · **§12 roster in a group** (the biggest unknown)
-· **§15 (new in v0.7.0, and it depends on §12 working)** · **§16 (new in v0.7.1)** · §17 · §18 · §19 · §20 · §5 (needs a hard pull) · §9
+· **§15 (new in v0.7.0, and it depends on §12 working)** · **§16 (new in v0.7.1)** · §17 · §18 · §19 · §20 · §21 · §5 (needs a hard pull) · §9
 (needs one Innervate) · §11 again after a dungeon night · §13 · §14. §1, §3, §4, §4b, §7
 are regression-only.
 
@@ -363,6 +363,24 @@ now — check it still fits your screen.
 
 Report anything that overlaps, overflows or reads wrong. This is the first new tab since v0.5
 and none of it can be checked outside the game.
+
+## 21. The Simulation window (v0.7.7) — NEW
+`/md sim`. Pick a party size, a damage pattern and a starting state, set a length, press
+**Run**. It runs the max-rank and HoTs-only baselines, then searches for a better plan, then
+runs 30 randomised replicates of the winner.
+
+**The damage numbers are made up.** The window says so in grey until you press **From
+recordings**, which replaces them with what actually happened in your recorded fights, per
+role, and prints how many fights and seconds it measured. Please do that once you have a few
+recordings and tell me how far the placeholders were off — the presets are one healer's guess
+written down so the window had something to run, and they are meant to be replaced.
+
+What to judge:
+1. Does the suggested plan look like something you would do?
+2. The replicate line — *"someone below the floor 40% of the time"* — is the interesting one.
+   A plan that is mana-optimal but only holds on average crits is a bad plan, and this is the
+   only place that shows it.
+3. Does the search freeze anything? (Same concern as §19.)
 
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
