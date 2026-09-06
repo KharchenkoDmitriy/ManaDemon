@@ -1086,3 +1086,27 @@ shape and asserts the histogram recovers it.
 
 No model behaviour changed. All harnesses pass (simcheck 10, reccheck 34, simwindow 8,
 regencheck 8) and the fixture still replays at mean 1.3% / max 2.8%.
+
+## 2026-09-06 — v0.8 specified: a replay that plays
+
+The author's next feature, in their words: a replay window that renders two sets of unit
+frames — what actually happened, and what the math suggested — "stupid simple" first (HP
+bar, where each cast went), indicators added per iteration. Cell's layout preview as the look.
+
+Three calls made in conversation, no debate round needed (it is a renderer over v0.7's
+decided machinery): **one window, two columns, one clock**; **both columns from the engine**,
+with the recorder's real 5 s HP snapshots drawn as ticks on the left bars so the
+reconstruction's error is visible at every moment; **Play without a plan allowed** — the left
+column is class-agnostic and works for any healer on day one.
+
+`docs/SPEC-v0.8.md` written in the v0.7 shape: delivery order with a verifiable-by line per
+version, the trace format (`SM.TK` kinds, fixed 0.25 s grid, drained strictly before the next
+event — the v0.7.1 sample-ordering bug named so a second sampler cannot re-introduce it),
+`Engine/ReplayTrace.lua` as a frame-free state machine so playback is harness-testable
+(*seek == step* is the assertion), `SP.Replay` as the one call that builds both columns, the
+window layout, the per-cast labels, and the recorder extension for defensive cooldowns and
+debuffs (recorded, rendered, **never modelled** — the damage they changed was recorded as it
+happened). A rejected list, so nothing gets re-proposed. `docs/PLAN.md` Phase 1.8 and
+`docs/DECISIONS.md` §v0.8 carry the calls.
+
+Nothing implemented yet; harnesses unchanged and green.

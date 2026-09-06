@@ -542,3 +542,27 @@ inside it.
 **One drive-by fix:** `lbHot` / `lbBloom` in `Engine/RankMath.lua`'s `RowFor` were globals.
 Behaviour was correct by luck (only the Lifebloom branch reads them, and it always writes
 them first), but they were `_G` writes on a path the dashboard runs every 2 s.
+
+## v0.8 (2026-09-06): replay visualisation — three calls, no debate
+
+The author asked for a replay that *plays*: two sets of unit frames, what happened next to
+what the math suggested, "stupid simple" first — HP bar and where each cast went — and
+indicators added per iteration (HoTs, debuffs, defensive cooldowns, role, class). Cell's
+layout preview was the reference. It is a renderer over v0.7's decided machinery, so it got
+a spec (`docs/SPEC-v0.8.md`) rather than a debate round. The three calls:
+
+1. **One window, two columns, one clock.** The author had floated two windows; lockstep is
+   the point, and two windows drift and double the chrome.
+2. **Both columns are engine output.** Author's own reasoning: generating both from the
+   engine "will lead to better comparison compatibility" — yes, and precisely because the
+   damage is then identical by construction and every visible difference is a healer
+   decision. The recorder's real 5 s HP snapshots stay on screen as **ticks on the left
+   bars**: the health gate's number turned into a picture, so trust in the right column is
+   earned from the left one the way the gates earn it.
+3. **Play without a plan is allowed.** The left column is class-agnostic and works the day it
+   ships; only the right column is Druid-only.
+
+Carried over unchanged: the causality invariant, the search never traces, nothing from this
+work enters the model. Rejected up front (spec §7): raw snapshots as the left column, Cell's
+real unit buttons, interpolation between grid points, playing live, Monte Carlo playback,
+running the search from Play, modelling defensive cooldowns in the engine.
