@@ -1085,3 +1085,311 @@ function SP.MonteCarlo(scenario, plan, derived, k)
     return { k = k, floorRate = violations / k, deathRate = deaths / k,
              derived = derived and derived.provenance or nil }
 end
+
+--------------------------------------------------------------------------------
+-- THE RUN (docs/SPEC-v0.9.md 5): the same coordinate descent, one plan for the
+-- whole dungeon, scored on a chain of pulls with the gaps in between.
+--
+-- The score is v0.7's tuple with TIME put in front of mana:
+--   (deaths, floorSeconds, addedTime, drinks, manaSpent, -heldOn, #binds, overheal)
+-- `addedTime` is the time the run got LONGER because a drink did not fit its
+-- gap; `drinks` is next because each is most of a minute of five people standing
+-- still even when it does fit. Mana ranks after both: in a dungeon mana is only
+-- worth the time it saves (docs/DECISIONS.md v0.9).
+--------------------------------------------------------------------------------
+SP.POLICY_DOMAINS = { below = { 0.40, 0.50, 0.60, 0.70, 0.80 }, upTo = { 0.80, 0.90, 1.00 } }
+SP.POLICY_ORDER = { "below", "upTo" }
+
+function SP.ChainScore(chain, plan, heldOn)
+    local oh, total = 0, (chain.healed or 0) + (chain.overhealed or 0)
+    if total > 0 then oh = chain.overhealed / total end
+    return { chain.deaths or 0, chain.floorSeconds or 0, chain.addedTime or 0,
+             chain.drinks or 0, chain.manaSpent or 0, -(heldOn or 0),
+             plan and plan:BindCount() or 0, oh }
+end
+
+local function ChainSnap(c)
+    return { deaths = c.deaths, floorSeconds = c.floorSeconds, manaSpent = c.manaSpent,
+             healed = c.healed, overhealed = c.overhealed, drinks = c.drinks,
+             drinkTime = c.drinkTime, addedTime = c.addedTime, wall = c.wall,
+             lowest = { hp = c.lowest.hp, tgt = c.lowest.tgt, pull = c.lowest.pull },
+             oomPulls = c.oomPulls, innervates = c.innervates, potionMana = c.potionMana,
+             policy = c.policy, drinkRate = c.drinkRate, drinkRateSource = c.drinkRateSource,
+             pulls = c.pulls, gaps = c.gaps, pool = c.pool }
+end
+SP.ChainSnap = ChainSnap
+
+-- The run search. A chain costs one simulation per pull, so the evaluation
+-- budget scales down with the length of the dungeon rather than being a flat
+-- 300: thirty pulls at 300 evaluations would be nine thousand fight sims.
+function SP.SearchRun(run, opts, onProgress, onDone)
+    SM = SM or MD.SimModel
+    opts = opts or {}
+    local kit = opts.kit or MD.RankMath:SpellKit()
+    local pulls = run.pulls or {}
+    local binds = opts.binds or SP.MaxRankBinds()
+    local maxEvals = opts.maxEvals or math.max(24, math.min(300, math.floor(2400 / math.max(1, #pulls))))
+    local evals, seen = 0, {}
+    local best, bestScore, bestChain = nil, nil, nil
+
+    local function Key(p)
+        return string.format("%.2f|%.2f|%d|%.2f|%s|%.2f|%.2f", p.swiftmendBelow, p.directBelow,
+            p.rollStacks, p.hotBelow, tostring(p.filler), p.below, p.upTo)
+    end
+
+    local function Eval(params)
+        local key = Key(params)
+        if seen[key] then return seen[key] end
+        if evals >= maxEvals then return nil end
+        local plan = SP.NewPlan(binds, params, kit)
+        local chain = SM.ChainRun(run, kit, { plan = plan, drinkRate = opts.drinkRate,
+            policy = { below = params.below, upTo = params.upTo } })
+        evals = evals + 1
+        local snap = ChainSnap(chain)
+        local out = { plan = plan, chain = snap, score = SP.ChainScore(snap, plan, 0), params = params }
+        seen[key] = out
+        if SP.Better(out.score, bestScore) then best, bestScore, bestChain = plan, out.score, snap end
+        return out
+    end
+
+    local seeds = {
+        { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 3, hotBelow = 0.80, filler = false,
+          below = 0.60, upTo = 0.95 },
+        { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 3, hotBelow = 0.80, filler = false,
+          noDirect = true, below = 0.60, upTo = 0.95 },
+        { swiftmendBelow = 0.30, directBelow = 0.35, rollStacks = 0, hotBelow = 0.60, filler = false,
+          below = 0.50, upTo = 0.90 },
+    }
+    local order = {}
+    for _, n in ipairs(SP.PARAM_ORDER) do order[#order + 1] = n end
+    for _, n in ipairs(SP.POLICY_ORDER) do order[#order + 1] = n end
+    local function Domain(name)
+        return SP.DOMAINS[name] or SP.POLICY_DOMAINS[name]
+    end
+
+    local co = coroutine.create(function()
+        for _, seed in ipairs(seeds) do
+            local cur = {}
+            for k, v in pairs(seed) do cur[k] = v end
+            Eval(cur)
+            coroutine.yield()
+            local improved = true
+            while improved and evals < maxEvals do
+                improved = false
+                for _, name in ipairs(order) do
+                    local baseline = Eval(cur)
+                    for _, value in ipairs(Domain(name)) do
+                        if value ~= cur[name] then
+                            local trial = {}
+                            for k, v in pairs(cur) do trial[k] = v end
+                            trial[name] = value
+                            local out = Eval(trial)
+                            if out and baseline and SP.Better(out.score, baseline.score) then
+                                cur, improved, baseline = trial, true, out
+                            end
+                        end
+                        if evals >= maxEvals then break end
+                    end
+                    coroutine.yield()
+                    if evals >= maxEvals then break end
+                end
+            end
+        end
+    end)
+
+    local frame = CreateFrame("Frame")
+    local handle = { cancelled = false, evals = 0 }
+    function handle:Cancel() self.cancelled = true end
+    frame:SetScript("OnUpdate", function()
+        if handle.cancelled then
+            frame:SetScript("OnUpdate", nil)
+            if onDone then onDone(nil, nil, evals) end
+            return
+        end
+        local started, steps = NowMs(), 0
+        while coroutine.status(co) == "suspended"
+              and (started and (NowMs() - started) < SLICE_MS or (not started and steps < SLICE_STEPS)) do
+            steps = steps + 1
+            local ok, err = coroutine.resume(co)
+            if not ok then
+                frame:SetScript("OnUpdate", nil)
+                MD:Debug("sim", "run search error: %s", tostring(err))
+                if onDone then onDone(nil, nil, evals) end
+                return
+            end
+        end
+        handle.evals = evals
+        if onProgress then onProgress(evals, bestScore) end
+        if coroutine.status(co) == "dead" or evals >= maxEvals then
+            frame:SetScript("OnUpdate", nil)
+            MD:Debug("sim", "run search done: %d evaluation(s) over %d pull(s), best (deaths %d, floor %.0fs, " ..
+                "added %.0fs, drinks %d, mana %d)", evals, #pulls, bestScore and bestScore[1] or -1,
+                bestScore and bestScore[2] or -1, bestScore and bestScore[3] or -1,
+                bestScore and bestScore[4] or -1, bestScore and bestScore[5] or -1)
+            if onDone then onDone(best, bestChain, evals) end
+        end
+    end)
+    return handle
+end
+
+--------------------------------------------------------------------------------
+-- The run card (spec 5.4). Two rows -- what the run cost you, and what the best
+-- plan would have cost -- in the units a dungeon is measured in: time first.
+--------------------------------------------------------------------------------
+local function Pct(x) return string.format("%d%%", (x or 0) * 100 + 0.5) end
+
+-- How much of the run the engine actually reproduces. A pull the gates reject
+-- still goes into the chain -- its MANA is what a run is scored on, and the
+-- mana gate is the one v0.9.0 fixed -- but the card has to say how much of the
+-- health side it is standing on. One validation per pull, once, not per search
+-- evaluation.
+function SP.RunGates(run, kit)
+    SM = SM or MD.SimModel
+    kit = kit or MD.RankMath:SpellKit()
+    local out = { of = 0, failed = 0, byGate = {}, order = {} }
+    for _, rec in ipairs(run.pulls or {}) do
+        if not rec.short then
+            out.of = out.of + 1
+            local v = SM:Validate(rec, kit)
+            if v and not v.ok then
+                out.failed = out.failed + 1
+                for _, g in ipairs(v.gates) do
+                    if not g.ok then
+                        if not out.byGate[g.name] then
+                            out.byGate[g.name] = 0
+                            out.order[#out.order + 1] = g.name
+                        end
+                        out.byGate[g.name] = out.byGate[g.name] + 1
+                        break
+                    end
+                end
+            end
+        end
+    end
+    return out
+end
+
+function SP.RunCard(run, best, chain, you, evals, gates)
+    local RR = MD.RunRecorder
+    local out = {}
+    local function add(fmt, ...) out[#out + 1] = select("#", ...) > 0 and string.format(fmt, ...) or fmt end
+    local st = run.stats or {}
+
+    add("Run: %s -- %d pull(s), %s (combat %s)", run.name or "?", st.pulls or 0,
+        Clock(st.wall or 0), Pct(st.combatPct))
+
+    local function Row(label, c, extra)
+        local drink = (c.drinks or 0) > 0
+            and string.format("drank %dx (%s)", c.drinks, Clock(c.drinkTime or 0))
+            or "no drink"
+        add("  %-9s %-22s %-16s %6s spent   lowest %s%s", label, drink,
+            (c.addedTime or 0) > 0 and string.format("+%s waiting to drink", Clock(c.addedTime))
+                or "never forced",
+            Fmt(c.manaSpent or 0), Pct(c.lowest and c.lowest.hp),
+            extra or "")
+    end
+    Row("you", you, you.lowest and you.lowest.pull and string.format(" (pull %d)", you.lowest.pull) or "")
+    Row("best", chain, chain.lowest and chain.lowest.pull and string.format(" (pull %d)", chain.lowest.pull) or "")
+
+    if best then
+        local p = best:Params()
+        add("  the plan: Swiftmend <%s, direct <%s, HoT <%s, roll %d stack(s)%s",
+            Pct(p.swiftmendBelow), Pct(p.directBelow), Pct(p.hotBelow), p.rollStacks,
+            p.filler and ", filler on" or "")
+        local binds = {}
+        for _, fam in ipairs(SP.BINDABLE) do
+            local id = best.binds and best.binds[fam]
+            if id then binds[#binds + 1] = RankLabel(id) end
+        end
+        if #binds > 0 then add("  binds: %s", table.concat(binds, ", ")) end
+    end
+    add("  drink policy: under %s, up to %s   (rate %s)",
+        Pct(chain.policy and chain.policy.below), Pct(chain.policy and chain.policy.upTo),
+        chain.drinkRate and string.format("%d mana/s, %s", chain.drinkRate + 0.5, chain.drinkRateSource)
+            or chain.drinkRateSource)
+    local yours = RR and RR:DrinkPolicy(run)
+    if yours then
+        add("  yours was:    under %s, up to %s   (%d drink(s) recorded)",
+            Pct(yours.below), Pct(yours.upTo), yours.drinks)
+    end
+
+    -- where the two differ, per pull, biggest saving first
+    local diffs = {}
+    for i, p in ipairs(chain.pulls or {}) do
+        local y = you.pulls and you.pulls[i]
+        if y then
+            local d = (y.manaSpent or 0) - (p.manaSpent or 0)
+            if math.abs(d) > 200 then diffs[#diffs + 1] = { i, d, p, y } end
+        end
+    end
+    table.sort(diffs, function(a, b) return a[2] > b[2] end)
+    if #diffs > 0 then
+        local parts = {}
+        for i = 1, math.min(4, #diffs) do
+            parts[#parts + 1] = string.format("pull %d %s %s", diffs[i][1],
+                diffs[i][2] > 0 and "saves" or "costs", Fmt(math.abs(diffs[i][2])))
+        end
+        add("  where it differs: %s (Play one to see it: /md replay <run>:<pull>)",
+            table.concat(parts, ", "))
+    end
+
+    local short, dead = 0, 0
+    for _, p in ipairs(chain.pulls or {}) do
+        if p.short then short = short + 1 end
+        if (p.deaths or 0) > 0 then dead = dead + 1 end
+    end
+    if short > 0 or dead > 0 or (st.summarised or 0) > 0 then
+        add("  pulls not to trust: %d under the recording gate, %d with a death%s",
+            short, dead, (st.summarised or 0) > 0
+                and string.format(", %d summarised only (not simulated)", st.summarised) or "")
+    end
+    if gates and gates.failed > 0 then
+        local why = {}
+        for _, name in ipairs(gates.order) do
+            why[#why + 1] = string.format("%s %d", name, gates.byGate[name])
+        end
+        add("  pulls that do not replay: %d of %d (%s). Their mana still counts -- that is what a run is",
+            gates.failed, gates.of, table.concat(why, ", "))
+        add("  scored on -- but their health curves are the engine's reconstruction, not the log's.")
+    end
+    add("  caveat: EV crit; gap lengths, damage and other healers as recorded; drink rate %s.",
+        chain.drinkRateSource or "unknown")
+    if (chain.innervates or 0) > 0 then
+        add("          %d innervate(s) in the gaps are counted but NOT modelled: the value is 400%% of the",
+            chain.innervates)
+        add("          spirit share, and a recording carries the total rate, not the split.")
+    end
+    if (chain.potionMana or 0) > 0 then
+        add("          %s of potion is applied at the table's max roll.", Fmt(chain.potionMana))
+    end
+    if evals then add("  searched %d plan/policy combination(s).", evals) end
+    return out
+end
+
+--------------------------------------------------------------------------------
+-- CoachRun: the "you" chain, the search, the card.
+--------------------------------------------------------------------------------
+function SP.CoachRun(run, opts, onDone)
+    SM = SM or MD.SimModel
+    opts = opts or {}
+    if not run then if onDone then onDone({ "coachrun: no run." }) end return nil end
+    if #(run.pulls or {}) == 0 then
+        if onDone then onDone({ "coachrun: this run kept no pulls." }) end
+        return nil
+    end
+    local kit = opts.kit or MD.RankMath:SpellKit()
+    local you = ChainSnap(SM.ChainRun(run, kit, { recorded = true }))
+    local gates = SP.RunGates(run, kit)
+    return SP.SearchRun(run, { kit = kit, drinkRate = opts.drinkRate, maxEvals = opts.maxEvals },
+        opts.onProgress,
+        function(best, chain, evals)
+            if not best then
+                if onDone then onDone({ "coachrun: cancelled." }) end
+                return
+            end
+            SP.runPlans[run.id] = best
+            if onDone then onDone(SP.RunCard(run, best, chain, you, evals, gates), best, chain, you) end
+        end)
+end
+
+SP.runPlans = {}   -- [run.id] = the plan CoachRun last produced for it

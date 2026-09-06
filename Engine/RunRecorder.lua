@@ -261,6 +261,24 @@ local function ComputeStats(run)
     return s
 end
 
+-- The drink policy that reproduces the drinking that ACTUALLY happened -- the
+-- "you" row of the run card, and the thing a suggested policy is compared with.
+-- `below` is the highest mana fraction at which the healer sat down (they were
+-- willing to drink at least that high), `upTo` the median fraction they got up
+-- at. nil when the run has no drink in it: there is nothing to read.
+function RR:DrinkPolicy(run)
+    local starts, ends = {}, {}
+    local ev = run and run.ev or {}
+    for i = 1, #(ev.t or {}) do
+        if ev.kind[i] == RR.K.DRINK then starts[#starts + 1] = ev.b[i] or 0
+        elseif ev.kind[i] == RR.K.DRINK_END then ends[#ends + 1] = ev.b[i] or 0 end
+    end
+    if #starts == 0 then return nil end
+    local below = starts[1]
+    for _, v in ipairs(starts) do if v > below then below = v end end
+    return { below = below, upTo = Median(ends) or below, drinks = #starts }
+end
+
 function RR:Line(run)
     local s = run.stats or {}
     local parts = {

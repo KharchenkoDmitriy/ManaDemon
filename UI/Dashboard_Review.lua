@@ -126,8 +126,12 @@ function MD.DashboardParts.CreateReview(parent, width)
     local validateBtn = UI.CreateButton(pane, "Validate", "accent-hover", { 72, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL, "Replay this fight through the engine",
         "Runs the eight gates and shows what matched and what did not.")
-    local coachBtn = UI.CreateButton(pane, "Coach", "accent-hover", { 60, 18 }, false, false,
+    local coachBtn = UI.CreateButton(pane, "Coach", "accent-hover", { 74, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL)
+    -- while a run is shown, Coach coaches the run and this coaches one pull
+    local pullBtn = UI.CreateButton(pane, "Coach pull", "accent-hover", { 74, 18 }, false, false,
+        UI.FONT_SMALL, UI.FONT_SMALL, "Coach this one pull",
+        "The v0.7 card for the selected pull, inside the run.")
     local pinBtn = UI.CreateButton(pane, "Pin", "accent-hover", { 68, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL, "Keep this recording",
         "Pinned fights are never replaced (at most two).",
@@ -160,7 +164,8 @@ function MD.DashboardParts.CreateReview(parent, width)
     pinBtn:SetPoint("RIGHT", exportBtn, "LEFT", -4, 0)
     playBtn:SetPoint("RIGHT", pinBtn, "LEFT", -4, 0)
     coachBtn:SetPoint("RIGHT", playBtn, "LEFT", -4, 0)
-    validateBtn:SetPoint("RIGHT", coachBtn, "LEFT", -4, 0)
+    pullBtn:SetPoint("RIGHT", coachBtn, "LEFT", -4, 0)
+    validateBtn:SetPoint("RIGHT", pullBtn, "LEFT", -4, 0)
 
     local function Selected()
         return Rows()[selected]
@@ -181,7 +186,17 @@ function MD.DashboardParts.CreateReview(parent, width)
         for _, line in ipairs(MD:ValidationReport(rec, Spec())) do MD:Print(line) end
         api:Render()
     end)
+    -- On a run, Coach coaches the RUN: one plan and a drink policy for the whole
+    -- dungeon, scored on time before mana. On a single fight it is v0.7's card.
     coachBtn:SetScript("OnClick", function()
+        local i = RunIndex()
+        if i then
+            if MD.RunCoachRun then MD:RunCoachRun(tostring(i)) end
+        elseif MD.RunCoach then
+            MD:RunCoach(Spec())
+        end
+    end)
+    pullBtn:SetScript("OnClick", function()
         if MD.RunCoach then MD:RunCoach(Spec()) end
     end)
     -- Pinning a pull would be meaningless: a run is kept or dropped whole, so
@@ -395,10 +410,25 @@ function MD.DashboardParts.CreateReview(parent, width)
         Set(playBtn, rec ~= nil and MD.Replay ~= nil)
         Set(exportBtn, #list > 0)
         Set(runBtn, RR ~= nil)
-        Set(coachBtn, rec ~= nil and not rec.short and MD.player.isDruid and not (v and not v.ok))
+        coachBtn:SetText(run and "Coach run" or "Coach")
+        pullBtn:SetShown(run ~= nil)
+        Set(pullBtn, rec ~= nil and not rec.short and MD.player.isDruid)
+        if run then
+            Set(coachBtn, MD.player.isDruid and #(run.pulls or {}) > 0)
+        else
+            Set(coachBtn, rec ~= nil and not rec.short and MD.player.isDruid and not (v and not v.ok))
+        end
         coachBtn:SetScript("OnEnter", function(self)
             if not MD.Tip then return end
-            local lines = { { l = "Coach", r = "" } }
+            local lines = { { l = run and "Coach run" or "Coach", r = "" } }
+            if run then
+                lines[#lines + 1] = { l = "One plan and one drink policy for the whole run,", r = "" }
+                lines[#lines + 1] = { l = "with the pulls chained and the gaps simulated.", r = "" }
+                lines[#lines + 1] = { l = "|cff888888Scored on time first: added time, then drinks,", r = "" }
+                lines[#lines + 1] = { l = "|cff888888then mana. Coach pull is the single-fight card.|r", r = "" }
+                MD.Tip:Show(self, "ANCHOR_RIGHT", lines)
+                return
+            end
             if rec and rec.short then
                 lines[#lines + 1] = { l = "|cff888888This pull is under the recording gate", r = "" }
                 lines[#lines + 1] = { l = "|cff888888(20s and 5 casts). It is kept because a dungeon", r = "" }

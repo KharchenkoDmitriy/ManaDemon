@@ -56,10 +56,13 @@ end
 local function advance(sec) for _ = 1, math.floor(sec / 0.5 + 0.5) do S.Tick(0.5) end end
 
 -- one pull: `casts` own casts spread over `dur` seconds, damage on the tank
+-- One pull. The damage is deliberately survivable: a tank who dies in the
+-- simulation has no healing decisions left, and every plan then scores the same
+-- for the wrong reason.
 local function pull(dur, casts)
-    S.units.party1.hp = 3000
+    S.units.party1.hp = 5000
     S.Fire("PLAYER_REGEN_DISABLED")
-    swing("Tank-1", "Destroyka", 5000)
+    swing("Tank-1", "Destroyka", 1500)
     local gap = dur / (casts + 1)
     for i = 1, casts do
         advance(gap)
@@ -281,6 +284,141 @@ check("export has a # run section", runHead ~= nil, runHead and runHead:sub(1, 6
 check("export has the gap events", runEv >= 1, tostring(runEv))
 check("export tags each pull with its run", pullInRun ~= nil, pullInRun and pullInRun:sub(1, 80) or "none")
 
+--------------------------------------------------------------------------------
+-- 8. the run through the engine (v0.9.3): pulls chained with mana carried over,
+-- the gaps modelled, the drink policy simulated
+--------------------------------------------------------------------------------
+local SM, SP = MD.SimModel, MD.SimPlanner
+local kit = MD.RankMath:SpellKit()
+-- run 1 is the three-pull run from section 2; it was dropped by retention, so
+-- record a fresh one to chain
+S.mana = 4200
+local chainRun = RR:Start("manual", "chain")
+pull(40, 8)
+advance(4)
+drink(25)
+advance(4)
+pull(40, 8)
+advance(3)
+pull(40, 8)
+advance(2)
+RR:Stop("manual")
+
+local you = SP.ChainSnap(SM.ChainRun(chainRun, kit, { recorded = true }))
+check("chain: every pull ran", #you.pulls == 3, tostring(#you.pulls))
+check("chain: the recorded row starts each pull where the recording did", (function()
+    for i, p in ipairs(you.pulls) do
+        local want = chainRun.pulls[i].initial.mana
+        if math.abs(p.manaStart - want) > 1 then return false end
+    end
+    return true
+end)())
+check("chain: the recorded row reports the drinks that happened",
+    you.drinks == (chainRun.stats.drinks or 0) and you.addedTime == 0,
+    string.format("%d drink(s), %.0fs added", you.drinks, you.addedTime))
+
+-- a plan, with the policy: mana must be carried ACROSS the pulls
+local plan = SP.NewPlan(SP.MaxRankBinds(),
+    { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 3, hotBelow = 0.80, filler = false }, kit)
+local chain = SM.ChainRun(chainRun, kit, { plan = plan, policy = { below = 0.60, upTo = 0.95 } })
+check("chain: mana is carried across the gaps", (function()
+    for i = 2, #chain.pulls do
+        local gap = chain.gaps[i - 1]
+        if not gap then return false end
+        -- the gap starts where the previous pull ended and ends where this one starts
+        if math.abs(gap.manaStart - chain.pulls[i - 1].manaEnd) > 0.01 then return false end
+        if math.abs(gap.manaEnd - chain.pulls[i].manaStart) > 0.01 then return false end
+    end
+    return true
+end)())
+check("chain: the run's own drink rate is used, not a preset",
+    math.abs((chain.drinkRate or 0) - DRINK_RATE) / DRINK_RATE < 0.02
+    and chain.drinkRateSource == "measured on this run",
+    string.format("%.1f (%s)", chain.drinkRate or -1, tostring(chain.drinkRateSource)))
+check("chain: a gap regenerates when nobody drinks", (function()
+    for _, g in ipairs(chain.gaps) do
+        if not g.drank and g.manaEnd <= g.manaStart then return false end
+    end
+    return true
+end)())
+
+-- a policy that drinks to full whenever it can, in gaps too short for it: the
+-- run has to get LONGER, and that is a score term
+local greedy = SM.ChainRun(chainRun, kit, { plan = plan, policy = { below = 1.0, upTo = 1.0 } })
+check("chain: a drink that does not fit its gap lengthens the run",
+    greedy.addedTime > 0 and greedy.wall > (chainRun.stats.wall or 0),
+    string.format("+%.0fs, wall %.0f -> %.0f", greedy.addedTime, chainRun.stats.wall or 0, greedy.wall))
+check("chain: a policy that never drinks adds nothing", (function()
+    local none = SM.ChainRun(chainRun, kit, { plan = plan, policy = { below = 0.0, upTo = 0.0 } })
+    return none.drinks == 0 and none.addedTime == 0
+end)())
+
+-- the score: time before mana
+local a = { deaths = 0, floorSeconds = 0, addedTime = 0, drinks = 3, manaSpent = 1000, healed = 1, overhealed = 0 }
+local b = { deaths = 0, floorSeconds = 0, addedTime = 10, drinks = 1, manaSpent = 100, healed = 1, overhealed = 0 }
+check("score: a forced longer run loses to one more drink that fit",
+    SP.Better(SP.ChainScore(a, nil, 0), SP.ChainScore(b, nil, 0)))
+local c = { deaths = 0, floorSeconds = 0, addedTime = 0, drinks = 1, manaSpent = 99999, healed = 1, overhealed = 0 }
+check("score: one fewer drink beats any amount of mana",
+    SP.Better(SP.ChainScore(c, nil, 0), SP.ChainScore(a, nil, 0)))
+
+-- spending less has to mean drinking less, which is the whole point
+local cheap = SP.NewPlan(SP.MaxRankBinds(),
+    { swiftmendBelow = 0.30, directBelow = 0.35, rollStacks = 0, hotBelow = 0.50, filler = false }, kit)
+local cheapChain = SM.ChainRun(chainRun, kit, { plan = cheap, policy = { below = 0.60, upTo = 0.95 } })
+check("chain: the cheaper plan spends less", cheapChain.manaSpent < chain.manaSpent,
+    string.format("%d vs %d", cheapChain.manaSpent, chain.manaSpent))
+check("chain: and never drinks more for it", cheapChain.drinks <= chain.drinks,
+    string.format("%d vs %d drink(s)", cheapChain.drinks, chain.drinks))
+
+-- the policy the recording implies
+local yours = RR:DrinkPolicy(chainRun)
+check("the recorded drink policy is read back", yours ~= nil and yours.drinks == 1
+    and yours.below > 0 and yours.upTo > yours.below,
+    yours and string.format("under %.2f, up to %.2f", yours.below, yours.upTo) or "none")
+
+-- the search and the card, driven to completion across stub frames
+out = {}
+local card, bestPlan, bestChain
+local h = SP.CoachRun(chainRun, { maxEvals = 30 }, function(lines, p, c) card, bestPlan, bestChain = lines, p, c end)
+local frames = 0
+while not card and frames < 20000 do S.Tick(0.016); frames = frames + 1 end
+check("the run search finishes", card ~= nil, string.format("%d frames", frames))
+check("the card names the run and both rows", (function()
+    local head, hasYou, hasBest = false, false, false
+    for _, l in ipairs(card or {}) do
+        if l:find("Run: chain") then head = true end
+        if l:find("^  you ") then hasYou = true end
+        if l:find("^  best ") then hasBest = true end
+    end
+    return head and hasYou and hasBest
+end)(), card and card[1])
+check("the card states the drink rate's provenance", (function()
+    for _, l in ipairs(card or {}) do if l:find("measured on this run") then return true end end
+    return false
+end)())
+check("the card states its caveats", (function()
+    for _, l in ipairs(card or {}) do if l:find("caveat: EV crit") then return true end end
+    return false
+end)())
+check("the plan is cached for the run", SP.runPlans[chainRun.id] == bestPlan and bestPlan ~= nil)
+local gates = SP.RunGates(chainRun, kit)
+check("every pull is put through the gates once", gates.of == 3 and gates.failed >= 0,
+    string.format("%d of %d fail", gates.failed, gates.of))
+check("no bare pipe on the card", (function()
+    for _, l in ipairs(card or {}) do
+        local stripped = l:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        if stripped:find("|", 1, true) then return false end
+    end
+    return true
+end)())
+
 _G.DEFAULT_CHAT_FRAME = realChat
 print(string.format("\n%d ok, %d failed", ok, #fails))
 if #fails > 0 then for _, m in ipairs(fails) do print("  FAIL " .. m) end; os.exit(1) end
+
+-- MD_SHOW_CARD=1 prints the card itself, for reading it rather than asserting on it
+if os.getenv("MD_SHOW_CARD") then
+    print("\n-- the run card --")
+    for _, l in ipairs(card or {}) do print(l) end
+end

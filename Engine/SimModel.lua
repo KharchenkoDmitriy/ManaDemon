@@ -1052,3 +1052,196 @@ function SM:Validate(rec, kit)
     out.manaMean, out.manaMax = mMean, mMax
     return out
 end
+
+--------------------------------------------------------------------------------
+-- ChainRun (docs/SPEC-v0.9.md 5.1): a whole RUN through the engine -- every
+-- pull in order, mana carried across, and the gaps between them modelled.
+--
+-- A pull's score answers "did the healer hold the group up for this mana". A
+-- run's answers "how long did the dungeon take, and how much of that was
+-- standing still drinking", which is the question mana actually decides in
+-- five-man content. That is only answerable if the gaps are in the simulation:
+-- a plan that spends 20% less does not bank the mana, it skips a drink.
+--
+-- What is the healer's, and therefore simulated: the plan (per pull) and the
+-- DRINK POLICY (drink below `below`, drink up to `upTo`). What is recorded, and
+-- therefore fixed: the damage, the other healers, the deaths of others, how
+-- long each gap was, and the drink rate -- measured on this run, never a preset
+-- (docs/DECISIONS.md v0.9).
+--
+-- A drink that does not fit its gap does not vanish: the run gets LONGER by the
+-- excess (`addedTime`), which is the term the run score ranks above mana.
+--
+-- NOT modelled, and said on the card: an Innervate in a gap. Its value is 400%
+-- of the SPIRIT share of regen, and a recording carries the total rate, not the
+-- split -- so counting it would be a guess. Potions are applied at their table
+-- value (Engine/ManaCooldowns.lua). Both sides of a comparison see the same
+-- recorded gaps, so the comparison stays fair either way.
+--------------------------------------------------------------------------------
+SM.DRINK_POLICY = { below = 0.60, upTo = 0.95 }
+
+-- Where a run's drink rate comes from, in order of how much it is worth.
+function SM.DrinkRate(run, given)
+    if given and given > 0 then return given, "given" end
+    local r = run and run.stats and run.stats.drinkRate
+    if r and r > 0 then return r, "measured on this run" end
+    local fill = MD.Regen and MD.Regen:ObservedFill() or 0
+    if fill > 0 then return fill, "this session's observed fill - no drink in the run" end
+    return nil, "unknown - no drink in the run and none observed this session"
+end
+
+-- Seconds inside [a, b] that the group spent in a pull the run did not record
+-- (it was summarised: over the event budget, or fight recording was off). That
+-- time is combat, not a gap, so nothing regenerates out of the five-second rule
+-- in it and nobody drinks through it.
+local function BusyIn(run, a, b)
+    local busy, ev = 0, run.ev or {}
+    local K = MD.RunRecorder and MD.RunRecorder.K
+    if not K then return 0 end
+    for i = 1, #(ev.t or {}) do
+        if ev.kind[i] == K.PULL_END and (ev.a[i] or 0) == 0 then
+            local e, d = ev.t[i], ev.b[i] or 0
+            local s = e - d
+            local lo, hi = math.max(s, a), math.min(e, b)
+            if hi > lo then busy = busy + (hi - lo) end
+        end
+    end
+    return busy
+end
+
+local function PotionsIn(run, a, b)
+    local gain, ev = 0, run.ev or {}
+    local K = MD.RunRecorder and MD.RunRecorder.K
+    local MC = MD.ManaCooldowns
+    if not (K and MC) then return 0 end
+    for i = 1, #(ev.t or {}) do
+        if ev.kind[i] == K.POTION and ev.t[i] >= a and ev.t[i] <= b then
+            for _, p in ipairs(MC.potions or {}) do
+                if p.id == ev.a[i] then gain = gain + (p.value or 0) end
+            end
+        end
+    end
+    return gain
+end
+
+local function InnervatesIn(run, a, b)
+    local n, ev = 0, run.ev or {}
+    local K = MD.RunRecorder and MD.RunRecorder.K
+    if not K then return 0 end
+    for i = 1, #(ev.t or {}) do
+        if ev.kind[i] == K.INNERVATE and ev.t[i] >= a and ev.t[i] <= b then n = n + 1 end
+    end
+    return n
+end
+
+-- opts: plan, policy {below, upTo}, drinkRate, recorded (the "you" row: each
+-- pull starts at the mana it really started at, and the drinks are the ones
+-- that really happened), maxPulls.
+function SM.ChainRun(run, kit, opts)
+    if not run then return nil end
+    opts = opts or {}
+    kit = kit or MD.RankMath:SpellKit()
+    local pulls = run.pulls or {}
+    local pool = run.pool or 0
+    local policy = opts.policy or SM.DRINK_POLICY
+    local rate, rateSource = SM.DrinkRate(run, opts.drinkRate)
+    local plan = opts.plan
+
+    local out = { pulls = {}, gaps = {}, deaths = 0, floorSeconds = 0, manaSpent = 0,
+                  healed = 0, overhealed = 0, drinks = 0, drinkTime = 0, addedTime = 0,
+                  innervates = 0, potionMana = 0, lowest = { hp = 1 }, oomPulls = 0,
+                  policy = policy, drinkRate = rate, drinkRateSource = rateSource,
+                  recorded = opts.recorded or false, pool = pool }
+    if #pulls == 0 then return out end
+
+    local mana = (pulls[1].initial and pulls[1].initial.mana) or pool
+    for k, rec in ipairs(pulls) do
+        ------------------------------------------------------------------------
+        -- the gap before this pull
+        ------------------------------------------------------------------------
+        if k > 1 then
+            local prev = pulls[k - 1]
+            local a = (prev.runT0 or 0) + (prev.dur or 0)
+            local b = rec.runT0 or a
+            local len = b - a
+            if len < 0 then len = 0 end
+            local busy = BusyIn(run, a, b)
+            local free = len - busy
+            if free < 0 then free = 0 end
+            local gap = { k = k, len = len, busy = busy, manaStart = mana, drank = false,
+                          drinkTime = 0, added = 0 }
+
+            local pot = PotionsIn(run, a, b)
+            if pot > 0 then mana = math.min(pool, mana + pot); out.potionMana = out.potionMana + pot end
+            out.innervates = out.innervates + InnervatesIn(run, a, b)
+
+            if not opts.recorded and rate and pool > 0 and (mana / pool) < policy.below then
+                local need = ((policy.upTo * pool) - mana) / rate
+                if need > 0 then
+                    gap.drank = true
+                    local spent = need < free and need or free
+                    -- the measured rate is the OBSERVED mana gain while drinking,
+                    -- so the base regen for those seconds is already inside it
+                    mana = mana + spent * rate
+                    gap.drinkTime = spent
+                    free = free - spent
+                    if need > gap.drinkTime then
+                        gap.added = need - gap.drinkTime
+                        mana = policy.upTo * pool
+                    end
+                    out.drinks = out.drinks + 1
+                    out.drinkTime = out.drinkTime + gap.drinkTime + gap.added
+                    out.addedTime = out.addedTime + gap.added
+                end
+            end
+
+            local init = rec.initial or {}
+            local base = (init.apiBase or 0) + (init.energize or 0)
+            mana = mana + base * free
+            if mana > pool then mana = pool end
+            gap.manaEnd = mana
+            out.gaps[#out.gaps + 1] = gap
+        end
+
+        ------------------------------------------------------------------------
+        -- the pull
+        ------------------------------------------------------------------------
+        local sc = SM.ScenarioFromRecording(rec, kit)
+        if opts.recorded then
+            mana = (rec.initial and rec.initial.mana) or mana
+        end
+        local init = {}
+        for key, v in pairs(sc.initial or {}) do init[key] = v end
+        init.mana = mana
+        sc.initial = init
+        local saved = sc.script
+        if plan then sc.script = nil end
+        local r = SM:Run(sc, plan, { critMode = "ev" })
+        sc.script = saved
+
+        local p = { k = k, dur = rec.dur or 0, short = rec.short or false,
+                    manaStart = mana, manaEnd = r.manaEnd, manaSpent = r.manaSpent,
+                    floorSeconds = r.floorSeconds, deaths = r.deaths.n,
+                    lowest = { hp = r.lowest.hp, tgt = r.lowest.tgt },
+                    oomAt = r.oomAt, zone = rec.zone }
+        out.pulls[#out.pulls + 1] = p
+        out.deaths = out.deaths + p.deaths
+        out.floorSeconds = out.floorSeconds + p.floorSeconds
+        out.manaSpent = out.manaSpent + p.manaSpent
+        out.healed = out.healed + (r.healed or 0)
+        out.overhealed = out.overhealed + (r.overhealed or 0)
+        if p.oomAt then out.oomPulls = out.oomPulls + 1 end
+        if p.lowest.hp < out.lowest.hp then
+            out.lowest = { hp = p.lowest.hp, tgt = p.lowest.tgt, pull = k }
+        end
+        mana = r.manaEnd
+    end
+
+    if opts.recorded then
+        -- the "you" row: the drinking that actually happened, not a policy
+        local st = run.stats or {}
+        out.drinks, out.drinkTime, out.addedTime = st.drinks or 0, st.drinkTime or 0, 0
+    end
+    out.wall = (run.stats and run.stats.wall or 0) + out.addedTime
+    return out
+end

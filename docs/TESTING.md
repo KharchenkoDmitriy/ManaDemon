@@ -602,6 +602,37 @@ run to `.logs/runs/<id>.txt`.
 Report: whether the pulls in the tab match the pulls you remember (count and rough order),
 anything greyed that you think should not be, and the `runs` output.
 
+## 30. Coach a run (v0.9.3)
+With a run recorded (§28), open `/md` → Review, select the run and press **Coach run** — or
+`/md coachrun 1`. It searches one plan *and one drink policy* for the whole dungeon, with the
+pulls chained (mana carried from each pull into the next) and the gaps simulated. It runs across
+frames; `/md coachrun cancel` stops it.
+
+The card's two rows are the point:
+
+```
+  you       drank 4x (3:10)        never forced      41.2k spent   lowest 18% (pull 12)
+  best      drank 2x (1:20)        never forced      33.9k spent   lowest 31% (pull 7)
+```
+
+Report:
+1. **The two `drank` lines.** Is the plan's drink count one you would believe of yourself? A
+   plan that claims you never need to drink in a Ramparts run is telling you something is wrong
+   with the model, not with your play.
+2. **`where it differs`** names the pulls with the biggest gap between what you spent and what
+   the plan would have. Open one with Play (`/md replay 1:7`) and say whether the difference is
+   real — whether you would actually have made that call at that moment.
+3. **`yours was: under X%, up to Y%`** is the drink policy read back out of your own run. If it
+   looks nothing like how you play, the drink detection is off, so say what the buff was called.
+4. Anything on the two "pulls not to trust" / "pulls that do not replay" lines that surprises
+   you.
+
+The score puts **added time first, then drinks, then mana**: a plan that saves mana but forces
+the group to sit is worse than one that spends more and never does. If you disagree with that
+order after seeing a card, say so — it is a decision, not a fact (`docs/DECISIONS.md` §v0.9).
+
+Offline, the same thing without the game: `tools/run.sh tools/import.lua coach --run 1`.
+
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
 raw numbers. `/md profile` output is welcome with any report. I turn them into

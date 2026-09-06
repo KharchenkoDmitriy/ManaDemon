@@ -150,8 +150,11 @@ Spec: **`docs/SPEC-v0.9.md`**; the calls in `docs/DECISIONS.md` §v0.9.
 - [x] **v0.9.2** Review tab run selector; pulls of a run with every button; `import.lua runs`.
   *(2026-09-06; one address, `run:pull`, shared by the tab, `/md replay 2:7` and the tool's
   `--run K`. New suite `tools/reviewui.lua`. In-game: TESTING §29.)*
-- [ ] **v0.9.3** the run in the engine: `ChainRun`, the gap model with the run's own drink rate,
-  `CoachRun`, the run card — "you drank 4x (3:10); this plan needs 2x (1:20)".
+- [x] **v0.9.3** the run in the engine: `ChainRun`, the gap model with the run's own drink rate,
+  `CoachRun`, the run card — "you drank 4x (3:10); this plan needs 2x (1:20)". *(2026-09-06;
+  `/md coachrun N`, Coach run on the tab, `import.lua coach --run K`. Innervates in the gaps are
+  counted, not modelled: the recording carries the total regen rate, not the spirit split.
+  In-game: TESTING §30.)*
 - [ ] **v0.9.4** the run strip in the replay window; pull-by-pull Play through a dungeon.
 
 ## Phase 2 — other classes (after 1 is green)

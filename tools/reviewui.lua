@@ -132,12 +132,19 @@ check("the run line is painted above the list", (function()
     return false
 end)())
 
--- Coach is off for a pull under the gate, on for the one above it
+-- while a run is shown, Coach coaches the RUN and a second button coaches the
+-- selected pull; that one is off for a pull under the gate
+check("Coach becomes Coach run", ButtonNamed("Coach run") ~= nil)
 Click(pullRows[2]); api:Render()
-local coach = ButtonNamed("Coach")
-check("Coach is disabled on the short pull", coach and coach.enabled == false, tostring(coach and coach.enabled))
+local coachPull = ButtonNamed("Coach pull")
+check("Coach pull is disabled on the short pull", coachPull and coachPull.enabled == false,
+    tostring(coachPull and coachPull.enabled))
 Click(pullRows[1]); api:Render()
-check("Coach is enabled on the real pull", coach and coach.enabled ~= false, tostring(coach and coach.enabled))
+check("Coach pull is enabled on the real pull", coachPull and coachPull.enabled ~= false,
+    tostring(coachPull and coachPull.enabled))
+check("Coach run is enabled while the run has pulls", (function()
+    local b = ButtonNamed("Coach run"); return b and b.enabled ~= false
+end)())
 
 -- Pin, while a run is shown, pins the RUN
 local pin = ButtonNamed("Pin run")
@@ -188,6 +195,8 @@ check("a pull that does not exist says so, and does not error",
 --------------------------------------------------------------------------------
 Click(ButtonNamed("Fights"))
 api:Render()
+check("back on the fights list the run button is gone", ButtonNamed("Coach run") == nil
+    and ButtonNamed("Coach") ~= nil)
 rows = Rows()
 check("switching back shows the single fights", (function()
     for _, r in ipairs(rows) do if CellText(r, "zone") == "Blood Furnace" then return true end end

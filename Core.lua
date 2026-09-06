@@ -406,6 +406,7 @@ MD.COMMANDS = {
     { "/md sim",          "simulation window: build a fight and find the cheapest plan that holds it" },
     { "/md replay [n]",   "play recorded fight n as unit frames: what you did, and what Coach suggested" },
     { "/md run start|stop|status", "record a whole dungeon: every pull and the gaps between them" },
+    { "/md coachrun [n]", "coach a recorded RUN: one plan and a drink policy for the whole dungeon" },
     { "/md debug",        "toggle the debug console (enable logging there, Copy to export)" },
 }
 
@@ -487,6 +488,8 @@ SlashCmdList.MANADEMON = function(msg)
         if MD.ToggleReplay then MD:ToggleReplay(arg) end
     elseif cmd == "run" then
         if MD.RunCommand then MD:RunCommand(rawArg) end
+    elseif cmd == "coachrun" then
+        if MD.RunCoachRun then MD:RunCoachRun(arg) end
     elseif cmd == "debug" then
         if MD.ToggleDebugConsole then MD:ToggleDebugConsole() end
     else

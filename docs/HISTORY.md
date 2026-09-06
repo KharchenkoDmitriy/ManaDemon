@@ -1543,3 +1543,55 @@ every painted string, and `UnitBuff` / `IsInInstance` exist.
 
 Suites: simcheck 10, reccheck 38, simwindow 8, regencheck 18, replaycheck 33, replayui 50,
 runcheck 49, reviewui 23.
+
+## 2026-09-06 — v0.9.3: the run in the engine, and mana measured in seconds
+
+`docs/SPEC-v0.9.md` §5. A pull's score answers "did the healer hold the group up for this
+mana". A run's answers "how long did the dungeon take, and how much of that was standing still
+drinking" — which is the question mana actually decides in a five-man, and it is only answerable
+if the gaps are in the simulation. A plan that spends 20% less does not bank the mana; it skips
+a drink.
+
+**`SM.ChainRun(run, kit, opts)`**: every pull in order, mana carried across, with a gap model
+between them. What is the healer's and therefore simulated: the plan, and the **drink policy**
+(`below`, `upTo`). What is recorded and therefore fixed: the damage, the other healers, the
+deaths of others, how long each gap was, and the drink rate — measured on this run, never a
+preset. Seconds inside a gap that the group actually spent in a pull the run only summarised are
+subtracted: that is combat, not a gap. A drink that does not fit its gap does not vanish — the
+run gets longer by the excess (`addedTime`). Potions apply at their table value. **An Innervate
+in a gap is counted and reported but not modelled**, a deliberate deviation from the spec's "as
+recorded": its value is 400% of the *spirit share* of regen and a recording carries the total
+rate, not the split, so modelling it would be a guess. Both sides of every comparison see the
+same recorded gaps, so the comparison stays fair.
+
+**The score** (`SP.ChainScore`), lexicographic as always, with time in front of mana:
+`(deaths, floorSeconds, addedTime, drinks, manaSpent, -heldOn, #binds, overheal)`. `drinks`
+ranks above mana because each is most of a minute of five people standing still even when it
+fits; mana ranks last because in a dungeon it is only worth the time it saves.
+
+**`SP.SearchRun`**: the v0.7.5 coordinate descent over the five plan parameters *plus* `below`
+and `upTo`, one plan for the whole dungeon, evaluated by `ChainRun`. The evaluation budget
+scales down with the number of pulls (thirty pulls at 300 evaluations would be nine thousand
+fight simulations); it still slices on `debugprofilestop()`. **`SP.RunGates`** validates each
+pull once — not per evaluation — so the card can say how much of the health side it is standing
+on. **`SP.RunCard`**: the two rows above, the plan and its binds, the suggested drink policy
+next to the one read back out of the recording (`RR:DrinkPolicy` — `below` is the highest mana
+fraction the healer actually sat down at, `upTo` the median they got up at), the pulls where the
+two differ most, and the caveats.
+
+Reachable from `/md coachrun [n]` (with `cancel`), from **Coach run** on the Review tab — where
+Coach becomes Coach run while a run is shown and a second **Coach pull** button keeps the
+single-fight card — and offline from `tools/run.sh tools/import.lua coach --run K`.
+
+**Harness.** `runcheck` 49 → 69: mana carried across the gaps exactly (each gap starts where the
+previous pull ended and ends where the next begins), the run's own measured rate used and named,
+a gap that regenerates when nobody drinks, a greedy policy forcing `addedTime` and a longer
+wall clock, a policy that never drinks adding nothing, the score's two orderings, a cheaper plan
+that spends 1.0k against 7.9k and drinks 0 times against 1, the recorded policy read back, and
+the search driven to a card. One thing the harness taught on the way: the scripted pull's damage
+(5000 on a tank at 3000) killed the tank in every simulation, which made every plan score the
+same for the wrong reason — the assertions were passing on a dead tank. The scripted damage is
+survivable now.
+
+Suites: simcheck 10, reccheck 38, simwindow 8, regencheck 18, replaycheck 33, replayui 50,
+runcheck 69, reviewui 26.

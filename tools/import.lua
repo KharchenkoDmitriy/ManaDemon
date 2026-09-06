@@ -272,6 +272,18 @@ elseif cmd == "replay" then
         Say("  plan: %d casts, %d waits, spent %d vs your %d", casts, waits, rp.right.snapshot.manaSpent, rp.left.snapshot.manaSpent)
     end
 
+elseif cmd == "coach" and theRun and not opts.gotN then
+    -- the WHOLE run: one plan and one drink policy for the dungeon, the pulls
+    -- chained with mana carried over and the gaps simulated (v0.9.3)
+    if not MD.player.isDruid then MD.player.isDruid = true end
+    local done, out = false, nil
+    SP.CoachRun(theRun, {}, function(lines) out = lines; done = true end)
+    local frames = 0
+    while not done and frames < 200000 do S.Tick(0.016); frames = frames + 1 end
+    if not done then Say("coach: the run search did not finish in %d frames", frames); os.exit(1) end
+    for _, line in ipairs(out) do Say("%s", Strip(line)) end
+    Say("(the search ran across %d stub frames)", frames)
+
 elseif cmd == "coach" then
     local rec = list[n]; if not rec then Say("no %s %s", what, Label(n)); os.exit(1) end
     if not MD.player.isDruid then MD.player.isDruid = true end

@@ -1168,6 +1168,41 @@ function MD:ValidationReport(rec, n)
 end
 
 --------------------------------------------------------------------------------
+-- /md coachrun [n]: the whole run through the engine (docs/SPEC-v0.9.md 5).
+-- The same search as /md coach, one plan for the dungeon, scored on time before
+-- mana -- because in a five-man mana is only worth the time it saves.
+--------------------------------------------------------------------------------
+function MD:RunCoachRun(arg)
+    if not (MD.SimPlanner and MD.RunRecorder) then MD:Print("coachrun: not loaded.") return end
+    arg = tostring(arg or ""):gsub("%s+", "")
+    if arg == "cancel" then
+        if MD.runSearch then MD.runSearch:Cancel(); MD.runSearch = nil
+        else MD:Print("coachrun: nothing running.") end
+        return
+    end
+    local n = tonumber(arg) or 1
+    local run = MD.RunRecorder:Get(n)
+    if not run then
+        MD:Print("coachrun: no run " .. n .. " (/md run status lists them).")
+        return
+    end
+    if MD.runSearch then MD:Print("coachrun: already searching (/md coachrun cancel).") return end
+    if not MD.player.isDruid then MD:Print("coachrun: coaching is Druid-only in v1.") return end
+    MD:Print(string.format("coachrun: %s - %d pull(s) through the engine, this may take a moment.",
+        run.name or "?", #(run.pulls or {})))
+    MD.runSearch = MD.SimPlanner.CoachRun(run, {}, function(lines)
+        MD.runSearch = nil
+        if MD.ShowCopyPopup and #lines > 6 then
+            MD:ShowCopyPopup("ManaDemon coach: " .. (run.name or "run"), table.concat(lines, "\n"))
+        end
+        for _, line in ipairs(lines) do
+            MD:Print(line)
+            MD:Debug("sim", "coachrun %s", line)
+        end
+    end)
+end
+
+--------------------------------------------------------------------------------
 -- /md coach [n] [force]
 --------------------------------------------------------------------------------
 function MD:RunCoach(arg)
