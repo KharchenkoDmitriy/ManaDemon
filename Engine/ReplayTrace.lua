@@ -37,9 +37,9 @@ function RT.New(trace, scenario, opts)
         hots = {}, dead = {}, form = nil, casting = nil,
         waitStart = nil, waitLen = 0,
         spent = 0, deaths = 0, lowest = 1, lowestTgt = nil, casts = 0,
-        cdUntil = {},
+        cdUntil = {}, auras = {},
     }, State)
-    for i = 1, (trace.nT or 0) do st.hots[i] = {} end
+    for i = 1, (trace.nT or 0) do st.hots[i] = {}; st.auras[i] = {} end
     st:Seek(0)
     return st
 end
@@ -110,6 +110,26 @@ local function Reset(self)
     self.spent, self.deaths, self.casts = 0, 0, 0
     self.lowest, self.lowestTgt = 1, nil
     for k in pairs(self.cdUntil) do self.cdUntil[k] = nil end
+    for i = 1, #self.auras do
+        local row = self.auras[i]
+        for k in pairs(row) do row[k] = nil end
+    end
+end
+
+-- A recorded AURA event: state whether or not visuals fire.
+local function ApplyAura(self, tgt, amt, x, t)
+    local row = self.auras[tgt]
+    if not row then return end
+    local FLAG = MD.SimModel.AURA_BUFF_FLAG
+    local buff = x >= FLAG
+    local spellID = buff and (x - FLAG) or x
+    if amt and amt < 0 then
+        row[spellID] = nil
+    else
+        local a = row[spellID]
+        if a then a.stacks = amt or 1
+        else row[spellID] = { spellID = spellID, stacks = amt or 1, since = t, buff = buff } end
+    end
 end
 
 -- Lowest tracked HP so far, from the grid points crossed. Checked at grid
@@ -154,6 +174,7 @@ local function Cross(self, t0, t1, fire)
         local j, m = self.dmgI, #sev.t
         while j <= m and sev.t[j] <= t1 do
             local k = sev.kind[j]
+            if k == K.AURA then ApplyAura(self, sev.tgt[j], sev.amt[j], sev.x[j], sev.t[j]) end
             if fire and self.onEvent and sev.t[j] > t0 then
                 if k == K.DMG then self.onEvent(RT.EV_DMG, sev.tgt[j], sev.amt[j], 0, sev.t[j], 0)
                 elseif k == K.FHEAL then self.onEvent(RT.EV_FHEAL, sev.tgt[j], sev.amt[j], 0, sev.t[j], 0) end
@@ -234,6 +255,18 @@ function State:Waiting()
     local left = self.waitStart + self.waitLen - self.t
     if left <= 0 then return nil end
     return left
+end
+
+-- Auras up on `ti` at st.t, oldest first: { spellID, stacks, since, buff }.
+-- Only what the recorder kept -- whitelisted defensives and capped debuffs.
+function State:Auras(ti, out)
+    out = out or {}
+    for i = #out, 1, -1 do out[i] = nil end
+    local row = self.auras[ti]
+    if not row then return out end
+    for _, a in pairs(row) do out[#out + 1] = a end
+    table.sort(out, function(p, q) return p.since < q.since end)
+    return out
 end
 
 -- Is this spell off cooldown at st.t? Only the cooldowns the engine respects

@@ -334,7 +334,8 @@ function MD:Export()
                 string.format("%.1f", r.dur or 0), "pool " .. (r.pool or 0),
                 (r.ownCasts or 0) .. " casts", (r.spent or 0) .. " mana",
                 string.format("foreign %.0f%%", (r.foreignShare or 0) * 100),
-                r.truncated and "TRUNCATED" or "", r.pinned and "pinned" or "")
+                r.truncated and "TRUNCATED" or "", r.pinned and "pinned" or "",
+                (r.auraN or 0) .. " auras" .. (r.auraTruncated and " (debuffs truncated)" or ""))
             add("# roster")
             add("idx", "name", "class", "role", "roleSource", "maxHP", "tracked")
             local trackedSet = {}

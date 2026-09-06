@@ -457,6 +457,28 @@ Report: whether a label ever seemed wrong (say which cast and what you would cal
 is how the classifier gets corrected), and whether the squares are readable at the frame's
 size.
 
+## 25. Defensive cooldowns and debuffs in the replay (v0.8.3) — one dungeon
+The recorder now keeps two more things on tracked targets: **defensive cooldowns** from the
+whitelist in `Data/AuraList.lua` (Shield Wall, Last Stand, Barkskin, Evasion, Divine Shield,
+Pain Suppression, Power Word: Shield, ...) and **every debuff**, capped at 4 per target and
+10% of the stream's event budget. Neither changes a number anywhere — the damage a Shield Wall
+prevented was recorded as prevented — they *explain* the dips.
+
+1. Record a pull where the tank presses something (or ask them to). Play it: the defensive
+   shows as an icon with the accent border in front of the tank's name, for exactly as long
+   as it was up; hover it for the name and the time.
+2. A boss or caster debuff shows as a small icon on the right end of the bar, with its stack
+   count. Hover it.
+3. `/md export` → the `# recording` line now ends with `N auras`; a long raid-style fight
+   says `(debuffs truncated)` rather than silently dropping anything.
+4. **Every id in `Data/AuraList.lua` is from memory and marked VERIFY.** If a defensive you
+   *saw* pressed does not show, note the class and the ability: the id is wrong or missing,
+   and a wrong id costs an icon, never a number. If an icon appears without a texture (a grey
+   square with a letter), the id resolved but `GetSpellTexture` did not — say so too.
+
+Report: which defensives showed, which did not, and — the design question from the reserved
+list — whether seeing the tank's cooldown up would have changed what you cast.
+
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
 raw numbers. `/md profile` output is welcome with any report. I turn them into

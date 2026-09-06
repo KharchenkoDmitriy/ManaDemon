@@ -67,6 +67,7 @@ end
 local sawRegrowth, sawDamage = false, false
 -- v0.8.2: indicators and labels seen at some point during the play-through
 local sawEarly, sawLBStack, sawRejuvDigit, sawDot, sawWhy, sawBand = false, false, false, false, false, false
+local sawDefIcon, sawDebuff2 = false, false
 local frames = 0
 local HOT_INDEX = SM.HOT_INDEX
 while MD.Replay._state().playing and frames < 2000 do
@@ -86,6 +87,8 @@ while MD.Replay._state().playing and frames < 2000 do
         if lf.dot:IsShown() then sawDot = true end
     end
     if W.right.strip.why then sawWhy = true end
+    if W.left.frames[tankRow].defIcon:IsShown() then sawDefIcon = true end
+    if mageRow and W.left.frames[mageRow].debuffs[1]:IsShown() and W.left.frames[mageRow].debuffs[1].count:GetText() == "2" then sawDebuff2 = true end
     if W.right.strip.band.color and W.right.strip.band.color[4] > 0 then sawBand = true end
 end
 check("played to the end", not MD.Replay._state().playing and W.left.state:AtEnd(), string.format("%d frames", frames))
@@ -114,6 +117,16 @@ for _, m in ipairs(W.scrubber.markers) do
     if m:IsShown() and m.color and m.color[1] == 1 and m.color[2] == 0.9 and m.color[3] == 0.3 then labelled = labelled + 1 end
 end
 check("scrubber tick coloured by label", labelled >= 1, tostring(labelled))
+-- v0.8.3
+check("Shield Wall icon shown on the tank", sawDefIcon)
+check("debuff icon with 2 stacks on the mage", sawDebuff2)
+local ic = W.left.frames[tankRow].defIcon
+MD.Replay._seek(5.0)
+check("defensive icon at 5s with a tooltip", ic:IsShown() and ic.tip and ic.tip[1].l == "Shield Wall",
+    ic.tip and ic.tip[1].l or "no tip")
+check("icon tooltip does not error", pcall(ic:GetScript("OnEnter"), ic))
+MD.Replay._seek(14.0)
+check("defensive icon gone at 14s", not ic:IsShown())
 
 -- seek back to the start: effects cleared, bars back
 MD.Replay._seek(0)

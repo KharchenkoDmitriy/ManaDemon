@@ -38,6 +38,7 @@ local LABEL_COLOR = {
 local LABEL_FLASH = 1.5
 local HOT_SQ, HOT_GAP = 8, 2   -- the three HoT squares under the role letter
 local SWIFTMEND = 18562
+local ICON_DEBUFF, ICON_DEF, MAX_DEBUFF_ICONS = 14, 16, 3
 local ROLE_LETTER = { TANK = "T", HEALER = "H", DAMAGER = "D" }
 local ROLE_ORDER = { TANK = 1, HEALER = 2, DAMAGER = 3 }
 
@@ -134,6 +135,40 @@ local function CreateUnitFrame(parent, x, y)
     f.dot:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 5 + 3 * (HOT_SQ + HOT_GAP), 4)
     f.dot:SetColorTexture(1, 0.6, 0.2, 1)
     f.dot:Hide()
+
+    -- v0.8.3: a defensive cooldown as one icon with the accent border, up
+    -- front; up to three debuffs over the bar's right end, with their stacks.
+    -- Recorded and drawn, never modelled -- the damage they changed was
+    -- recorded as changed.
+    local function Icon(size)
+        local ic = CreateFrame("Frame", nil, f, "BackdropTemplate")
+        ic:SetSize(size, size)
+        UI.StylizeFrame(ic, { 0.2, 0.2, 0.2, 1 }, { 0, 0, 0, 1 })
+        ic.tex = ic:CreateTexture(nil, "ARTWORK")
+        ic.tex:SetPoint("TOPLEFT", ic, "TOPLEFT", 1, -1)
+        ic.tex:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT", -1, 1)
+        ic.letter = ic:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+        ic.letter:SetPoint("CENTER")
+        ic.count = ic:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+        ic.count:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT", 1, -1)
+        ic:EnableMouse(true)
+        ic:SetScript("OnEnter", function(self)
+            if MD.Tip and self.tip then MD.Tip:Show(self, "ANCHOR_RIGHT", self.tip) end
+        end)
+        ic:SetScript("OnLeave", function() if MD.Tip then MD.Tip:Hide() end end)
+        ic:Hide()
+        return ic
+    end
+    f.defIcon = Icon(ICON_DEF)
+    f.defIcon:SetPoint("TOPLEFT", f, "TOPLEFT", 20, -2)
+    f.defIcon:SetBackdropBorderColor(UI.accent[1], UI.accent[2], UI.accent[3], 1)
+    f.debuffs = {}
+    for i = 1, MAX_DEBUFF_ICONS do
+        local ic = Icon(ICON_DEBUFF)
+        ic:SetPoint("RIGHT", f.bar, "RIGHT", -(i - 1) * (ICON_DEBUFF + 1) - 1, 0)
+        f.debuffs[i] = ic
+    end
+    f.auraBuf = {}
 
     f.bar = CreateBar(f, COL_W - 100 - 42, FRAME_H - 10)
     f.bar:SetPoint("LEFT", f, "LEFT", 100, 0)
@@ -268,6 +303,33 @@ end
 --------------------------------------------------------------------------------
 -- Painting a moment
 --------------------------------------------------------------------------------
+local function AuraName(spellID)
+    local d = MD.AuraList and MD.AuraList.Defensive(spellID)
+    if d then return d[1] end
+    local ok, name = pcall(GetSpellInfo, spellID)
+    return (ok and name) or ("spell " .. tostring(spellID))
+end
+
+local function PaintIcon(ic, a, t, isDef)
+    if ic.spellID ~= a.spellID then
+        ic.spellID = a.spellID
+        local ok, tex = pcall(GetSpellTexture, a.spellID)
+        if ok and tex then
+            ic.tex:SetTexture(tex)
+            ic.letter:SetText("")
+        else
+            ic.tex:SetTexture(nil)
+            ic.letter:SetText(AuraName(a.spellID):sub(1, 1))
+        end
+    end
+    ic.count:SetText((a.stacks or 1) > 1 and tostring(a.stacks) or "")
+    ic.tip = ic.tip or {}
+    ic.tip[1] = { l = AuraName(a.spellID), r = isDef and "|cff888888defensive|r" or "|cff888888debuff|r" }
+    ic.tip[2] = { l = string.format("applied at %s", Clock(a.since)), r = string.format("up %.0fs", t - a.since) }
+    ic.tip[3] = (a.stacks or 1) > 1 and { l = string.format("%d stacks", a.stacks), r = "" } or nil
+    ic:Show()
+end
+
 local function PaintFrame(f, st, ti, isLeft, now)
     local hp = st:Hp(ti)
     local dead = st:Dead(ti)
@@ -320,6 +382,21 @@ local function PaintFrame(f, st, ti, isLeft, now)
         end
     end
     Shown(f.dot, eatable and st:Ready(SWIFTMEND))
+
+    -- auras: the first defensive up front, the first three debuffs on the bar
+    local auras = st:Auras(ti, f.auraBuf)
+    local defShown, nDeb = false, 0
+    for _, a in ipairs(auras) do
+        if a.buff and not defShown then
+            PaintIcon(f.defIcon, a, st.t, true)
+            defShown = true
+        elseif not a.buff and nDeb < MAX_DEBUFF_ICONS then
+            nDeb = nDeb + 1
+            PaintIcon(f.debuffs[nDeb], a, st.t, false)
+        end
+    end
+    if not defShown then f.defIcon:Hide() end
+    for i = nDeb + 1, MAX_DEBUFF_ICONS do f.debuffs[i]:Hide() end
     if f.pulseUntil > now then
         local left = (f.pulseUntil - now) / PULSE_DMG
         f.pulse:SetColorTexture(0.9, 0.15, 0.1, (f.pulseAlpha or 0.4) * left)
@@ -638,6 +715,8 @@ local function Layout()
                 f.flashUntil, f.textUntil, f.labelUntil, f.pulseUntil, f.tickIdx = 0, 0, 0, 0, nil
                 f.cast:SetText(""); f.label:SetText("")
                 f:SetBackdropBorderColor(0, 0, 0, 1)
+                f.defIcon.spellID = nil
+                for _, ic in ipairs(f.debuffs) do ic.spellID = nil end
                 f:Show()
             end
         end

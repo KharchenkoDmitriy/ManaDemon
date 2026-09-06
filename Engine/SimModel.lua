@@ -37,7 +37,11 @@ MD.SimModel = SM
 SM.K = {
     DMG = 1, FHEAL = 2, OWNCAST = 3, OWNHEAL = 4, OWNTICK = 5, CASTSTART = 6,
     CANCEL = 7, FORM = 8, DIED = 9, ABSORB = 10, CD = 11,
+    AURA = 12,   -- v0.8.3: a defensive buff or a debuff on a tracked target; x = spellID
+                 -- (+ AURA_BUFF_FLAG for a buff), amt = stacks, -1 on removal. The engine
+                 -- ignores it: the damage it changed was recorded as changed.
 }
+SM.AURA_BUFF_FLAG = 1000000
 
 -- The three families that leave something ticking on a target. Everything else
 -- resolves the instant it lands.

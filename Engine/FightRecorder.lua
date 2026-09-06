@@ -16,6 +16,11 @@ MD.FightRecorder = FR
 
 local K = nil            -- MD.SimModel.K, bound lazily (load order)
 local MAX_EV = 4000      -- events per stream; the fight keeps its summary either way
+local AURA_EVENTS = {
+    SPELL_AURA_APPLIED = "apply", SPELL_AURA_REFRESH = "apply",
+    SPELL_AURA_APPLIED_DOSE = "dose", SPELL_AURA_REMOVED_DOSE = "dose",
+    SPELL_AURA_REMOVED = "remove",
+}
 local MAX_STREAMS = 8
 local MAX_PINNED = 2
 local RECENT_PROTECTED = 3
@@ -167,6 +172,7 @@ function FR:Start(t0)
         hp = { t = {}, hp = {}, max = {} },
         mana = { t = {}, v = {}, base = {}, cast = {} },
         precasts = {}, deaths = {}, n = 0, truncated = false,
+        auraOn = {}, auraN = 0, auraTruncated = false,   -- v0.8.3, per-target aura bookkeeping
         pinned = false,
     }
     stream.tracked = {}
@@ -327,6 +333,53 @@ function FR:Event(subevent, sourceGUID, destGUID, destName, p1, p2, p3, p4, p5, 
             if MD.Overheal then eff = MD.Overheal:Split(amount, overheal) end
             if eff > 0 then Push(s, t, K.FHEAL, idx, eff, spellID or 0) end
         end
+        return
+    end
+
+    -- Auras on tracked targets (docs/SPEC-v0.8.md 5.1): a whitelisted
+    -- defensive buff, or any debuff up to a cap. Payload after the prefix:
+    -- spellId, spellName, school, auraType[, amount]; the _DOSE events carry
+    -- the new stack count in `amount` (recorded as 1 when it is absent -- the
+    -- shape is VERIFY against Details! on this client).
+    local aura = AURA_EVENTS[subevent]
+    if aura then
+        if not tracked then return end
+        local spellID, auraType = p1 or 0, p4
+        local isBuff = (auraType == "BUFF")
+        local list = MD.AuraList
+        if isBuff and not (list and list.Defensive(spellID)) then return end
+        if not isBuff and auraType ~= "DEBUFF" then return end
+        local on = s.auraOn[idx]
+        if not on then on = { n = 0 }; s.auraOn[idx] = on end
+        local x = spellID + (isBuff and MD.SimModel.AURA_BUFF_FLAG or 0)
+        if aura == "remove" then
+            if on[x] then
+                on[x] = nil
+                if not isBuff then on.n = on.n - 1 end
+                Push(s, t, K.AURA, idx, -1, x)
+            end
+            return
+        end
+        local stacks = (aura == "dose") and (p5 or 1) or 1
+        if aura == "dose" and not on[x] then aura = "apply" end
+        if not on[x] then
+            if not isBuff then
+                local cap = (list and list.MAX_DEBUFFS_PER_TARGET) or 4
+                local budget = math.floor(MAX_EV * ((list and list.DEBUFF_BUDGET) or 0.10))
+                if on.n >= cap then return end
+                if (s.auraN or 0) >= budget then
+                    if not s.auraTruncated then
+                        s.auraTruncated = true
+                        MD:Debug("sim", "recording: debuff budget (%d) spent, defensives only from here", budget)
+                    end
+                    return
+                end
+                on.n = on.n + 1
+                s.auraN = (s.auraN or 0) + 1
+            end
+            on[x] = true
+        end
+        Push(s, t, K.AURA, idx, stacks, x)
         return
     end
 

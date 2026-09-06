@@ -44,6 +44,10 @@ end
 local function foreignHeal(dst, dstName, amount)
     ev("SPELL_HEAL", "Pala-1", dst, dstName, 635, "Holy Light", 2, amount, 0, 0, false)
 end
+-- auras: spellId, spellName, school, auraType[, amount]
+local function aura(sub, src, dst, dstName, spellID, name, kind, amount)
+    ev(sub, src, dst, dstName, spellID, name, 1, kind, amount)
+end
 
 -- 6s of pre-pull: a Lifebloom on a full-health tank whose ticks all overheal
 S.Tick(0.5)
@@ -58,16 +62,25 @@ local function advance(sec) for _ = 1, math.floor(sec / 0.5 + 0.5) do S.Tick(0.5
 
 S.units.party1.hp = 3000
 swing("Tank-1", "Destroyka", 5000)
-advance(1.5); cast(regrowth, "Tank-1", "Destroyka"); S.mana = S.mana - (SD:GetCost(regrowth) or 0)
+-- v0.8.3 auras: Shield Wall on the tank (whitelisted, kept), a Fortitude buff
+-- (not whitelisted, dropped), a debuff on the mage that stacks to 2, and a
+-- debuff on a mob (untracked, dropped)
+advance(1.0); aura("SPELL_AURA_APPLIED", "Tank-1", "Tank-1", "Destroyka", 871, "Shield Wall", "BUFF")
+aura("SPELL_AURA_APPLIED", "Priest-9", "Tank-1", "Destroyka", 10938, "Power Word: Fortitude", "BUFF")
+aura("SPELL_AURA_APPLIED", "Mob-1", "Mob-2", "Some Mob", 44444, "Sunder", "DEBUFF")
+advance(0.5); cast(regrowth, "Tank-1", "Destroyka"); S.mana = S.mana - (SD:GetCost(regrowth) or 0)
 advance(1.5); cast(rejuv, "Tank-1", "Destroyka");    S.mana = S.mana - (SD:GetCost(rejuv) or 0)
 advance(1.5); cast(MOTW, PLAYER, "Penek");           S.mana = S.mana - 445
 advance(3.0); ownTick(rejuv, "Tank-1", "Destroyka", 400, 0)
 S.units.party2.hp = 1000
 swing("Mage-1", "Alkandari", 3000)
+aura("SPELL_AURA_APPLIED", "Mob-1", "Mage-1", "Alkandari", 55555, "Curse of Weakness", "DEBUFF")
 foreignHeal("Mage-1", "Alkandari", 900)
 advance(2.0); cast(rejuv, "Mage-1", "Alkandari");    S.mana = S.mana - (SD:GetCost(rejuv) or 0)
 -- refresh a Rejuvenation with three ticks still pending: this must label "early"
 advance(3.0); cast(rejuv, "Mage-1", "Alkandari");    S.mana = S.mana - (SD:GetCost(rejuv) or 0)
+aura("SPELL_AURA_APPLIED_DOSE", "Mob-1", "Mage-1", "Alkandari", 55555, "Curse of Weakness", "DEBUFF", 2)
+aura("SPELL_AURA_REMOVED", "Tank-1", "Tank-1", "Destroyka", 871, "Shield Wall", "BUFF")
 -- and one cast on a target at full health: this must label "overheal"
 advance(2.0); cast(lifebloom, "Pala-1", "Trecoda");  S.mana = S.mana - (SD:GetCost(lifebloom) or 0)
 ev("UNIT_DIED", "Mob-1", "Lock-1", "Abufaisall")

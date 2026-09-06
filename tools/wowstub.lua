@@ -84,6 +84,7 @@ function GetSpellPowerCost(id)
 end
 function IsSpellKnown(id) return S.known[id] == true end
 function IsPlayerSpell(id) return S.known[id] == true end
+function GetSpellTexture(id) return "Interface\\Icons\\Spell_" .. tostring(id) end
 function GetSpellInfo(id)
     if type(id) == "number" then return S.spellNames[id] or ("Spell" .. id) end
     return nil

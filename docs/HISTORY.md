@@ -1206,3 +1206,38 @@ on the scrubber; a seek clears the labels and no square shows at t = 0.
 
 Six suites green. What only the game can answer is TESTING §24 — and the one question that
 matters there: **did any label look wrong**, because that is how the classifier gets fixed.
+
+## 2026-09-06 — v0.8.3: defensive cooldowns and debuffs, recorded and drawn
+
+The recorder keeps two more things on tracked targets. **Defensive cooldowns** from a
+whitelist (`Data/AuraList.lua`: Shield Wall, Last Stand, Barkskin, Evasion, Divine Shield,
+Pain Suppression, every rank of Power Word: Shield, ...) — the author's example was a rogue
+under Evasion, who is not urgent. And **every debuff**, capped at four per target and a tenth
+of the stream's event budget, after which debuffs stop and `auraTruncated` says so while
+defensives keep going. `K.AURA = 12`, appended; `x` carries the spell id plus a flag for
+buffs, `amt` the stacks or -1 on removal. Every id in the list is from memory and marked
+VERIFY: a wrong one costs an icon, never a number.
+
+**Nothing in the engine reads them.** `ScenarioFromRecording` passes them through and the
+loop ignores the kind: the damage a Shield Wall prevented was recorded as prevented. They
+explain the dip; they do not cause it in the model. What they are the prerequisite for is
+the reserved decision input in `docs/SPEC-v0.8.md` §7 — a plan that does not drop everything
+for a target whose defensive is up — which waits for a recording that shows the case.
+
+`Engine/ReplayTrace.lua` tracks them from the scenario's timeline (`State:Auras(ti)`, oldest
+first, state whether or not visuals fire, cleared and rebuilt on a seek like everything else).
+The window draws the first defensive as an icon with the accent border in front of the name
+and up to three debuffs over the bar's right end with their stacks, `GetSpellTexture` under
+`pcall` with a lettered grey square as the fallback, and a hover tooltip naming the aura, when
+it was applied and for how long. `/md export`'s `# recording` line ends with the aura count.
+
+The shared scripted pull gained a Shield Wall (kept), a Fortitude (not whitelisted, dropped),
+a debuff on the mage stacking to two, and a debuff on a mob (untracked, dropped); `reccheck`
+asserts exactly those four events, `replaycheck` that the state machine sees the Shield Wall at
+5 s and not at 14 s and the debuff at two stacks, seek and step agreeing, and `replayui` that
+the icons are drawn and hidden at the right times with their tooltips running clean.
+
+**v0.8 is complete**: v0.8.0 trace, v0.8.1 window, v0.8.2 indicators and labels, v0.8.3
+auras. Six suites green. TESTING §22–§25 are what only the game can answer, and the two
+questions that matter most there are §24's "did any label look wrong" and §25's "would seeing
+the tank's cooldown have changed what you cast".

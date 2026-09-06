@@ -266,6 +266,30 @@ st:Seek(L.dur * 0.5)
 check("seek fires nothing", fired == 0 and dmgFired == 0)
 
 --------------------------------------------------------------------------------
+-- 8b. auras reach the state machine from the scenario, and seek agrees
+--------------------------------------------------------------------------------
+do
+    local tank, mage
+    for i, r in ipairs(rec.roster) do
+        if r.name == "Destroyka" then tank = i end
+        if r.name == "Alkandari" then mage = i end
+    end
+    local sa = RT.New(L, rp.scenario)
+    sa:Seek(5.0)
+    local up = sa:Auras(tank)
+    check("Shield Wall up at 5s", #up == 1 and up[1].spellID == 871 and up[1].buff, tostring(#up))
+    sa:Seek(14.0)
+    check("Shield Wall gone at 14s", #sa:Auras(tank) == 0, tostring(#sa:Auras(tank)))
+    local d = sa:Auras(mage)
+    check("debuff at 2 stacks at 14s", #d == 1 and d[1].stacks == 2 and not d[1].buff,
+        d[1] and string.format("%d x%d", d[1].spellID, d[1].stacks) or "none")
+    local sb = RT.New(L, rp.scenario)
+    while sb.t < 14.0 - 1e-9 do sb:Advance(math.min(0.1, 14.0 - sb.t)) end
+    local e = sb:Auras(mage)
+    check("aura seek == step", #e == 1 and e[1].stacks == 2 and #sb:Auras(tank) == 0)
+end
+
+--------------------------------------------------------------------------------
 -- 9. no trace unless asked
 --------------------------------------------------------------------------------
 local plain = SM:Run(rp.scenario, nil, { critMode = "ev" })

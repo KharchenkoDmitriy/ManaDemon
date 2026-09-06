@@ -33,6 +33,21 @@ if rec then
     check("foreign heal recorded", (n[K.FHEAL] or 0) == 1, tostring(n[K.FHEAL]))
     check("own tick recorded", (n[K.OWNTICK] or 0) == 1, tostring(n[K.OWNTICK]))
     check("death recorded", #rec.deaths == 1, tostring(#rec.deaths))
+    -- v0.8.3: Shield Wall apply + remove, the mage's debuff apply + dose; the
+    -- Fortitude buff (not whitelisted) and the mob's debuff (untracked) dropped
+    check("auras recorded", (n[K.AURA] or 0) == 4, tostring(n[K.AURA]))
+    local FLAG = MD.SimModel.AURA_BUFF_FLAG
+    local sw, curse, fort = 0, 0, 0
+    for i = 1, rec.n do
+        if rec.ev.kind[i] == K.AURA then
+            if rec.ev.x[i] == 871 + FLAG then sw = sw + 1 end
+            if rec.ev.x[i] == 55555 then curse = curse + 1 end
+            if rec.ev.x[i] == 10938 + FLAG then fort = fort + 1 end
+        end
+    end
+    check("defensive kept, plain buff dropped", sw == 2 and fort == 0, string.format("sw %d fort %d", sw, fort))
+    check("debuff stacks recorded", curse == 2, tostring(curse))
+    check("aura count exported", (rec.auraN or 0) == 1, tostring(rec.auraN))
     check("precasts carried", #rec.precasts == 1, tostring(#rec.precasts))
     check("mana samples", #rec.mana.t > 5, tostring(#rec.mana.t))
     check("hp snapshots", #rec.hp.t > 3, tostring(#rec.hp.t))
