@@ -73,10 +73,15 @@ trace = {
     mana = {},              -- [k] healer mana at t = (k - 1) * dt
     form = {},              -- [k] 1 tree / 0 caster
     hp   = { [ti] = {} },   -- [ti][k] HP fraction 0..1 (0 once dead), tracked targets only
-    ev   = { t = {}, kind = {}, tgt = {}, a = {}, b = {} },   -- parallel arrays, time order
+    ev   = { t = {}, kind = {}, tgt = {}, a = {}, b = {}, why = {} },   -- parallel arrays, time order
     nEv  = 0,
 }
 ```
+
+`why` is the plan's reason for a `CAST` or a `WAIT`: the index of the `Plan:Decide` rule that
+fired (1..5), `0` for a recorded cast (the left column has no reasons; the healer's are not
+on record). It costs one number per event and is what a future "why did the plan differ here"
+highlight stands on (§7, reserved). Nothing in v0.8 renders it beyond the tooltip in §4.3.
 
 Event kinds `SM.TK` (a new table; `SM.K` is the *recorded* kinds and is not touched):
 
@@ -90,6 +95,9 @@ Event kinds `SM.TK` (a new table; `SM.K` is the *recorded* kinds and is not touc
 | `DEATH` | target | 0 | 0 | a tracked target dies |
 | `FORM` | 0 | 1 tree / 0 caster | 0 | the form changes |
 | `WAIT` | 0 | seconds | 0 | the plan chose to wait (right only) — one event per wait, its length known when it ends |
+
+`SP.RunPlan` / `Plan:Decide` must report the rule that produced a decision so the trace can
+record it: `Decide` returns `spellID, ti, rule` (a third value; existing callers ignore it).
 
 Damage is **not** in the trace. It is identical in both columns by construction and the
 renderer reads it from the scenario's recorded timeline (`scenario.ev` with `K.DMG`) directly.
@@ -293,7 +301,10 @@ count has not yet been seen in-game.
 
 `WAIT` events render as `waiting 1.2s` in the right strip (§3.2) and as a thin grey band on
 the right cast bar for the wait's duration. This is the *"wait is a valid action"* decision
-of v0.7 made visible, and the most likely thing the author will want to argue with.
+of v0.7 made visible, and the most likely thing the author will want to argue with. Hovering
+the right cast bar shows the current cast's or wait's `why` as the rule's one-line name
+(`rule 3: Swiftmend on a big hit`) — the smallest possible start of the coach-in-replay
+highlights reserved in §7.
 
 ### 4.4 `docs/TESTING.md` §24
 
@@ -365,7 +376,24 @@ gains `AURA` (v0.8.3); `UI/Dashboard_Review.lua` gains the Play button and the c
 
 ---
 
-## 7. Rejected (do not re-propose)
+## 7. Rejected and reserved
+
+### Reserved — room deliberately kept (author, 2026-09-06)
+
+- **Coach inside the replay.** Highlights on *where* the suggested column differs from the
+  record and *why*: "at 0:23 the plan Swiftmended (rule 3: big hit on the tank); you cast
+  Regrowth R9 — `late`". v0.8.0's `why` column and v0.8.2's per-cast labels are the data;
+  the rendering (a diff marker on the scrubber, a side-by-side sentence when paused on one)
+  is a v0.9 item, after the author has played real pulls and knows which differences matter.
+- **Defensive cooldowns and debuffs as a decision input.** A rogue under Evasion is not
+  urgent; a tank at 40% with Shield Wall up is not the same 40% as without it. That is a
+  present-state input for `Plan:Decide` — legal under the causality invariant (the healer
+  can see the buff too), next to trailing damage. v0.8.3's recording of `AURA` events is the
+  prerequisite; the rule itself waits for recordings that show the case happening, so its
+  threshold has a provenance. **Not** the engine changing damage (below): the damage a
+  defensive prevented was recorded as prevented.
+
+### Rejected (do not re-propose)
 
 - **Two windows.** Decision 1.
 - **Raw snapshots as the left column.** Decision 2 — a 5 s stair-step next to a smooth curve
@@ -376,9 +404,11 @@ gains `AURA` (v0.8.3); `UI/Dashboard_Review.lua` gains the Play button and the c
 - **Interpolation between grid points.** Heals are jumps.
 - **Playing a live fight.** The recorder records; the window replays. Never in combat.
 - **Monte Carlo playback.** Thirty replicates are a distribution, not a fight.
-- **Running the search from Play.** Play shows what Coach found; it does not coach.
-- **Modelling defensive cooldowns / debuffs in the engine.** Damage is recorded; they explain
-  it.
+- **Running the search from Play.** Play shows what Coach found; it does not search. (Coach
+  *annotations* inside the replay are reserved above — the distinction is search vs
+  explanation.)
+- **Defensive cooldowns / debuffs changing damage in the engine.** Damage is recorded as it
+  happened, Evasion included. (Using them as a *decision* input is reserved above.)
 - **Per-target smoothing of the pulse, or a "predicted" bar.** The right column *is* the
   prediction.
 

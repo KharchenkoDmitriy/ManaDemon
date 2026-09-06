@@ -565,4 +565,13 @@ a spec (`docs/SPEC-v0.8.md`) rather than a debate round. The three calls:
 Carried over unchanged: the causality invariant, the search never traces, nothing from this
 work enters the model. Rejected up front (spec §7): raw snapshots as the left column, Cell's
 real unit buttons, interpolation between grid points, playing live, Monte Carlo playback,
-running the search from Play, modelling defensive cooldowns in the engine.
+running the search from Play, defensive cooldowns changing damage in the engine.
+
+**Two items the author asked to keep room for** (spec §7 "reserved"), and the distinction
+that makes each safe: **coach inside the replay** — *explanation*, not search; the trace
+records the rule that fired (`why`) from v0.8.0 so a later "here is where and why the plan
+differed" has data. **Defensives and debuffs as a decision input** — a rogue under Evasion
+is not urgent — which is a present-state input to `Plan:Decide`, legal under the causality
+invariant, and *not* the engine altering damage (the damage Evasion prevented was recorded
+as prevented). The recording of auras in v0.8.3 is its prerequisite; the rule waits for a
+recording that shows the case.
