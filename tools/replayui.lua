@@ -68,6 +68,8 @@ local sawRegrowth, sawDamage = false, false
 -- v0.8.2: indicators and labels seen at some point during the play-through
 local sawEarly, sawLBStack, sawRejuvDigit, sawDot, sawWhy, sawBand = false, false, false, false, false, false
 local sawDefIcon, sawDebuff2 = false, false
+local sawCastProgress, castProgressDetail = false, ""
+local sawGcdSweep = false
 local frames = 0
 local HOT_INDEX = SM.HOT_INDEX
 while MD.Replay._state().playing and frames < 2000 do
@@ -87,6 +89,12 @@ while MD.Replay._state().playing and frames < 2000 do
         if lf.dot:IsShown() then sawDot = true end
     end
     if W.right.strip.why then sawWhy = true end
+    local cb = W.left.strip.cast
+    local v, txt = cb:GetValue(), W.left.strip.castFS:GetText()
+    if txt:find("Regrowth") and v > 0.05 and v < 0.95 then
+        sawCastProgress = true; castProgressDetail = string.format("%.2f at %s", v, txt)
+    end
+    if txt:find("instant") and v > 0 and v < 1 then sawGcdSweep = true end
     if W.left.frames[tankRow].defIcon:IsShown() then sawDefIcon = true end
     if mageRow and W.left.frames[mageRow].debuffs[1]:IsShown() and W.left.frames[mageRow].debuffs[1].count:GetText() == "2" then sawDebuff2 = true end
     if W.right.strip.band.color and W.right.strip.band.color[4] > 0 then sawBand = true end
@@ -117,6 +125,11 @@ for _, m in ipairs(W.scrubber.markers) do
     if m:IsShown() and m.color and m.color[1] == 1 and m.color[2] == 0.9 and m.color[3] == 0.3 then labelled = labelled + 1 end
 end
 check("scrubber tick coloured by label", labelled >= 1, tostring(labelled))
+-- v0.8.4
+check("cast bar progresses during the Regrowth", sawCastProgress, castProgressDetail)
+check("instant sweeps the GCD", sawGcdSweep)
+check("last cast name stays after the fight", W.left.strip.castFS:GetText() ~= "", W.left.strip.castFS:GetText())
+check("five speeds incl. 1/4x", #W.speeds == 5 and W.speeds[1].id == 0.25, tostring(#W.speeds))
 -- v0.8.3
 check("Shield Wall icon shown on the tank", sawDefIcon)
 check("debuff icon with 2 stacks on the mage", sawDebuff2)
@@ -125,8 +138,8 @@ MD.Replay._seek(5.0)
 check("defensive icon at 5s with a tooltip", ic:IsShown() and ic.tip and ic.tip[1].l == "Shield Wall",
     ic.tip and ic.tip[1].l or "no tip")
 check("icon tooltip does not error", pcall(ic:GetScript("OnEnter"), ic))
-MD.Replay._seek(14.0)
-check("defensive icon gone at 14s", not ic:IsShown())
+MD.Replay._seek(16.0)
+check("defensive icon gone at 16s", not ic:IsShown())
 
 -- seek back to the start: effects cleared, bars back
 MD.Replay._seek(0)

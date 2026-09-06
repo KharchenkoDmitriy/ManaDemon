@@ -228,9 +228,10 @@ Drives the `reccheck` scripted pull, then `SP.Replay` on the recording with a ma
 - **Frame order**: tanks, then healers, then the rest, each group in roster order. Raid = the
   tracked set (the player's subgroup plus main tanks — what the recorder kept). The healer is
   a tracked target like anyone else and has a frame.
-- **Frame** (300 × 30, Cell-like): role letter `T/H/D/?` from `roster[i].role`; name in class
-  colour (`RAID_CLASS_COLORS[class]`, grey when unknown); HP bar in the class colour over
-  `UI`'s dark panel; percentage right-aligned. Dead: bar empty, name grey, `dead` instead of
+- **Frame** (360 × 38 since v0.8.4, Cell-like): role letter `T/H/D/?` from `roster[i].role`;
+  name in class colour (`RAID_CLASS_COLORS[class]`, grey when unknown); HP bar in the class
+  colour over `UI`'s dark panel; percentage right-aligned. **The cast text and its label are
+  drawn inside the bar** — above it they collided with the strip. Dead: bar empty, name grey, `dead` instead of
   the percentage. Untracked roster members are not shown.
 - **Snapshot ticks** (left column only): a 1 px vertical line on the bar at the latest
   recorded snapshot's fraction, drawn in white at 90% and fading to 30% over the 5 s until the
@@ -245,11 +246,17 @@ Drives the `reccheck` scripted pull, then `SP.Replay` on the recording with a ma
   Rejuvenation purple, Regrowth green, Lifebloom yellow-green, Healing Touch blue, Swiftmend
   orange, Tranquility teal, utility/shift grey.
 - **Healer strip**: mana bar (blue, current number, the pool as max); form tag; cast bar that
-  fills over `castTime` from `CAST_START` and pops on `CAST` (instants flash the bar once);
+  fills over the cast time from `CAST_START` — on the left the *recorded* time, taken from
+  the `CAST` that follows (v0.8.4; a recorded `CAST_START` carries none) — and, for an
+  instant, **sweeps the GCD in grey**: the healer is locked either way. The last cast's name
+  **stays**, dimmed, until the next one: the strip answers "what was I doing", not "is a bar
+  moving" (author, 2026-09-06, from the first in-game replay — a flash per instant was
+  unreadable);
   the running score line `spent N  lowest H%  D dead` computed from the trace prefix (so it
   agrees with the card at the end). The right strip shows `waiting 1.2s` while `st:Waiting()`.
-- **Scrubber**: `UI.CreateSlider` 0..dur, step `dt`; play/pause; a `UI.CreateButtonGroup` for
-  1× / 2× / 4× (`db.replaySpeed`, default 1); `m:ss.s / m:ss`; markers along the track: deaths
+- **Scrubber**: a slider 0..dur on its own full-width row; play/pause; a `UI.CreateButtonGroup`
+  for 1/4× / 1/2× / 1× / 2× / 4× (`db.replaySpeed`, default 1; the slow speeds were the
+  author's first request after seeing it); `m:ss.s / m:ss`; markers along the track: deaths
   red, big hits orange, the left column's casts as 1 px grey ticks. Dragging seeks (§2.4);
   playback resumes from there.
 - **Playback**: one `OnUpdate` on the window, `st:Advance(elapsed * speed)` for each column

@@ -28,6 +28,9 @@ local MOTW = 9885
 local function ev(sub, src, dst, dstName, ...)
     S.Combat(0, sub, false, src, "src", 0, 0, dst, dstName, 0, 0, ...)
 end
+local function castStart(spellID, dst, dstName)
+    ev("SPELL_CAST_START", PLAYER, dst, dstName, spellID, "S", 8)
+end
 local function cast(spellID, dst, dstName)
     ev("SPELL_CAST_SUCCESS", PLAYER, dst, dstName, spellID, "S", 8)
     -- the client fires both; Engine/SpendTracker.lua listens to this one
@@ -68,7 +71,8 @@ swing("Tank-1", "Destroyka", 5000)
 advance(1.0); aura("SPELL_AURA_APPLIED", "Tank-1", "Tank-1", "Destroyka", 871, "Shield Wall", "BUFF")
 aura("SPELL_AURA_APPLIED", "Priest-9", "Tank-1", "Destroyka", 10938, "Power Word: Fortitude", "BUFF")
 aura("SPELL_AURA_APPLIED", "Mob-1", "Mob-2", "Some Mob", 44444, "Sunder", "DEBUFF")
-advance(0.5); cast(regrowth, "Tank-1", "Destroyka"); S.mana = S.mana - (SD:GetCost(regrowth) or 0)
+advance(0.5); castStart(regrowth, "Tank-1", "Destroyka")
+advance(2.0); cast(regrowth, "Tank-1", "Destroyka"); S.mana = S.mana - (SD:GetCost(regrowth) or 0)
 advance(1.5); cast(rejuv, "Tank-1", "Destroyka");    S.mana = S.mana - (SD:GetCost(rejuv) or 0)
 advance(1.5); cast(MOTW, PLAYER, "Penek");           S.mana = S.mana - 445
 advance(3.0); ownTick(rejuv, "Tank-1", "Destroyka", 400, 0)

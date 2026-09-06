@@ -419,8 +419,11 @@ for the window — both are invisible if they work and loud if they do not.
 Review tab → select a recorded fight → **Play** (or `/md replay 1`). Two columns if you have
 pressed Coach on that fight, one if not — the header says which and why.
 
-1. **Press play at 1×.** A Healing Touch is a *jump*; a Rejuvenation is four steps 3 s apart;
-   Lifebloom ticks every second. Nothing glides. If a bar slides smoothly, that is a bug.
+1. **Press play at 1×** (1/4× and 1/2× exist for the busy moments). A Healing Touch is a
+   *jump*; a Rejuvenation is four steps 3 s apart; Lifebloom ticks every second. Nothing
+   glides. If a bar slides smoothly, that is a bug.
+   The cast bar: a real cast fills over its **recorded** time in the family colour; an instant
+   sweeps the 1.5 s GCD in grey; the name stays, dimmed, until the next cast.
 2. **The white tick on the left bars** is the recorder's real HP snapshot, fading over the 5 s
    until the next one. It should sit *inside* the bar's reconstruction most of the time; when
    it does not, note the target and the time — that is the health gate's number, seen.

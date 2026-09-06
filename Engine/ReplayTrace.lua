@@ -61,12 +61,27 @@ local function HotEnd(trace, i, tgt, fi)
     return trace.dur, nil
 end
 
+-- A recorded CAST_START carries no cast time (the recorder does not know it);
+-- the CAST or CANCEL that follows for the same spell does, exactly.
+local function CastEnd(trace, i, spellID)
+    local TK = MD.SimModel.TK
+    local e = trace.ev
+    for j = i + 1, trace.nEv do
+        local k = e.kind[j]
+        if (k == TK.CAST or k == TK.CANCEL) and e.a[j] == spellID then return e.t[j] - e.t[i], k == TK.CANCEL end
+        if k == TK.CAST_START then break end   -- a new cast began: this one never landed
+    end
+    return nil
+end
+
 function State:Apply(i, fire)
     local TK = MD.SimModel.TK
     local e = self.trace.ev
     local kind, tgt, a, b, t = e.kind[i], e.tgt[i], e.a[i], e.b[i], e.t[i]
     if kind == TK.CAST_START then
-        self.casting = { spellID = a, target = tgt, startedAt = t, castTime = b, why = e.why[i] }
+        local castTime = b
+        if not castTime or castTime <= 0 then castTime = CastEnd(self.trace, i, a) or 0 end
+        self.casting = { spellID = a, target = tgt, startedAt = t, castTime = castTime, why = e.why[i] }
     elseif kind == TK.CAST then
         self.casting = nil
         self.spent = self.spent + (b or 0)

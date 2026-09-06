@@ -278,13 +278,13 @@ do
     sa:Seek(5.0)
     local up = sa:Auras(tank)
     check("Shield Wall up at 5s", #up == 1 and up[1].spellID == 871 and up[1].buff, tostring(#up))
-    sa:Seek(14.0)
-    check("Shield Wall gone at 14s", #sa:Auras(tank) == 0, tostring(#sa:Auras(tank)))
+    sa:Seek(16.0)
+    check("Shield Wall gone at 16s", #sa:Auras(tank) == 0, tostring(#sa:Auras(tank)))
     local d = sa:Auras(mage)
-    check("debuff at 2 stacks at 14s", #d == 1 and d[1].stacks == 2 and not d[1].buff,
+    check("debuff at 2 stacks at 16s", #d == 1 and d[1].stacks == 2 and not d[1].buff,
         d[1] and string.format("%d x%d", d[1].spellID, d[1].stacks) or "none")
     local sb = RT.New(L, rp.scenario)
-    while sb.t < 14.0 - 1e-9 do sb:Advance(math.min(0.1, 14.0 - sb.t)) end
+    while sb.t < 16.0 - 1e-9 do sb:Advance(math.min(0.1, 16.0 - sb.t)) end
     local e = sb:Auras(mage)
     check("aura seek == step", #e == 1 and e[1].stacks == 2 and #sb:Auras(tank) == 0)
 end

@@ -1241,3 +1241,31 @@ the icons are drawn and hidden at the right times with their tooltips running cl
 auras. Six suites green. TESTING §22–§25 are what only the game can answer, and the two
 questions that matter most there are §24's "did any label look wrong" and §25's "would seeing
 the tank's cooldown have changed what you cast".
+
+## 2026-09-06 — v0.8.4: the first in-game replay, and what it corrected
+
+The author recorded a 1v1 against an open-world mob and sent two screenshots. Four things:
+
+- **Clarity.** The frame's cast text was anchored above the bar and collided with the strip's
+  score line; the hint had no width and ran under the "ticks" checkbox; 11 px text on a 30 px
+  row. Columns are 360 wide and rows 38 high now, names and numbers in the 13 px font, the
+  **cast text and its label drawn inside the HP bar** (as Cell does), the scrubber on its own
+  full-width row, the hint on its own line.
+- **Instants blinked.** The spec said "flash the bar once" — wrong, and unreadable. An
+  instant still costs the 1.5 s GCD, so the bar now **sweeps the GCD in grey** with the
+  spell's name, and **the name stays, dimmed, until the next cast**. The strip answers "what
+  was I doing", not "is a bar moving".
+- **Real casts did not progress.** A bug: a recorded `CAST_START` carries no cast time, so
+  the bar jumped to full and vanished. The trace is complete, so the state machine now takes
+  the duration from the `CAST` (or `CANCEL`) that follows the start — the *recorded* cast
+  time, for any spell, Insect Swarm included. The scripted pull gained a real cast start for
+  its Regrowth so the harness can see the bar move.
+- **Slow speeds.** 1/4× and 1/2× next to 1× 2× 4×.
+
+Two smaller things from the same screenshots: "Lifebloom R1" (one rank; the rank is shown
+only for families with more than one) and a lettered square where a Barkskin icon should be —
+`GetSpellTexture` returned nothing on this client for that id, so the icon now also tries
+`GetSpellInfo`'s third return and logs the id when both fail.
+
+`tools/replayui.lua` asserts the bar progressing during the Regrowth, the GCD sweep after an
+instant, the name persisting after the fight, and the five speeds. Six suites green.

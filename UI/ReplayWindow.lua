@@ -15,11 +15,14 @@
 local _, MD = ...
 local UI = MD.UI
 
-local COL_W, FRAME_H, FRAME_GAP = 300, 30, 4
-local GUTTER = 12
-local HEADER_H, STRIP_H, SCRUB_H = 24, 64, 56
+local COL_W, FRAME_H, FRAME_GAP = 360, 38, 6
+local GUTTER = 14
+local HEADER_H, STRIP_H, SCRUB_H = 26, 92, 78
+local NAME_X, BAR_X, PCT_W = 46, 130, 44
 local DT_STEP_MAX = 0.25       -- never advance more than this per frame at 1x (a hitch is not a skip)
-local FLASH_CAST, FLASH_TEXT, FLASH_FOREIGN, PULSE_DMG = 0.8, 1.2, 0.4, 0.4
+local FLASH_CAST, FLASH_TEXT, FLASH_FOREIGN, PULSE_DMG = 0.8, 2.0, 0.4, 0.4
+local GCD = 1.5                -- an instant still locks the healer for this long
+local SPEEDS = { 0.25, 0.5, 1, 2, 4 }
 local TICK_FADE = 5            -- the recorder's snapshot cadence
 
 -- Family colours, one table (spec 3.2). Utility and shifts are grey.
@@ -42,7 +45,7 @@ local ICON_DEBUFF, ICON_DEF, MAX_DEBUFF_ICONS = 14, 16, 3
 local ROLE_LETTER = { TANK = "T", HEALER = "H", DAMAGER = "D" }
 local ROLE_ORDER = { TANK = 1, HEALER = 2, DAMAGER = 3 }
 
-local frame, scrubber, playBtn, timeFS, headerFS, speedHighlight
+local frame, scrubber, playBtn, timeFS, headerFS, speedHighlight, speedButtons
 local left, right          -- the two columns: { state, frames = {}, strip = {}, title }
 local rp                   -- the SP.Replay result being shown
 local rows = {}            -- roster indices in display order
@@ -62,11 +65,19 @@ local function ClassColor(class)
     return c
 end
 
+local rankCount = nil
 local function SpellLabel(spellID)
-    local sd = MD.SpellData.spells[spellID]
+    local SD = MD.SpellData
+    local sd = SD.spells[spellID]
     if sd then
-        local fam = MD.SpellData.families[sd.family]
-        return string.format("%s R%d", fam and fam.label or sd.family, sd.rank), sd.family
+        if not rankCount then
+            rankCount = {}
+            for _, s in pairs(SD.spells) do rankCount[s.family] = (rankCount[s.family] or 0) + 1 end
+        end
+        local fam = SD.families[sd.family]
+        local name = fam and fam.label or sd.family
+        if (rankCount[sd.family] or 1) > 1 then name = string.format("%s R%d", name, sd.rank) end
+        return name, sd.family
     end
     local ok, name = pcall(GetSpellInfo, spellID)
     return (ok and name) or ("spell " .. tostring(spellID)), "other"
@@ -104,15 +115,15 @@ local function CreateUnitFrame(parent, x, y)
     f:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
     UI.StylizeFrame(f, { 0.1, 0.1, 0.1, 1 }, { 0, 0, 0, 1 })
 
-    f.role = f:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-    f.role:SetPoint("LEFT", f, "LEFT", 5, 0)
+    f.role = f:CreateFontString(nil, "OVERLAY", UI.FONT)
+    f.role:SetPoint("TOPLEFT", f, "TOPLEFT", 6, -3)
     f.role:SetWidth(12)
     f.role:SetJustifyH("LEFT")
     f.role:SetTextColor(0.7, 0.7, 0.7)
 
-    f.name = f:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-    f.name:SetPoint("LEFT", f, "LEFT", 42, 0)
-    f.name:SetWidth(56)
+    f.name = f:CreateFontString(nil, "OVERLAY", UI.FONT)
+    f.name:SetPoint("LEFT", f, "LEFT", NAME_X, 0)
+    f.name:SetWidth(BAR_X - NAME_X - 4)
     f.name:SetJustifyH("LEFT")
     f.name:SetWordWrap(false)
 
@@ -122,7 +133,7 @@ local function CreateUnitFrame(parent, x, y)
     for fi = 1, 3 do
         local sq = CreateFrame("Frame", nil, f, "BackdropTemplate")
         sq:SetSize(HOT_SQ, HOT_SQ)
-        sq:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 5 + (fi - 1) * (HOT_SQ + HOT_GAP), 3)
+        sq:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 6 + (fi - 1) * (HOT_SQ + HOT_GAP), 4)
         UI.StylizeFrame(sq, { 0.15, 0.15, 0.15, 1 }, { 0, 0, 0, 1 })
         sq.text = sq:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
         sq.text:SetPoint("CENTER", sq, "CENTER", 0, 0)
@@ -132,7 +143,7 @@ local function CreateUnitFrame(parent, x, y)
     end
     f.dot = f:CreateTexture(nil, "OVERLAY")
     f.dot:SetSize(5, 5)
-    f.dot:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 5 + 3 * (HOT_SQ + HOT_GAP), 4)
+    f.dot:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 6 + 3 * (HOT_SQ + HOT_GAP), 5)
     f.dot:SetColorTexture(1, 0.6, 0.2, 1)
     f.dot:Hide()
 
@@ -160,7 +171,7 @@ local function CreateUnitFrame(parent, x, y)
         return ic
     end
     f.defIcon = Icon(ICON_DEF)
-    f.defIcon:SetPoint("TOPLEFT", f, "TOPLEFT", 20, -2)
+    f.defIcon:SetPoint("TOPLEFT", f, "TOPLEFT", 24, -3)
     f.defIcon:SetBackdropBorderColor(UI.accent[1], UI.accent[2], UI.accent[3], 1)
     f.debuffs = {}
     for i = 1, MAX_DEBUFF_ICONS do
@@ -170,8 +181,8 @@ local function CreateUnitFrame(parent, x, y)
     end
     f.auraBuf = {}
 
-    f.bar = CreateBar(f, COL_W - 100 - 42, FRAME_H - 10)
-    f.bar:SetPoint("LEFT", f, "LEFT", 100, 0)
+    f.bar = CreateBar(f, COL_W - BAR_X - PCT_W - 6, FRAME_H - 8)
+    f.bar:SetPoint("LEFT", f, "LEFT", BAR_X, 0)
 
     -- the damage pulse: a red wash over the bar's empty part
     f.pulse = f.bar:CreateTexture(nil, "ARTWORK")
@@ -180,23 +191,23 @@ local function CreateUnitFrame(parent, x, y)
 
     -- the snapshot tick (left column only): the truth over the reconstruction
     f.tick = f.bar:CreateTexture(nil, "OVERLAY")
-    f.tick:SetSize(1, FRAME_H - 10)
+    f.tick:SetSize(2, FRAME_H - 8)
     f.tick:SetColorTexture(1, 1, 1, 0)
     f.tick:SetPoint("LEFT", f.bar, "LEFT", 0, 0)
 
-    f.pct = f:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-    f.pct:SetPoint("RIGHT", f, "RIGHT", -5, 0)
-    f.pct:SetWidth(36)
+    f.pct = f:CreateFontString(nil, "OVERLAY", UI.FONT)
+    f.pct:SetPoint("RIGHT", f, "RIGHT", -6, 0)
+    f.pct:SetWidth(PCT_W - 6)
     f.pct:SetJustifyH("RIGHT")
 
-    -- the cast text, above the bar's right end, and the classifier's label
-    -- under it (left column only)
-    f.cast = f:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-    f.cast:SetPoint("BOTTOMRIGHT", f.bar, "TOPRIGHT", 0, -1)
-    f.cast:SetJustifyH("RIGHT")
+    -- the cast text INSIDE the bar (Cell draws its text over the bar too), and
+    -- the classifier's label under it, right-aligned (left column only)
+    f.cast = f.bar:CreateFontString(nil, "OVERLAY", UI.FONT)
+    f.cast:SetPoint("TOPLEFT", f.bar, "TOPLEFT", 4, -2)
+    f.cast:SetJustifyH("LEFT")
     f.cast:SetText("")
-    f.label = f:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-    f.label:SetPoint("TOPRIGHT", f.bar, "BOTTOMRIGHT", 0, 1)
+    f.label = f.bar:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    f.label:SetPoint("BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", -4, 2)
     f.label:SetJustifyH("RIGHT")
     f.label:SetText("")
 
@@ -206,23 +217,28 @@ end
 
 local function CreateStrip(parent, x, y)
     local s = {}
-    s.mana = CreateBar(parent, COL_W - 60, 12)
+    s.mana = CreateBar(parent, COL_W - 70, 18)
     s.mana:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
     s.mana:SetStatusBarColor(0.25, 0.45, 0.95)
-    s.manaFS = s.mana:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    s.manaFS = s.mana:CreateFontString(nil, "OVERLAY", UI.FONT)
     s.manaFS:SetPoint("CENTER")
-    s.form = parent:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-    s.form:SetPoint("LEFT", s.mana, "RIGHT", 6, 0)
+    s.form = parent:CreateFontString(nil, "OVERLAY", UI.FONT)
+    s.form:SetPoint("LEFT", s.mana, "RIGHT", 8, 0)
     s.form:SetTextColor(0.7, 0.7, 0.7)
 
-    s.cast = CreateBar(parent, COL_W - 60, 12)
-    s.cast:SetPoint("TOPLEFT", s.mana, "BOTTOMLEFT", 0, -4)
+    -- the cast bar: a real cast fills over its cast time in the family colour;
+    -- an instant sweeps the GCD in grey (the healer is locked either way).
+    -- The name STAYS until the next cast, dimmed once the bar is done -- the
+    -- question the strip answers is "what was I doing", not "is a bar moving".
+    s.cast = CreateBar(parent, COL_W - 70, 18)
+    s.cast:SetPoint("TOPLEFT", s.mana, "BOTTOMLEFT", 0, -6)
     s.cast:SetStatusBarColor(0.8, 0.8, 0.8)
-    s.castFS = s.cast:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-    s.castFS:SetPoint("LEFT", s.cast, "LEFT", 4, 0)
+    s.castFS = s.cast:CreateFontString(nil, "OVERLAY", UI.FONT)
+    s.castFS:SetPoint("LEFT", s.cast, "LEFT", 5, 0)
     s.castFS:SetJustifyH("LEFT")
-    s.wait = parent:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-    s.wait:SetPoint("LEFT", s.cast, "RIGHT", 6, 0)
+    s.castFS:SetWordWrap(false)
+    s.wait = parent:CreateFontString(nil, "OVERLAY", UI.FONT)
+    s.wait:SetPoint("LEFT", s.cast, "RIGHT", 8, 0)
     s.wait:SetTextColor(0.6, 0.6, 0.6)
     -- the wait band: a grey wash over the cast bar while the plan holds
     s.band = s.cast:CreateTexture(nil, "ARTWORK")
@@ -236,20 +252,20 @@ local function CreateStrip(parent, x, y)
     end)
     s.cast:SetScript("OnLeave", function() if MD.Tip then MD.Tip:Hide() end end)
 
-    s.score = parent:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-    s.score:SetPoint("TOPLEFT", s.cast, "BOTTOMLEFT", 0, -4)
+    s.score = parent:CreateFontString(nil, "OVERLAY", UI.FONT)
+    s.score:SetPoint("TOPLEFT", s.cast, "BOTTOMLEFT", 0, -8)
     s.score:SetJustifyH("LEFT")
     s.score:SetWidth(COL_W)
-    s.flashUntil = 0
+    s.gcdUntil, s.gcdStart = 0, 0
     return s
 end
 
 local function CreateColumn(x, titleText)
     local col = { frames = {}, x = x }
-    col.title = frame:CreateFontString(nil, "OVERLAY", UI.FONT)
-    col.title:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -(HEADER_H + 4))
+    col.title = frame:CreateFontString(nil, "OVERLAY", UI.FONT_TITLE)
+    col.title:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -(HEADER_H + 6))
     col.title:SetText(titleText)
-    col.strip = CreateStrip(frame, x, -(HEADER_H + 24))
+    col.strip = CreateStrip(frame, x, -(HEADER_H + 30))
     return col
 end
 
@@ -281,8 +297,12 @@ local function MakeOnEvent(col)
                     f.labelUntil = now + LABEL_FLASH
                 end
             end
-            col.strip.flashUntil = now + 0.3
-            col.strip.lastCast = label
+            local tgtName = rp.rec.roster[tgt] and rp.rec.roster[tgt].name
+            col.strip.lastCast = label .. (tgtName and (" -> " .. tgtName) or "")
+            col.strip.lastFamily = family
+            -- an instant: sweep the GCD from this moment (replay clock, not wall clock)
+            local c = col.state and col.state:Casting()
+            col.strip.gcdStart, col.strip.gcdUntil = t, t + GCD
         elseif kind == RT.EV_DMG then
             if f then
                 local maxHP = rp.scenario.targets[tgt] and rp.scenario.targets[tgt].maxHP or 1
@@ -314,6 +334,13 @@ local function PaintIcon(ic, a, t, isDef)
     if ic.spellID ~= a.spellID then
         ic.spellID = a.spellID
         local ok, tex = pcall(GetSpellTexture, a.spellID)
+        if not (ok and tex) then
+            -- this client may not have GetSpellTexture; GetSpellInfo's third
+            -- return is the icon on the 2.5.x client
+            local ok2, _, _, icon = pcall(GetSpellInfo, a.spellID)
+            if ok2 and icon then ok, tex = true, icon end
+        end
+        if not (ok and tex) then MD:Debug("sim", "replay: no texture for aura %d", a.spellID) end
         if ok and tex then
             ic.tex:SetTexture(tex)
             ic.letter:SetText("")
@@ -436,21 +463,29 @@ local function PaintStrip(s, st, pool, now)
     s.form:SetText(st:Form() == "tree" and "[tree]" or "[caster]")
 
     local c = st:Casting()
-    if c then
+    if c and c.castTime > 0 then
+        -- a real cast, filling over its recorded (left) or modelled (right) time
         local label, family = SpellLabel(c.spellID)
-        local frac = c.castTime > 0 and ((st.t - c.startedAt) / c.castTime) or 1
+        local frac = (st.t - c.startedAt) / c.castTime
         if frac > 1 then frac = 1 end
+        if frac < 0 then frac = 0 end
         local fc = FAMILY_COLOR[family] or FAMILY_COLOR.other
         s.cast:SetStatusBarColor(fc[1], fc[2], fc[3])
         s.cast:SetValue(frac)
         local tgt = rp.rec.roster[c.target]
-        s.castFS:SetText(label .. (tgt and (" -> " .. tgt.name) or ""))
-    elseif s.flashUntil > now then
-        s.cast:SetValue(1)
-        s.castFS:SetText(s.lastCast or "")
+        s.castFS:SetText(label .. (tgt and (" -> " .. tgt.name) or "") .. string.format("  %.1fs", c.castTime))
+        s.castFS:SetTextColor(1, 1, 1)
+    elseif s.lastCast and st.t < s.gcdUntil and st.t >= s.gcdStart then
+        -- just after an instant: the GCD sweeping, in grey
+        s.cast:SetStatusBarColor(0.45, 0.45, 0.45)
+        s.cast:SetValue((st.t - s.gcdStart) / GCD)
+        s.castFS:SetText(s.lastCast .. "  instant")
+        s.castFS:SetTextColor(1, 1, 1)
     else
+        -- idle: the last cast's name stays, dimmed, so "what was I doing" has an answer
         s.cast:SetValue(0)
-        s.castFS:SetText("")
+        s.castFS:SetText(s.lastCast or "")
+        s.castFS:SetTextColor(0.55, 0.55, 0.55)
     end
     local w = st:Waiting()
     s.wait:SetText(w and string.format("waiting %.1fs", w) or "")
@@ -507,8 +542,9 @@ local function SeekTo(t)
             end
         end
     end
-    left.strip.flashUntil = 0
-    if right then right.strip.flashUntil = 0 end
+    for _, col in ipairs({ left, right }) do
+        if col then col.strip.lastCast, col.strip.gcdStart, col.strip.gcdUntil = nil, 0, 0 end
+    end
     Paint()
 end
 
@@ -562,34 +598,38 @@ local function Build()
     playBtn = UI.CreateButton(frame, ">", "accent-hover", { 24, 18 }, false, false, nil, nil,
         "Play / pause", "Space also toggles while the window has focus.")
     playBtn:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", GUTTER, 24)
+    playBtn:SetSize(30, 20)
     playBtn:SetScript("OnClick", function() SetPlaying(not playing) end)
 
     local speeds, prev = {}, playBtn
-    for _, sp in ipairs({ 1, 2, 4 }) do
-        local b = UI.CreateButton(frame, sp .. "x", "accent-hover", { 26, 18 }, false, false, UI.FONT_SMALL)
+    for _, sp in ipairs(SPEEDS) do
+        local text = sp >= 1 and (sp .. "x") or ("1/" .. math.floor(1 / sp + 0.5) .. "x")
+        local b = UI.CreateButton(frame, text, "accent-hover", { 34, 18 }, false, false, UI.FONT_SMALL)
         b.id = sp
         b:SetPoint("LEFT", prev, "RIGHT", 3, 0)
         speeds[#speeds + 1] = b
         prev = b
     end
+    speedButtons = speeds
     speedHighlight = UI.CreateButtonGroup(speeds, function(id)
         speed = id
         MD.db.replaySpeed = id
     end)
 
-    timeFS = frame:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-    timeFS:SetPoint("LEFT", prev, "RIGHT", 10, 0)
-    timeFS:SetWidth(96)
+    timeFS = frame:CreateFontString(nil, "OVERLAY", UI.FONT)
+    timeFS:SetPoint("LEFT", prev, "RIGHT", 12, 0)
+    timeFS:SetWidth(110)
     timeFS:SetJustifyH("LEFT")
 
+    -- the scrubber on its own row above the buttons, full width
     scrubber = CreateFrame("Slider", nil, frame, "BackdropTemplate")
     scrubber:SetOrientation("HORIZONTAL")
-    scrubber:SetSize(2 * COL_W + GUTTER - 230, 10)
-    scrubber:SetPoint("LEFT", timeFS, "RIGHT", 4, 0)
+    scrubber:SetSize(2 * COL_W + GUTTER, 14)
+    scrubber:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", GUTTER, 50)
     UI.StylizeFrame(scrubber, { 0.115, 0.115, 0.115, 1 })
     local thumb = scrubber:CreateTexture(nil, "ARTWORK")
     thumb:SetColorTexture(UI.accent[1], UI.accent[2], UI.accent[3], 1)
-    thumb:SetSize(6, 14)
+    thumb:SetSize(6, 18)
     scrubber:SetThumbTexture(thumb)
     scrubber:SetMinMaxValues(0, 1)
     scrubber:SetValueStep(0.05)
@@ -607,14 +647,15 @@ local function Build()
         Paint()
     end, "Snapshot ticks", "The recorder's real HP every 5s, drawn over the",
         "engine's reconstruction on the left bars.")
-    ticksCB:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", GUTTER, 4)
+    ticksCB:SetPoint("LEFT", timeFS, "RIGHT", 8, 0)
     ticksCB:SetChecked(MD.db.replayTicks ~= false)
     frame.ticksCB = ticksCB
 
+    -- the hint on its own line at the very bottom, never under a control
     frame.hint = frame:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-    frame.hint:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -GUTTER, 6)
+    frame.hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", GUTTER, 6)
     frame.hint:SetTextColor(0.5, 0.5, 0.5)
-    frame.hint:SetJustifyH("RIGHT")
+    frame.hint:SetJustifyH("LEFT")
 end
 
 -- Markers along the scrubber: deaths red, big hits orange, the left column's
@@ -686,9 +727,10 @@ local function Layout()
     local width = hasRight and (2 * COL_W + 3 * GUTTER) or (COL_W + 2 * GUTTER)
     local height = HEADER_H + STRIP_H + #rows * (FRAME_H + FRAME_GAP) + SCRUB_H + 8
     frame:SetSize(width, height)
+    frame.hint:SetWidth(width - 2 * GUTTER)
     Shown(right.title, hasRight)
     for _, k in ipairs({ "mana", "cast", "form", "wait", "score" }) do Shown(right.strip[k], hasRight) end
-    scrubber:SetWidth(width - 2 * GUTTER - 230)
+    scrubber:SetWidth(width - 2 * GUTTER)
 
     for _, col in ipairs({ left, right }) do
         for _, f in pairs(col.frames) do f:Hide() end
@@ -791,7 +833,7 @@ MD.Replay = {
     Open = function(_, n) MD:OpenReplay(n) end,
     -- for tools/replayui.lua: what the window is showing, read-only
     _state = function() return { frame = frame, left = left, right = right, rows = rows, rp = rp,
-                                 scrubber = scrubber, timeFS = timeFS, playing = playing } end,
+                                 scrubber = scrubber, timeFS = timeFS, playing = playing, speeds = speedButtons } end,
     _setPlaying = function(on) SetPlaying(on) end,
     _seek = function(t) SeekTo(t) end,
 }
