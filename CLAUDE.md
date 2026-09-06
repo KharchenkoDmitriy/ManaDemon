@@ -91,7 +91,7 @@ There is no build system. A change is "verified" when:
    `tools/run.sh tools/simcheck.lua` (ten self-tests over `Engine/SimModel.lua` plus the BF-1
    fixture replay), `tools/run.sh tools/reccheck.lua` (a scripted pull end to end, 38
    assertions), `tools/run.sh tools/replaycheck.lua` (the trace and the replay state machine, 31
-   assertions), `tools/run.sh tools/replayui.lua` (the replay window painted under the stub, 49
+   assertions), `tools/run.sh tools/replayui.lua` (the replay window painted under the stub, 50
    assertions — the only UI file with an offline test) and, for the regen diagnostics,
    `tools/run.sh tools/regencheck.lua`. They run the real files under a stub client, so they catch ordering and
    arithmetic bugs a syntax check cannot — between them they have already found the engine's

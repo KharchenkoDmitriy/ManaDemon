@@ -185,6 +185,16 @@ check("tick has a hover frame", hit:IsShown() and W.left.frames[tankRow].tickInf
 check("tick tooltip does not error", pcall(hit:GetScript("OnEnter"), hit))
 check("no tick on the right", W.right.frames[tankRow].tick.color[4] == 0)
 
+-- a lone Lifebloom packs into the first HoT slot (Trecoda at 16.5s has only a Lifebloom)
+do
+    local pala
+    for _, ti in ipairs(W.rows) do if roster[ti].name == "Trecoda" then pala = ti end end
+    MD.Replay._seek(17.0)
+    local lb = pala and W.left.frames[pala].hots[HOT_INDEX.Lifebloom]
+    check("lone Lifebloom packs into slot 1", lb and lb:IsShown() and lb.slot == 1, lb and tostring(lb.slot) or "no row")
+    MD.Replay._seek(0)
+end
+
 -- markers on the scrubber: the death, the casts
 local shown = 0
 for _, m in ipairs(W.scrubber.markers) do if m:IsShown() then shown = shown + 1 end end

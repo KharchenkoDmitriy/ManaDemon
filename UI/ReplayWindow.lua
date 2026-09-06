@@ -39,6 +39,7 @@ local CELL = {
     defensives = { "LEFT", -2, 5, 12, 20, 1, 2 },       -- 12x20, left-to-right, 2
     debuffs = { "BOTTOMLEFT", 1, 4, 13, 1, 3 },         -- 13px, left-to-right, 3
     healthText = { "BOTTOMRIGHT", 0, 0 },               -- deficit_short
+    swiftmend = { 9, -1, -(13 + 5) },                   -- ours: 9px at the right edge, under the HoT row
     statusText = { "BOTTOM", 0, 0 },                    -- 11px with background: cast name, label, dead
     fonts = { name = 13, health = 12, status = 11, count = 11 },
     textScaleMax = 2,                                   -- status / deficit / counts stop growing here; the name does not
@@ -295,6 +296,7 @@ local function CreateUnitFrame(parent, x, y)
     -- slots keep their Cell positions, the offsets and icons grow with s, the
     -- bar and the name stretch with the width.
     function f.Resize(W, H, sc)
+        f.scale, f.width = sc, W
         f:SetSize(W, H)
         local pw = math.max(1, CELL.powerSize * sc)
         f.bar:ClearAllPoints()
@@ -328,18 +330,23 @@ local function CreateUnitFrame(parent, x, y)
             fs:SetWidth(W - 4)
             Font(fs, CELL.fonts.status * ts)
         end
+        -- the HoT icons are sized here and PLACED in PaintFrame: like Cell's
+        -- icon indicators they pack from the anchor, so a lone Lifebloom sits
+        -- in the first slot rather than floating in the third
         local ho = CELL.hots
         for fi = 1, 3 do
             local ic = f.hots[fi]
             ic:SetSize(ho[4] * sc, ho[4] * sc); ic.size = ho[4] * sc
-            ic:ClearAllPoints()
-            ic:SetPoint(ho[1], f, ho[1], (ho[2] + ho[5] * (fi - 1) * ho[4]) * sc, ho[3] * sc)
+            ic.slot = nil
             Font(ic.count, CELL.fonts.count * ts); Font(ic.letter, CELL.fonts.count * ts)
         end
-        f.dot:SetSize(ho[4] * sc, ho[4] * sc); f.dot.size = ho[4] * sc
+        -- Swiftmend: smaller than a HoT icon, at the right edge under the row
+        local sm = CELL.swiftmend
+        f.dot:SetSize(sm[1] * sc, sm[1] * sc); f.dot.size = sm[1] * sc
         f.dot:ClearAllPoints()
-        f.dot:SetPoint("TOPRIGHT", f, "TOPRIGHT", ho[2] * sc, (ho[3] - ho[4] - 1) * sc)
+        f.dot:SetPoint("TOPRIGHT", f, "TOPRIGHT", sm[2] * sc, sm[3] * sc)
         Font(f.dot.count, CELL.fonts.count * ts); Font(f.dot.letter, CELL.fonts.count * ts)
+        f.pctRaised = nil
         local de = CELL.defensives
         f.defIcon:SetSize(de[4] * sc, de[5] * sc); f.defIcon.size = de[5] * sc
         f.defIcon:ClearAllPoints()
@@ -545,6 +552,7 @@ local function PaintFrame(f, st, ti, isLeft, now)
     local hp = st:Hp(ti)
     local dead = st:Dead(ti)
     local c = f.classColor
+    local sc = f.scale or 1
     local maxHP = rp.scenario.targets[ti] and rp.scenario.targets[ti].maxHP or 0
     if dead then
         f.bar:SetValue(0)
@@ -581,7 +589,15 @@ local function PaintFrame(f, st, ti, isLeft, now)
     if f.labelUntil <= now and f.labelText ~= "" then f.SetLabel("") end
     Shown(f.label, showLabel and not dead)
     Shown(f.cast, f.castText ~= "" and not showLabel and not dead)
-    Shown(f.statusBG, (not dead) and (showLabel or f.castText ~= ""))
+    local stripShown = (not dead) and (showLabel or f.castText ~= "")
+    Shown(f.statusBG, stripShown)
+    -- the deficit steps up above the strip while the strip has text
+    if f.pctRaised ~= stripShown then
+        f.pctRaised = stripShown
+        local ht = CELL.healthText
+        f.pct:ClearAllPoints()
+        f.pct:SetPoint(ht[1], f.bar, ht[1], ht[2] * sc, ht[3] * sc + (stripShown and (12 * math.min(sc, CELL.textScaleMax) + 1) or 0))
+    end
 
     -- HoT icons with the vertical sweep of their remaining time; Lifebloom
     -- shows its stacks and its border turns white in the last second (the
@@ -589,10 +605,17 @@ local function PaintFrame(f, st, ti, isLeft, now)
     local SM = MD.SimModel
     local HOT_INDEX = SM.HOT_INDEX
     local eatable = false
+    local slot, ho = 0, CELL.hots
     for fi = 1, 3 do
         local ic = f.hots[fi]
         local h = (not dead) and st:Hot(ti, fi) or nil
         if h then
+            slot = slot + 1
+            if ic.slot ~= slot then
+                ic.slot = slot
+                ic:ClearAllPoints()
+                ic:SetPoint(ho[1], f, ho[1], (ho[2] + ho[5] * (slot - 1) * ho[4]) * sc, ho[3] * sc)
+            end
             local fam = SM.HOT_NAME[fi]
             SetIcon(ic, MD.SpellData.maxRank[fam] or 0, fam)
             Sweep(ic, h.since, h.since + (h.duration or 0), st.t)
@@ -606,6 +629,7 @@ local function PaintFrame(f, st, ti, isLeft, now)
             end
             ic:Show()
         else
+            ic.slot = nil
             ic:Hide()
         end
     end

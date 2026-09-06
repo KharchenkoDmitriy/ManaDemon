@@ -1363,3 +1363,12 @@ sweeping its cooldown otherwise (`State:CooldownUntil`, new), with a tooltip eit
 tick has an 8 px hover frame and a tooltip: the recorded HP and when it was read, the engine's
 reconstruction at this moment, and whether the two are within the health gate's 5% — the
 sentence that says what the line is *for*. `tools/replayui.lua` 49. Six suites green.
+
+## 2026-09-06 — v0.8.11: packed HoT icons, the deficit off the strip, a smaller Swiftmend
+
+Two screenshots. A lone Lifebloom floated mid-button: the three HoT slots were fixed by
+family, so it sat in the third with two empty ones to its right. Cell's icon indicators pack
+from the anchor; ours do now (placed in `PaintFrame`, cached per slot). "Lifebloom -102": the
+deficit and the status strip shared the bottom-right corner; the deficit steps up above the
+strip while it has text. The Swiftmend icon is 9 px at Cell's size (31 px at ×3.5), at the
+right edge under the HoT row, where it clears the name at ×1. `tools/replayui.lua` 50.
