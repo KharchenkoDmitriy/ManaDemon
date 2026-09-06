@@ -137,11 +137,22 @@ local function CreateUnitFrame(parent, x, y)
     f:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
     UI.StylizeFrame(f, { 0, 0, 0, 1 }, { 0, 0, 0, 1 })
 
+    -- Frame levels, as Cell lays them: the bars lowest, indicators above them,
+    -- text and the cast-target icon on top. Two children of one button share a
+    -- level by default and the later-drawn bar covered the icons' textures
+    -- (the first in-game look: a bare stack count over solid class colour).
+    local base = f:GetFrameLevel()
+    f.top = CreateFrame("Frame", nil, f)
+    f.top:SetAllPoints(f)
+    f.top:SetFrameLevel(base + 20)
+
     -- the health bar fills the button inside its 1px border, above the power strip
     f.bar = CreateBar(f, W - 2, H - 2 - CELL.powerSize)
     f.bar:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
+    f.bar:SetFrameLevel(base + 1)
     f.power = CreateBar(f, W - 2, CELL.powerSize)
     f.power:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 1)
+    f.power:SetFrameLevel(base + 1)
     f.power:SetStatusBarColor(0, 0.5, 1)
     f.power.bg:SetColorTexture(0.15, 0.15, 0.15, 1)
 
@@ -171,7 +182,7 @@ local function CreateUnitFrame(parent, x, y)
 
     -- roleIcon, top-left
     local ri = CELL.roleIcon
-    f.role = f:CreateTexture(nil, "OVERLAY")
+    f.role = f.top:CreateTexture(nil, "OVERLAY")
     f.role:SetSize(ri[4], ri[4])
     f.role:SetPoint(ri[1], f, ri[1], ri[2], ri[3])
     pcall(f.role.SetTexture, f.role, ROLE_TEX)
@@ -179,17 +190,17 @@ local function CreateUnitFrame(parent, x, y)
     -- statusText: the bottom strip with a background -- the landed cast's
     -- name, then the classifier's label, or DEAD
     local stt = CELL.statusText
-    f.statusBG = f:CreateTexture(nil, "OVERLAY", nil, 3)
+    f.statusBG = f.top:CreateTexture(nil, "ARTWORK")
     f.statusBG:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 1 + CELL.powerSize)
     f.statusBG:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1 + CELL.powerSize)
     f.statusBG:SetHeight(12)
     f.statusBG:SetColorTexture(0, 0, 0, 0.6)
     f.statusBG:Hide()
-    f.cast = f:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    f.cast = f.top:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
     f.cast:SetPoint(stt[1], f, stt[1], stt[2], stt[3] + CELL.powerSize + 1)
     f.cast:SetJustifyH("CENTER")
     f.cast:SetText("")
-    f.label = f:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    f.label = f.top:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
     f.label:SetPoint(stt[1], f, stt[1], stt[2], stt[3] + CELL.powerSize + 1)
     f.label:SetJustifyH("CENTER")
     f.label:SetText("")
@@ -200,10 +211,11 @@ local function CreateUnitFrame(parent, x, y)
     -- Cell/Indicators/Base.lua's VerticalCooldown, done with an overlay rather
     -- than a mask because the window paints every frame anyway), a stack count
     -- bottom-right, and a lettered fallback when no texture resolves.
-    local function Icon(w, h)
+    local function Icon(w, h, level)
         h = h or w
         local ic = CreateFrame("Frame", nil, f, "BackdropTemplate")
         ic:SetSize(w, h)
+        ic:SetFrameLevel(base + (level or 5))
         UI.StylizeFrame(ic, { 0.15, 0.15, 0.15, 1 }, { 0, 0, 0, 1 })
         ic.tex = ic:CreateTexture(nil, "ARTWORK")
         ic.tex:SetPoint("TOPLEFT", ic, "TOPLEFT", 1, -1)
@@ -246,7 +258,7 @@ local function CreateUnitFrame(parent, x, y)
         f.hots[fi] = ic
     end
     -- the Swiftmend-ready dot, under them at the right edge
-    f.dot = f:CreateTexture(nil, "OVERLAY")
+    f.dot = f.top:CreateTexture(nil, "OVERLAY")
     f.dot:SetSize(5, 5)
     f.dot:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -(ho[4] + 4))
     f.dot:SetColorTexture(1, 0.6, 0.2, 1)
@@ -256,7 +268,7 @@ local function CreateUnitFrame(parent, x, y)
     -- this unit (border in the family colour meanwhile), held a moment after
     -- it lands. Cell has no such thing; this is the one addition.
     local si = CELL.statusIcon
-    f.castIcon = Icon(si[4])
+    f.castIcon = Icon(si[4], nil, 15)
     f.castIcon:SetPoint(si[1], f, si[1], si[2], si[3])
     f.castIcon:EnableMouse(false)
 
@@ -264,7 +276,7 @@ local function CreateUnitFrame(parent, x, y)
     -- recorded and drawn, never modelled -- the damage they changed was
     -- recorded as changed
     local de = CELL.defensives
-    f.defIcon = Icon(de[4], de[5])
+    f.defIcon = Icon(de[4], de[5], 10)
     f.defIcon:SetPoint(de[1], f, de[1], de[2], de[3])
     f.defIcon:SetBackdropBorderColor(UI.accent[1], UI.accent[2], UI.accent[3], 1)
     local db = CELL.debuffs
@@ -785,6 +797,7 @@ local function Build()
     frame.hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", GUTTER, 6)
     frame.hint:SetTextColor(0.5, 0.5, 0.5)
     frame.hint:SetJustifyH("LEFT")
+    frame.hint:SetWordWrap(false)
 end
 
 -- Markers along the scrubber: deaths red, big hits orange, the left column's
@@ -953,8 +966,8 @@ function MD:OpenReplay(n)
         right.title:SetText(string.format("SUGGESTED  |cff888888(%s, %d binds)|r", p.name or "plan", p:BindCount()))
         frame.hint:SetText("")
     else
-        frame.hint:SetText(v and not v.ok and "no plan: this fight does not replay, so nothing is suggested"
-            or "no plan - press Coach first for the right column")
+        frame.hint:SetText(v and not v.ok and "no plan: this fight does not replay"
+            or "no plan: press Coach first")
     end
 
     scrubber.settingValue = true

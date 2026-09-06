@@ -1307,3 +1307,15 @@ Foreign heals still flash the border white.
 
 `tools/replayui.lua` now asserts roster order, Cell-sized buttons and the cast-target icon
 sweeping on the tank during the Regrowth (43). Six suites green.
+
+## 2026-09-06 — v0.8.7: frame levels
+
+The first in-game look at the Cell-shaped buttons: solid class colour with a bare stack count
+on top and no status strip. Not a texture problem — two children of one button (the health
+bar and an icon) share a frame level by default, and the later-drawn bar covered the icons'
+textures and the text drawn on the button, while font strings on the OVERLAY layer showed
+through. Cell gives the bar level 1 and its indicators 5 and 10; the window now does the same
+(bars +1, HoT and debuff icons +5, defensives +10, the cast-target icon +15, text and the
+role icon on an overlay frame at +20). The hint is one short line now instead of wrapping
+into the controls in a single-column window. Not something the stub can see; noted here so
+the next indicator gets a level from the start.
