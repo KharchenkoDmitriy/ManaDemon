@@ -947,6 +947,46 @@ function MD:RunSimReplay(arg)
         end
         return
     end
-    -- recorded fights arrive in v0.7.3; until then say so rather than guess
-    MD:Print("simreplay: only 'fixture' exists until v0.7.3 records real fights.")
+    local n = tonumber(arg)
+    local rec = MD.FightRecorder and MD.FightRecorder:Get(n or 1)
+    if not rec then
+        MD:Print("simreplay: no recording " .. tostring(arg) .. " (try /md simreplay fixture).")
+        return
+    end
+    for _, line in ipairs(MD:ValidationReport(rec, n or 1)) do
+        MD:Print(line)
+        MD:Debug("sim", "simreplay %s", line)
+    end
+end
+
+--------------------------------------------------------------------------------
+-- The validation report for one recording: whether the engine can reproduce the
+-- fight, gate by gate, with each threshold's provenance. This is what the
+-- Review tab's tooltip shows and what decides whether the Coach is allowed to
+-- say anything at all about this pull.
+--------------------------------------------------------------------------------
+function MD:ValidationReport(rec, n)
+    local v = MD.SimModel:Validate(rec)
+    if not v then return { "simreplay: nothing to validate." } end
+    local out = {
+        string.format("recording %d: %s, %.0fs, %d casts, %d mana%s", n or 1,
+            rec.zone or "?", rec.dur or 0, rec.ownCasts or 0, rec.spent or 0,
+            rec.truncated and " (stream truncated)" or ""),
+        string.format("  verdict: %s", v.ok and "REPLAYS - safe to coach from"
+            or "does NOT replay - nothing will be suggested from this fight"),
+    }
+    for _, g in ipairs(v.gates) do
+        out[#out + 1] = string.format("  %-18s %-4s %s", g.name, g.ok and "ok" or "FAIL", g.text)
+    end
+    for i, why in pairs(v.excluded) do
+        local name = rec.roster[i] and rec.roster[i].name or ("target " .. i)
+        out[#out + 1] = string.format("  excluded: %s - %s", name, why)
+    end
+    for _, g in ipairs(v.gates) do
+        if not g.ok and g.why then
+            out[#out + 1] = string.format("  why %s is %s: %s", g.name,
+                g.limit and string.format("%.2f", g.limit) or "set where it is", g.why)
+        end
+    end
+    return out
 end

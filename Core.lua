@@ -35,6 +35,13 @@ local DEFAULTS = {
                           -- waiting is a legitimate action for a 5-man healer)
     recordFights = true,  -- keep the full event stream of the last 8 interesting pulls so they
                           -- can be replayed (Engine/FightRecorder.lua). Summaries run regardless
+    -- Replay validation gates (docs/SPEC-v0.7.md §7). A recording earns the right to be
+    -- coached from; each threshold's provenance is printed with its result in Engine/SimModel.lua.
+    simGateManaMean = 0.02,   -- mean |delta| on the mana curve, as a fraction of the pool
+    simGateManaMax = 0.05,    -- worst single mana sample
+    simGateHpMean = 0.05,     -- mean |delta| on one target's health, fraction of its max
+    simGateHpMax = 0.15,      -- worst single health snapshot
+    simForeignShare = 0.25,   -- above this share of foreign healing, replay is fiction
     healAmountGross = nil, -- latched from the combat log: does SPELL_HEAL's "amount" include the overheal?
     firstRun = true,
     minimap = { hide = false, angle = 220 },
@@ -319,7 +326,7 @@ MD.COMMANDS = {
     { "/md regentest [N]", "idle regen check: observed mana gain vs GetManaRegen (N s, default 30)" },
     { "/md spamtest",     "arm, then chain-cast one spell to OOM: checks the dashboard's To OOM column" },
     { "/md simrun",       "self-tests for the simulation engine (heals, HoT refresh, GCD, 5SR)" },
-    { "/md simreplay",    "replay the BF-1 fixture through the engine and score the mana curve" },
+    { "/md simreplay [n]", "replay recorded fight n (or the BF-1 fixture) and score it against the log" },
     { "/md debug",        "toggle the debug console (enable logging there, Copy to export)" },
 }
 

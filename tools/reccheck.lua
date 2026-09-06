@@ -134,5 +134,23 @@ for _, line in ipairs(exported) do if line:match("^# ") then sections = sections
 check("export renders the stream", #exported > 60 and sections >= 8,
     string.format("%d lines, %d sections", #exported, sections))
 
+-- Replay the recording we just made, through the real gates.
+if rec then
+    print("\n-- /md simreplay 1 --")
+    local report = MD:ValidationReport(rec, 1)
+    for _, line in ipairs(report) do print(line) end
+    local v = MD.SimModel:Validate(rec)
+    check("validate returns gates", v and #v.gates >= 6, v and tostring(#v.gates) or "nil")
+    -- this scripted pull HAS a death and heavy foreign healing, so it must be
+    -- rejected: a replay that passed here would mean the gates do nothing
+    check("scripted pull is rejected", v and v.ok == false)
+    local byName = {}
+    for _, g in ipairs(v.gates) do byName[g.name] = g end
+    check("death gate fired", byName["no tracked death"] and not byName["no tracked death"].ok)
+    check("foreign gate fired", byName["foreign healing"] and not byName["foreign healing"].ok)
+    check("coverage gate present", byName["spend coverage"] ~= nil,
+        byName["spend coverage"] and byName["spend coverage"].text or "missing")
+end
+
 print(string.format("\n%d ok, %d failed", ok, #fails))
 if #fails > 0 then for _, m in ipairs(fails) do print("  FAIL " .. m) end; os.exit(1) end

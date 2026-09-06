@@ -212,6 +212,11 @@ function SM:Run(scenario, plan, opts)
     for k in pairs(S.ohByFamily) do S.ohByFamily[k] = nil end
     S.deaths.n = 0
     for i = #S.manaCurve, 1, -1 do S.manaCurve[i] = nil end
+    for i = 1, nT do
+        local c = S.hpCurve[i]
+        if not c then c = {}; S.hpCurve[i] = c end
+        for j = #c, 1, -1 do c[j] = nil end
+    end
 
     local t = 0
     local manaSpent, casts, lowestMana, oomAt = 0, 0, mana, nil
@@ -396,6 +401,7 @@ function SM:Run(scenario, plan, opts)
     local script = plan and plan.script or scenario.script
     local scriptN, scriptI = script and #script or 0, 1
     local samples, sampleN, sampleI = scenario.sampleT, scenario.sampleT and #scenario.sampleT or 0, 1
+    local hpT, hpN, hpI = scenario.hpSampleT, scenario.hpSampleT and #scenario.hpSampleT or 0, 1
     local deciding = plan and plan.Decide and true or false
 
     ----------------------------------------------------------------------------
@@ -427,6 +433,15 @@ function SM:Run(scenario, plan, opts)
         S.manaCurve[#S.manaCurve + 1] = mana
     end
 
+    -- HP is sampled on its own schedule: the recorder writes mana every 2s and
+    -- health every 5s, and merging them would invent readings neither stream has.
+    local function TakeHpSample()
+        for i = 1, nT do
+            local c = S.hpCurve[i]
+            c[#c + 1] = S.hp[i]
+        end
+    end
+
     ----------------------------------------------------------------------------
     -- Main loop
     ----------------------------------------------------------------------------
@@ -448,10 +463,16 @@ function SM:Run(scenario, plan, opts)
         -- event at that instant has been applied -- which is what a recorded
         -- mana sample means: the log's line at a cast's timestamp is the mana
         -- AFTER the cast paid for itself.
-        while samples and sampleI <= sampleN and samples[sampleI] < nt do
-            AdvanceTo(samples[sampleI])
-            TakeSample()
-            sampleI = sampleI + 1
+        while true do
+            local ms = (samples and sampleI <= sampleN) and samples[sampleI] or nil
+            local hs = (hpT and hpI <= hpN) and hpT[hpI] or nil
+            if ms and ms < nt and (not hs or ms <= hs) then
+                AdvanceTo(ms); TakeSample(); sampleI = sampleI + 1
+            elseif hs and hs < nt then
+                AdvanceTo(hs); TakeHpSample(); hpI = hpI + 1
+            else
+                break
+            end
         end
 
         AdvanceTo(nt)
@@ -556,10 +577,14 @@ function SM:Run(scenario, plan, opts)
         if opts.abortAbove and manaSpent > opts.abortAbove then aborted = true; break end
     end
 
-    while samples and sampleI <= sampleN do
-        AdvanceTo(samples[sampleI])
-        TakeSample()
-        sampleI = sampleI + 1
+    while (samples and sampleI <= sampleN) or (hpT and hpI <= hpN) do
+        local ms = (samples and sampleI <= sampleN) and samples[sampleI] or nil
+        local hs = (hpT and hpI <= hpN) and hpT[hpI] or nil
+        if ms and (not hs or ms <= hs) then
+            AdvanceTo(ms); TakeSample(); sampleI = sampleI + 1
+        else
+            AdvanceTo(hs); TakeHpSample(); hpI = hpI + 1
+        end
     end
 
     local r = S.result
@@ -573,6 +598,7 @@ function SM:Run(scenario, plan, opts)
     r.ticks, r.blooms = tickCount, bloomCount
     r.healByFamily, r.ohByFamily = S.healByFamily, S.ohByFamily
     r.manaCurve = S.manaCurve
+    r.hpCurve = S.hpCurve
     S.lowest.tgt, S.lowest.hp, S.lowest.t = lowestTgt, lowestHp, lowestHpT
     r.lowest = S.lowest
     r.waitFraction = dur > 0 and (waitTime / dur) or 0
@@ -612,4 +638,236 @@ end
 -- with replay so the self-tests exercise the same code path.
 function SM.ScriptPlan(list)
     return { script = list }
+end
+
+--------------------------------------------------------------------------------
+-- Replay: a recorded fight as a scenario the engine can run.
+--
+-- Everything the healer did is a script (the recorded casts at their recorded
+-- costs); everything that happened TO the group is the recorded timeline. The
+-- engine ignores the recorded own-heal events entirely and generates its own
+-- from the spell kit -- that is the point: if the model's Rejuvenation is
+-- wrong, replaying the fight will not reproduce the health bars, and the gates
+-- below will say so instead of the Coach quietly building on a bad model.
+--------------------------------------------------------------------------------
+function SM.ScenarioFromRecording(rec, kit)
+    if not rec then return nil end
+    local K = SM.K
+    local roster = rec.roster or {}
+    local trackedSet = {}
+    for _, idx in ipairs(rec.tracked or {}) do trackedSet[idx] = true end
+
+    local hp = rec.hp or {}
+    local targets = {}
+    for i = 1, #roster do
+        local maxHP = roster[i].maxHP or -1
+        local hp0 = -1
+        if hp.max and hp.max[i] and hp.max[i][1] and hp.max[i][1] > 0 then maxHP = hp.max[i][1] end
+        if hp.hp and hp.hp[i] and hp.hp[i][1] and hp.hp[i][1] >= 0 then hp0 = hp.hp[i][1] end
+        if maxHP <= 0 then maxHP = 1 end
+        targets[i] = { name = roster[i].name, role = roster[i].role, maxHP = maxHP,
+                       hp0 = hp0 >= 0 and hp0 or maxHP,
+                       -- a target with no health readings cannot be scored, and
+                       -- pretending otherwise would count a flat line as a pass
+                       tracked = trackedSet[i] and hp0 >= 0 or false }
+    end
+
+    local script = {}
+    local ev = rec.ev or {}
+    for i = 1, (rec.n or 0) do
+        if ev.kind[i] == K.OWNCAST then
+            script[#script + 1] = { ev.t[i], ev.x[i], (ev.amt[i] or -1) >= 0 and ev.amt[i] or nil,
+                                    ev.tgt[i] }
+        end
+    end
+
+    local rates = {}
+    local mn = rec.mana or {}
+    for i = 1, #(mn.t or {}) do rates[i] = { mn.t[i], mn.base[i] or 0, mn.cast[i] or 0 } end
+
+    return {
+        dur = rec.dur or 0, pool = rec.pool or 0,
+        initial = rec.initial, targets = targets, ev = ev, rates = rates,
+        sampleT = mn.t, hpSampleT = hp.t, kit = kit,
+        floor = (MD.db and MD.db.simFloor) or 0.35,
+        script = script,
+    }
+end
+
+--------------------------------------------------------------------------------
+-- The six gates (docs/SPEC-v0.7.md 7). A recording earns the right to be
+-- coached from; it is not assumed. Each gate carries the provenance of its
+-- threshold, printed with the result, because a number nobody can trace is a
+-- number nobody can argue with.
+--------------------------------------------------------------------------------
+local GATES = {
+    manaMean    = { setting = "simGateManaMean", default = 0.02,
+                    why = "judge; server regen ticks quantise samples by ~2% of pool" },
+    manaMax     = { setting = "simGateManaMax", default = 0.05,
+                    why = "judge; same quantisation, worst single sample" },
+    hpMean      = { setting = "simGateHpMean", default = 0.05,
+                    why = "B; health is reconstructed through pets, absorbs and range" },
+    hpMax       = { setting = "simGateHpMax", default = 0.15,
+                    why = "B; same" },
+    foreign     = { setting = "simForeignShare", default = 0.25,
+                    why = "A's number; BF-1 measured 0%; a prior, not a measurement" },
+}
+SM.GATES = GATES
+
+local function Threshold(name)
+    local g = GATES[name]
+    local v = MD.db and MD.db[g.setting]
+    if v == nil then v = g.default end
+    return v, g.why
+end
+
+local function MeanMax(sim, rec, n, scale)
+    if not sim or not rec or n == 0 or scale <= 0 then return nil, nil end
+    local sum, worst, at = 0, 0, 0
+    local used = 0
+    for i = 1, n do
+        local a, b = sim[i], rec[i]
+        if a ~= nil and b ~= nil and b >= 0 then
+            local d = math.abs(a - b) / scale
+            sum = sum + d
+            used = used + 1
+            if d > worst then worst, at = d, i end
+        end
+    end
+    if used == 0 then return nil, nil end
+    return sum / used, worst, at
+end
+
+-- Validate(rec) -> { ok, gates = { {name, ok, value, limit, why, text}, ... },
+--                    excluded = { <target index> = reason }, result = <sim result> }
+function SM:Validate(rec, kit)
+    if not rec then return nil end
+    kit = kit or MD.RankMath:SpellKit()
+    local sc = SM.ScenarioFromRecording(rec, kit)
+    local r = SM:Run(sc, nil, { critMode = "ev" })
+
+    local out = { gates = {}, excluded = {}, ok = true, rec = rec }
+    local function Gate(name, ok, text, value, limit, why)
+        out.gates[#out.gates + 1] = { name = name, ok = ok, text = text,
+                                      value = value, limit = limit, why = why }
+        if not ok then out.ok = false end
+    end
+
+    -- 1 + 2: mana curve
+    local mn = rec.mana or {}
+    local pool = rec.pool or 0
+    local mMean, mMax = MeanMax(r.manaCurve, mn.v, #(mn.t or {}), pool)
+    local limMean, whyMean = Threshold("manaMean")
+    local limMax, whyMax = Threshold("manaMax")
+    if mMean then
+        Gate("mana mean", mMean <= limMean,
+            string.format("mean |d| %.1f%% of pool (limit %.0f%%)", mMean * 100, limMean * 100),
+            mMean, limMean, whyMean)
+        Gate("mana max", mMax <= limMax,
+            string.format("worst |d| %.1f%% of pool (limit %.0f%%)", mMax * 100, limMax * 100),
+            mMax, limMax, whyMax)
+    else
+        Gate("mana curve", false, "no mana samples recorded", nil, nil, whyMean)
+    end
+
+    -- 3 + 4: health per target. A target that misses is EXCLUDED, not fatal:
+    -- one pet-heavy warlock should not disqualify the tank's timeline.
+    local hp = rec.hp or {}
+    local limHpMean, whyHp = Threshold("hpMean")
+    local limHpMax = Threshold("hpMax")
+    local scored, excluded = 0, 0
+    local worstMean, worstTgt = 0, nil
+    -- A target nothing happened to reproduces itself perfectly and proves
+    -- nothing, so only targets that actually took damage are scored.
+    local damageTaken = {}
+    for i = 1, (rec.n or 0) do
+        if (rec.ev.kind[i] == SM.K.DMG or rec.ev.kind[i] == SM.K.ABSORB) and rec.ev.tgt[i] > 0 then
+            damageTaken[rec.ev.tgt[i]] = (damageTaken[rec.ev.tgt[i]] or 0) + 1
+        end
+    end
+    for i, tg in ipairs(sc.targets) do
+        if tg.tracked and not damageTaken[i] then
+            out.excluded[i] = "took no damage"
+            excluded = excluded + 1
+        elseif tg.tracked and hp.hp and hp.hp[i] then
+            local mean, max = MeanMax(r.hpCurve[i], hp.hp[i], #(hp.t or {}), tg.maxHP)
+            if mean == nil then
+                out.excluded[i] = "no health readings"
+                excluded = excluded + 1
+            elseif mean > limHpMean or max > limHpMax then
+                out.excluded[i] = string.format("mean %.0f%% / worst %.0f%% of max health",
+                    mean * 100, max * 100)
+                excluded = excluded + 1
+            else
+                scored = scored + 1
+                if mean > worstMean then worstMean, worstTgt = mean, i end
+            end
+        end
+    end
+    Gate("health curves", scored > 0,
+        scored > 0 and string.format("%d damaged target(s) reproduced%s, %d excluded",
+            scored,
+            worstTgt and string.format(" (worst mean %.0f%% on %s)", worstMean * 100,
+                sc.targets[worstTgt].name or "?") or "",
+            excluded)
+            or string.format("no target reproduced within %.0f%% mean / %.0f%% worst",
+                limHpMean * 100, limHpMax * 100),
+        nil, limHpMean, whyHp)
+
+    -- 5: a death truncates the damage that would have followed
+    Gate("no tracked death", #(rec.deaths or {}) == 0,
+        #(rec.deaths or {}) == 0 and "nobody died"
+            or string.format("%d death(s): damage after one is truncated in the log",
+                #rec.deaths),
+        nil, nil, "post-death damage truncation")
+
+    -- 6: whose fight was this
+    local limForeign, whyForeign = Threshold("foreign")
+    local fs = rec.foreignShare or 0
+    Gate("foreign healing", fs <= limForeign,
+        string.format("%.0f%% of healing on your group was somebody else's (limit %.0f%%)",
+            fs * 100, limForeign * 100),
+        fs, limForeign, whyForeign)
+
+    -- 7: is the model right about the spells that actually mattered here
+    local spendBySpell, spend = {}, 0
+    local ev = rec.ev or {}
+    for i = 1, (rec.n or 0) do
+        if ev.kind[i] == SM.K.OWNCAST and (ev.amt[i] or 0) > 0 then
+            spendBySpell[ev.x[i]] = (spendBySpell[ev.x[i]] or 0) + ev.amt[i]
+            spend = spend + ev.amt[i]
+        end
+    end
+    local drifted, uncalibrated = nil, {}
+    for spellID, mana in pairs(spendBySpell) do
+        if spend > 0 and mana / spend >= 0.10 and MD.SpellData.spells[spellID] then
+            local d = MD.Calibration and MD.Calibration:Drift(spellID)
+            if d == nil then
+                uncalibrated[#uncalibrated + 1] = GetSpellInfo(spellID) or spellID
+            elseif d >= 0.03 then
+                drifted = string.format("%s is %.0f%% off the model", GetSpellInfo(spellID) or spellID, d * 100)
+            end
+        end
+    end
+    Gate("model calibrated", drifted == nil,
+        drifted or (#uncalibrated > 0
+            and ("not yet calibrated: " .. table.concat(uncalibrated, ", "))
+            or "every spell worth 10% of the spend is within 3%"),
+        nil, 0.03, "Calibration ALERT_REL")
+
+    -- 8: did the engine even know what the mana went on
+    local modelled = 0
+    for i = 1, #sc.script do
+        local c = sc.script[i]
+        local e = kit[rec.initial and rec.initial.form or "caster"][c[2]] or kit.caster[c[2]]
+        if e then modelled = modelled + (c[3] or e.cost or 0) end
+    end
+    local coverage = spend > 0 and modelled / spend or 0
+    Gate("spend coverage", coverage >= 0.90,
+        string.format("%.0f%% of the mana went on spells the model knows", coverage * 100),
+        coverage, 0.90, "12.6% utility hole in BF-1")
+
+    out.result = r
+    out.manaMean, out.manaMax = mMean, mMax
+    return out
 end

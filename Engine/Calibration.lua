@@ -180,6 +180,23 @@ function CAL:RelicHint(spellID, kind, st)
     return string.format(" You are wearing %s%s.", relic.name, relic.verify and " (value unverified)" or "")
 end
 
+-- Worst drift on one spell, for the replay gates (docs/SPEC-v0.7.md 7).
+-- Returns |ratio - 1| over every event kind with enough samples, or nil when
+-- the spell has not been calibrated -- which is "unknown", not "fine", and the
+-- caller must say so rather than pass the gate silently.
+function CAL:Drift(spellID)
+    if not (CAL.data and CAL.data.stats) then return nil end
+    local worst, kindOut = nil, nil
+    for k, st in pairs(CAL.data.stats) do
+        local id, kind = k:match("^(%d+):(%a+)$")
+        if tonumber(id) == spellID and st.n >= MIN_N and st.pred > 0 then
+            local d = math.abs(st.obs / st.pred - 1)
+            if not worst or d > worst then worst, kindOut = d, kind end
+        end
+    end
+    return worst, kindOut
+end
+
 -- Lines for /md calibrate and /md profile.
 function CAL:Report()
     local out = {}

@@ -849,3 +849,42 @@ row and `/md export`. All twenty pass. It found two real bugs while being writte
   to one, silently swallowing every scripted combat-log event.
 
 **Next:** v0.7.3 — the HP half of replay, the six gates, `/md simreplay [n]`, Validate.
+
+## 2026-09-06 — v0.7.3: replay, and eight gates a fight must pass to be coached from
+
+`SM.ScenarioFromRecording(rec, kit)` turns a recorded fight into a scenario: everything the
+healer did becomes a script (the recorded casts at their recorded costs, in the recorded
+forms, against the recorded regen rates), everything that happened to the group stays the
+recorded timeline. **The engine ignores the recorded own-heal events entirely and generates
+its own from the spell kit** — that is the whole point. If the model's Rejuvenation is wrong,
+the health bars will not come back, and the gates say so instead of the Coach quietly building
+on a bad model.
+
+The engine gained a second sample cursor so health is sampled on the recorder's own 5 s
+schedule while mana keeps its 2 s one; merging them would invent readings neither stream has.
+
+`SM:Validate(rec)` runs the eight gates from spec §7, each printing the **provenance of its own
+threshold**: mana mean (2% of pool) and max (5%), health per target (5% mean / 15% worst of
+max health), no tracked death, foreign share (25%), model calibration (3% drift on any spell
+worth ≥ 10% of the fight's spend; "not yet calibrated" is printed, not failed), and spend
+coverage (≥ 90% of the mana on spells the model prices). `/md simreplay [n]` prints the lot
+with a verdict; `MD:ValidationReport` is what the Review tab's tooltip will show.
+
+Two judgement calls while writing it, both tightening the gates:
+
+- **A target that misses is excluded, not fatal.** One pet-heavy warlock should not
+  disqualify the tank's timeline. The health gate passes if at least one damaged target
+  reproduces, and names the ones that did not.
+- **A target that took no damage is not scored at all.** It reproduces itself perfectly and
+  proves nothing; the first cut counted two untouched party members as passes, which made the
+  health gate meaningless. `tools/reccheck.lua` caught it.
+
+`Engine/Calibration.lua` gained `CAL:Drift(spellID)` — worst |ratio − 1| over event kinds with
+enough samples, `nil` when uncalibrated. `nil` means "unknown", not "fine", and the gate says
+so.
+
+**Verified:** `tools/run.sh tools/reccheck.lua` now 25 assertions, all passing, including that
+the scripted pull — which has a death and 69% foreign healing — is **rejected**. A gate suite
+that passed everything would be worth nothing.
+
+**Next:** v0.7.4 — `Engine/SimPlanner.lua`, the rules plan, the classifier and the card.

@@ -10,7 +10,7 @@ exposed a sim leak (fixed). Also found: a false "cooldown used: Innervate" on ev
 (the GCD; fixed) and the `/md profile` paste came out **empty** (see §2b).
 
 **Still to do, in this order:** §0b · §2b · **§12 roster in a group** (the biggest unknown)
-· **§15 (new in v0.7.0, and it depends on §12 working)** · **§16 (new in v0.7.1)** · §17 · §5 (needs a hard pull) · §9
+· **§15 (new in v0.7.0, and it depends on §12 working)** · **§16 (new in v0.7.1)** · §17 · §18 · §5 (needs a hard pull) · §9
 (needs one Innervate) · §11 again after a dungeon night · §13 · §14. §1, §3, §4, §4b, §7
 are regression-only.
 
@@ -295,6 +295,29 @@ Size: eight streams is the cap and the cheapest non-recent, non-pinned pull is t
 gets replaced. If your `ManaDemonDB` starts feeling large, tell me the file size — the budget
 was ~180 KB for the streams and that is worth checking against reality. `db.recordFights =
 false` turns recording off entirely; summaries keep working.
+
+## 18. Does a real fight replay? (after §17, v0.7.3) — NEW
+`/md simreplay 1` takes your most recent recorded pull, runs it back through the engine and
+prints eight gates with a verdict. `/md simreplay 2` .. `8` for the older ones.
+
+This is the question the whole Coach idea rests on: **can the model reproduce a fight you
+actually played?** If it cannot, nothing will be suggested from that fight — by design.
+
+Paste the output. The interesting failures, in order of what they would teach:
+
+- **mana mean / max** over 2% / 5% of pool. On the BF-1 fixture this fails by exactly the
+  116 mp5 from §16, so if it fails here too, §16 is the cause and the fix is there.
+- **health curves**. Only targets that actually took damage are scored, and a target that
+  misses is excluded rather than failing the fight. If every target is excluded, the model's
+  heal values are wrong for the people you heal — which is what `/md calibrate` is for.
+- **model calibrated**. Says "not yet calibrated" until a spell has 30 events; that is
+  printed, not failed.
+- **spend coverage** under 90% means mana went on spells the model does not price — in BF-1
+  that was 12.6% of buffs, shifts and dispels.
+
+A pull with a death, or with more than 25% of the healing coming from somebody else, is
+rejected outright and that is correct: the log truncates damage after a death, and a fight
+somebody else healed is not your fight to learn from.
 
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the

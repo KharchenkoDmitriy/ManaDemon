@@ -100,7 +100,8 @@ one commit with its "verifiable by" line in the spec §0.
   mana/s of unreported energize — TESTING §16.)*
 - [x] **v0.7.2** `Engine/FightRecorder.lua`; `/md export` recording section. *(shipped; verified
   end to end offline by `tools/run.sh tools/reccheck.lua`, 20 assertions.)*
-- [ ] **v0.7.3** HP half of replay; the six gates; Validate.
+- [x] **v0.7.3** HP half of replay; the six gates; `/md simreplay [n]`; Validate. *(shipped;
+  the gates correctly reject the scripted pull in `tools/reccheck.lua`.)*
 - [ ] **v0.7.4** `Engine/SimPlanner.lua` rules + classifier; card; loop closure.
 - [ ] **v0.7.5** the search.
 - [ ] **v0.7.6** `UI/Dashboard_Review.lua`.
