@@ -24,6 +24,8 @@ local DEFAULTS = {
     naturesGrace = true,  -- average Nature's Grace into the dashboard's cast times
     effectiveMode = false, -- dashboard shows overheal-adjusted heal/HPM/HPS
     calibAlerts = true,   -- chat line when a spell drifts >3% from the model over 30+ events
+    simFullHp = 0.85,     -- a target at or above this fraction of health counts as "full" for the
+                          -- cast labels and the replay engine (docs/SPEC-v0.7.md §2.2)
     healAmountGross = nil, -- latched from the combat log: does SPELL_HEAL's "amount" include the overheal?
     firstRun = true,
     minimap = { hide = false, angle = 220 },
@@ -31,7 +33,8 @@ local DEFAULTS = {
         enabled = false,  -- MD:Debug() is a no-op unless this is on
         maxLines = 1000,  -- memory ring size (Debug Console "keep lines")
         categories = { regen = true, mana = true, spend = true, tto = true,
-                       heal = true, cast = true, calib = true, combat = true, chat = true, other = true },
+                       heal = true, cast = true, calib = true, combat = true, chat = true,
+                       sim = true, other = true },
     },
     optionsPos = false,   -- { point, relativePoint, x, y } once the options frame was moved
     char = {},
@@ -114,7 +117,7 @@ end
 -- Debug log (Cell-style): a no-op unless debug logging is enabled in the
 -- settings, otherwise one timestamped line into the in-memory ring that the
 -- Debug Console (UI/DebugConsole.lua) shows and copies. Categories: regen,
--- mana, spend, tto, heal, cast, calib, combat, chat, other. Extra arguments go through
+-- mana, spend, tto, heal, cast, calib, combat, chat, sim, other. Extra arguments go through
 -- string.format; a bad format never raises.
 function MD:Debug(category, fmt, ...)
     local db = MD.db and MD.db.debug

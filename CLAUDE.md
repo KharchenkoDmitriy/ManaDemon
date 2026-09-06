@@ -9,7 +9,7 @@ Guidance for Claude Code when working in this repository.
 1. **Time-to-OOM (TTO)** — a live projection of when mana hits zero, shown as a one-line clock (`OOM 1:20 v  rest 2:10`; `FULL 0:45` when regen wins) in a floating widget and/or an ElvUI datatext (plus a second "current mp5" datatext). Class-generic. Rendered strings are **ASCII only** (WoW fonts have no arrow/infinity glyphs) and never contain a bare `|`.
 2. **Rank dashboard** (`/md`) — per-rank mana efficiency (HPM), heal amount and HPS for the druid healing spells, with the player's current +healing, talents and TBC downranking penalties applied. **Druid-only in v1.**
 3. **Advisor** — push alerts at decision moments: Innervate/mana-potion timing (fire when the deficit first exceeds the restored amount), gear-change "efficient rank shifted, rebind?" toast, and an out-of-combat drink reminder.
-4. **End-of-combat summary** — one chat line per fight (net mp5, spend by spell, mana into full health, overheal %, spirit-regen-realized %, max-rank cast %, OOM moment). Last 20 fights persisted per character (`MD.cdb.fights`), zone-tagged.
+4. **End-of-combat summary** — one chat line per fight (net mp5, spend by spell, mana into full health, overheal %, spirit-regen-realized %, max-rank cast %, OOM moment), plus (v0.7.0) a second line counting casts on targets already above `db.simFullHp` and a third for pre-pull HoTs on full targets. Every own cast is captured with cost / target / HP-at-cast / form into a 20 s ring and labelled `utility|shift|early|overheal|ok` at the end of the fight. Last **200** fights persisted per character (`MD.cdb.fights`), zone-tagged; fights under 4 own casts are not kept.
 5. **Self-calibration** (`Engine/Calibration.lua`) — every heal landed is compared with the model's prediction for it; drift is reported (`/md calibrate`, a chat line), **never fed back into the model**.
 6. **Waste view** (`/md` → Waste) — overheal and wasted mana by spell / role / class / target from the combat log; **pull budget** between pulls.
 
@@ -48,7 +48,7 @@ Load order is defined by `ManaDemon.toc` and matters — later files assume earl
 | `UI/OptionsFrame.lua` | `/md options` settings window: tab buttons on the top edge, fires `ShowOptionsTab`; `UI/Options_General.lua` / `UI/Options_About.lua` are the tabs |
 | `UI/DebugConsole.lua` | `MD:Debug(category, fmt, ...)` sink (Core.lua defines the entry point): 1000-line memory ring, filterable window, Copy popup. `/md debug` |
 | `UI/Advisor.lua` | Innervate/potion advisor, gear toast, drink reminder |
-| `UI/Summary.lua` | Fight tracking, combat-log overheal, history ring |
+| `UI/Summary.lua` | Fight tracking, combat-log overheal, history ring, **own-cast capture (`MD.Recorder`) and the plan-free cast labels** (SPEC-v0.7 §2) |
 | `Integrations/ElvUIDatatext.lua` | `DT:RegisterDatatext` glue; only active when ElvUI is installed (`## OptionalDeps: ElvUI`) |
 | `Verify.lua` | `MD:Snapshot()` (every model input, shared), `/md verify` (static data vs live client), `/md profile` (snapshot + costs + clock + settings into the copy popup), `/md fsrtest`, `/md regentest`, `/md spamtest` |
 | `release.sh` / `Makefile` | `make release` builds from the main checkout or any git worktree (interactive menu, or `SRC=<name>`) into the **top-level** `dist/<name>/ManaDemon/` + versioned zip, from the `.toc`'s own file list (dev files excluded by construction). `make install WOW_ADDONS=<AddOns dir>` also copies it into the game. `dist/` is gitignored |
@@ -67,7 +67,7 @@ Every file starts with `local _, MD = ...` to pull the shared addon table. `MD.d
 - **Lua multi-return trap:** `a and f() or b` truncates `f()` to one value. It bit twice in `UI/Summary.lua` around `Overheal:Split`; write the `if` out.
 - **Constants derived from one log are settings with provenance** (`db.oomConfidence`), not hard-coded truths — the first log was a level 61 dungeon on a level 64 druid.
 - enUS only for now (drink-buff names in `UI/Advisor.lua` are literal English strings).
-- **Debug logging:** `MD:Debug("category", fmt, ...)` with category in regen / mana / spend / tto / heal / cast / calib / combat / chat / other; it is a no-op unless enabled in the Debug Console, so it is safe on hot paths. Log state transitions and inputs, not every tick.
+- **Debug logging:** `MD:Debug("category", fmt, ...)` with category in regen / mana / spend / tto / heal / cast / calib / combat / chat / sim / other; it is a no-op unless enabled in the Debug Console, so it is safe on hot paths. Log state transitions and inputs, not every tick.
 - **New settings UI goes through `MD.UI`** (`UI/Style.lua`) into a pane of `UI/Options_General.lua`, not into the dashboard.
 
 ## Verifying changes

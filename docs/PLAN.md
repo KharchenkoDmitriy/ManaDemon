@@ -91,8 +91,9 @@ Design `docs/DESIGN-v0.7.md`, debated (`docs/debates/v0.7-sim/`), decided (`docs
 §v0.7), specified for implementation in **`docs/SPEC-v0.7.md`**. Order is fixed; each step is
 one commit with its "verifiable by" line in the spec §0.
 
-- [ ] **v0.7.0** HP-at-cast + cost + form on every own cast; 20 s pre-pull ring; plan-free
+- [x] **v0.7.0** HP-at-cast + cost + form on every own cast; 20 s pre-pull ring; plan-free
   labels; summaries to 200 rows; the one-line "N of M casts on targets above 85%" summary.
+  *(shipped; in-game check is TESTING §15)*
 - [ ] **v0.7.1** `RankMath:SpellKit`; `Engine/SimModel.lua`; `/md simrun` self-tests;
   `/md simreplay fixture` against `Data/SimFixture_BF1.lua` (already generated).
 - [ ] **v0.7.2** `Engine/FightRecorder.lua`; `/md export` recording section.

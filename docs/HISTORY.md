@@ -706,3 +706,55 @@ validated before any fight is recorded.
 **State:** branch at the spec commit, fast-forwarded into local master, not pushed. **Next
 session:** implement v0.7.0 from `docs/SPEC-v0.7.md` §2; nothing in v0.7 re-opens a ruled call
 without new in-game evidence.
+
+## 2026-09-06 — v0.7.0: HP-at-cast, the pre-pull ring, plan-free labels
+
+Author: "now as we have the specs — implement them." First step of `docs/SPEC-v0.7.md` §0.
+
+**What shipped (spec §2, all of it in `UI/Summary.lua` plus two one-line settings):**
+
+- **Own-cast capture.** The single combat-log handler now also takes `SPELL_CAST_SUCCESS`
+  from the player and records `{ t, spellID, cost, tgt, hpAtCast, form, kind }`. The cast's
+  target comes from the prefix `destGUID`/`destName` (settled against Details!, spec §1), so
+  there is no cast→heal matching anywhere. `kind` is `shift` (seven shapeshift IDs), `heal`
+  (`SD.families` member) or `utility` (everything else priced — Innervate, buffs, dispels).
+  **Anything unreadable is −1, never 0** — the OOM-clock bug that fabricated a zero is the
+  reason that rule exists.
+- **The 20 s ring** (`MD.Recorder.ring`), pruned on append, copied into `fight.precasts` at
+  `PLAYER_REGEN_DISABLED`. The log's proven trap — HoTs ticking 19 s before the pull — is now
+  visible to the addon at the moment the pull starts.
+- **HoT tick ownership.** A Rejuvenation/Regrowth/Lifebloom cast record owns the ticks that
+  follow it (`ticksSeen`, `tickGross`, `tickOver`, keyed `guid\029family`). That makes both
+  derived labels measurements rather than guesses: `early` is "≥2 ticks were still pending"
+  and `prehot` is "its pre-pull ticks were ≥50% overheal". Lifebloom is tracked but exempt
+  from `early` — refreshing it before the bloom is the play, which is the correction the
+  debate made to the original design.
+- **Plan-free labels** at `PLAYER_REGEN_ENABLED`, precedence `utility → shift → early →
+  overheal → ok`, one per cast, with the identity `sum(labels) == fight spend` printed in the
+  new **`sim`** debug category and shouted as `label identity BROKEN` past a 2%/50-mana
+  tolerance. The two figures come from different sources on purpose (combat log vs
+  `UNIT_SPELLCAST_SUCCEEDED`), so the check is real.
+- **The summary line**, exactly the spec's format:
+  `14 of 19 casts on targets above 85% (2.9k): Lifebloom 9, Rejuvenation 4, Regrowth 1 -
+  utility/shifts 1.6k - buffed in combat: Mark of the Wild at 0:39`, plus a second line when
+  anything was pre-HoTted onto a full-health target.
+- **History to 200 rows** with `labels`, `labelCasts`, `hpBuckets`, `prehot`, `lowestMana`,
+  `ownCasts` (`foreignShare`/`streamID` wait for v0.7.2), and a new gate: a fight under four
+  own casts is no longer recorded at all — it says nothing about how the healer played and
+  would poison both the spend seed and the habit counts.
+- `db.simFullHp = 0.85` (a setting with provenance, not a constant) and the `sim` debug
+  category in the console grid.
+
+**Two judgement calls the spec left open.** The "N of M above 85%" clause counts *health at
+cast*, independent of which label won the precedence, so an early refresh on a full tank is
+counted in both places — the alternative made the headline number depend on label ordering.
+And `hpBuckets` counts heal casts only; a shapeshift's "target health" is the player's and
+means nothing.
+
+**Verification:** syntax-checked (no Lua interpreter here; the harness is the python
+checker). The real check is in-game and is written up as **TESTING §15** — it depends on §12
+(roster/`UnitGroupRolesAssigned` in a group), because `hpAtCast` resolves through
+`Targets.byGUID[guid].unit`. Solo, only the player's own health resolves.
+
+**Next:** v0.7.1 — `RankMath:SpellKit`, `Engine/SimModel.lua` (mana half), `/md simrun`
+self-tests, `/md simreplay fixture` against the already-generated `Data/SimFixture_BF1.lua`.

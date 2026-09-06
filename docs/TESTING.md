@@ -1,4 +1,4 @@
-# ManaDemon — what to test now (v0.6.6)
+# ManaDemon — what to test now (v0.7.0)
 
 **Status 2026-09-05 (evening), v0.6.8:** the author ran `/md verify`, a `/reload`, `/md
 profile` and `/md spamtest` on v0.6.7 (`.logs/regression/`). Results: **§2 verify passed**
@@ -10,8 +10,9 @@ exposed a sim leak (fixed). Also found: a false "cooldown used: Innervate" on ev
 (the GCD; fixed) and the `/md profile` paste came out **empty** (see §2b).
 
 **Still to do, in this order:** §0b · §2b · **§12 roster in a group** (the biggest unknown)
-· §5 (needs a hard pull) · §9 (needs one Innervate) · §11 again after a dungeon night · §13
-· §14. §1, §3, §4, §4b, §7 are regression-only.
+· **§15 (new in v0.7.0, and it depends on §12 working)** · §5 (needs a hard pull) · §9
+(needs one Innervate) · §11 again after a dungeon night · §13 · §14. §1, §3, §4, §4b, §7
+are regression-only.
 
 Everything below is done on the druid, in-game, with the Debug Console open
 (`/md options` → General → Misc → Debug Console → tick **Enable Debug Logging**).
@@ -220,6 +221,33 @@ would have guessed? Too optimistic is the failure mode to report.
 calibration. Paste it once alongside the debug log; from now on I analyse this rather than
 regexing prose. Also: **Copy in the Debug Console now prepends the full input snapshot**, so
 a pasted log is self-describing — no need to add your talents by hand.
+
+## 15. Cast labels and the new summary line (one pull, v0.7.0) — NEW
+Turn on the **Sim** category in the Debug Console, then do one normal pull of 15 s or more
+with at least four casts. Three chat lines now arrive at the end instead of one:
+
+1. the usual fight line (`0:40 || net -85 mp5 || spent 3.8k (LB 52%, ...)`),
+2. `N of M casts on targets above 85% (2.9k): Lifebloom 9, Rejuvenation 4, Regrowth 1 -
+   utility/shifts 1.6k - buffed in combat: Mark of the Wild at 0:39`,
+3. only if you pre-HoTted somebody at full health before the pull:
+   `pre-pull HoTs on full targets: 0.4k in Lifebloom 2 (78% overheal)`.
+
+What to check, and this is the whole test — **does line 2 match what you remember doing?**
+If you rolled Lifebloom on a healthy tank the whole fight, most of your casts should be in
+the "above 85%" count and Lifebloom should lead the list. If the count looks far too low,
+health is not being read at cast time (see the `unknown` bucket below).
+
+In the debug log, the **Sim** category prints one line per fight:
+`labels: utility 300/2, shift 0/0, early 220/1, overheal 2900/14, ok 380/2 = 3800 (fight
+spend 3800, delta +0)`. Two failure modes to report:
+- a `label identity BROKEN` line — the labelled mana and the spend tracker disagree by more
+  than 2%, which means casts are being missed or double counted;
+- a large `unknown` HP bucket, visible as line 2 counting far fewer casts than you made —
+  that is `UnitHealth` failing to resolve group members and it breaks everything in v0.7.
+
+Also: history now keeps **200** fights instead of 20, and a fight with fewer than 4 of your
+own casts is no longer recorded at all. After a dungeon night, `/md export` should list
+many more fights than before.
 
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
