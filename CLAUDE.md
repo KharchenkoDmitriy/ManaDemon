@@ -47,6 +47,7 @@ Load order is defined by `ManaDemon.toc` and matters — later files assume earl
 | `UI/Dashboard_Rows.lua` | Column layout, row frame pool, row rendering, hover → row tooltip, "Effective" (overheal-adjusted) mode |
 | `UI/Dashboard_Simulate.lua` | The two-row "Simulate" what-if strip (`MD.sim`: stats, form, Moonglow) |
 | `UI/Dashboard_Waste.lua` | The Waste tab: by spell (per event kind) / role / class / target, session or persisted scope |
+| `UI/Dashboard_Review.lua` | The Review tab (v0.7.6): every recorded fight with its **validate** column, row tooltip carrying all eight gate results, Validate / Coach / Pin / Export buttons, habits over the summaries and the since-your-last-card line. **A fight that failed validation is greyed and its Coach button is disabled with the reason** — advice from a fight the engine gets wrong is worse than none. Class-agnostic for listing; Coach is druid-only |
 | `UI/Dashboard.lua` | `/md` rank dashboard frame (spell tabs, header lines, recap); the two files above export constructors on `MD.DashboardParts` and load first |
 | `UI/OptionsFrame.lua` | `/md options` settings window: tab buttons on the top edge, fires `ShowOptionsTab`; `UI/Options_General.lua` / `UI/Options_About.lua` are the tabs |
 | `UI/DebugConsole.lua` | `MD:Debug(category, fmt, ...)` sink (Core.lua defines the entry point): 1000-line memory ring, filterable window, Copy popup. `/md debug` |

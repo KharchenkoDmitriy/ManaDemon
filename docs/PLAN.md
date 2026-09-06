@@ -106,7 +106,8 @@ one commit with its "verifiable by" line in the spec §0.
   `/md coach [n]`. The classifier's mana identity holds exactly in `tools/reccheck.lua`.)*
 - [x] **v0.7.5** the search. *(shipped; coordinate descent, 4 seeds, <= 300 evaluations,
   sliced on `debugprofilestop`. Beats both baselines on the harness fight.)*
-- [ ] **v0.7.6** `UI/Dashboard_Review.lua`.
+- [x] **v0.7.6** `UI/Dashboard_Review.lua` (Review tab) + the Fight recording settings pane.
+  *(shipped; UI is in-game-only verification -- TESTING §20.)*
 - [ ] **v0.7.7** `UI/SimWindow.lua`, `Data/SimPresets.lua`, `FromRecordings`, Monte Carlo.
 
 ## Phase 2 — other classes (after 1 is green)

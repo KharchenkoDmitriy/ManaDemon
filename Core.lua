@@ -26,7 +26,7 @@ local DEFAULTS = {
     calibAlerts = true,   -- chat line when a spell drifts >3% from the model over 30+ events
     simFullHp = 0.85,     -- a target at or above this fraction of health counts as "full" for the
                           -- cast labels and the replay engine (docs/SPEC-v0.7.md §2.2)
-    simFloor = 0.35,      -- below this fraction of health a tracked target is "in danger": the
+    simFloor = 0.30,      -- below this fraction of health a tracked target is "in danger": the
                           -- seconds spent there are what a plan is scored on first
     simReaction = 0.5,    -- seconds a simulated healer takes to start casting after idling.
                           -- Only after a wait: BF-1's inter-cast gaps (p10/p25 1.50/1.52s) show
@@ -43,6 +43,10 @@ local DEFAULTS = {
     simGateHpMax = 0.15,      -- worst single health snapshot
     simForeignShare = 0.25,   -- above this share of foreign healing, replay is fiction
     simAllowRebinds = false,  -- let the search change which RANKS you bind, not just the thresholds
+    simBigHit = 0.15,         -- a single hit worth this much of a target's max health is a "big hit"
+                              -- when a preset is derived from recordings (v0.7.7)
+    simUtilityPerFight = nil, -- derived: median utility mana per fight, applied as a lump in
+                              -- synthetic scenarios. nil until 5 summaries exist
     healAmountGross = nil, -- latched from the combat log: does SPELL_HEAL's "amount" include the overheal?
     firstRun = true,
     minimap = { hide = false, angle = 220 },

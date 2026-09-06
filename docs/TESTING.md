@@ -10,7 +10,7 @@ exposed a sim leak (fixed). Also found: a false "cooldown used: Innervate" on ev
 (the GCD; fixed) and the `/md profile` paste came out **empty** (see §2b).
 
 **Still to do, in this order:** §0b · §2b · **§12 roster in a group** (the biggest unknown)
-· **§15 (new in v0.7.0, and it depends on §12 working)** · **§16 (new in v0.7.1)** · §17 · §18 · §19 · §5 (needs a hard pull) · §9
+· **§15 (new in v0.7.0, and it depends on §12 working)** · **§16 (new in v0.7.1)** · §17 · §18 · §19 · §20 · §5 (needs a hard pull) · §9
 (needs one Innervate) · §11 again after a dungeon night · §13 · §14. §1, §3, §4, §4b, §7
 are regression-only.
 
@@ -344,6 +344,25 @@ you run it, say so: the slicing uses `debugprofilestop()` and if that behaves di
 this client the whole search would land in one frame. The debug `sim` category prints
 `search done: N evaluation(s)` with the winning tuple, and a physical-floor line that must
 never say `IMPOSSIBLE` (that would mean the engine is healing for free).
+
+## 20. The Review tab (v0.7.6) — NEW
+`/md` → **Review** (sixth tab, after Waste). One row per recorded fight; click one to select it.
+
+- The **validate** column is blank until you press **Validate** (replaying is not free). After
+  that it says `ok` or names the first gate that failed, and a failed fight goes grey.
+- Hover a row: the full gate list, foreign share, and which targets were excluded.
+- **Coach** is disabled on a fight that failed, with the reason in its tooltip. That is
+  deliberate.
+- **Pin** protects a recording from being replaced (at most two).
+- The bottom two lines are the habits over your summaries and, once you have three fights in a
+  zone after a card, the since-your-last-card comparison.
+
+Also new: `/md options` → General → **Fight recording** (left column, under Alerts) with the
+record toggle, "let Coach change ranks", and the two thresholds. The options window is taller
+now — check it still fits your screen.
+
+Report anything that overlaps, overflows or reads wrong. This is the first new tab since v0.5
+and none of it can be checked outside the game.
 
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the

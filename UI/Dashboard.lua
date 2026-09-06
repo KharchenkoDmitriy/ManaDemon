@@ -8,7 +8,7 @@ local UI = MD.UI
 
 local WIDTH, HEIGHT = 760, 514 -- +18 for the Simulate strip's second row
 local frame, statsFS, calloutFS, hintFS, recapFS, messageFS, effectiveCB
-local rankTable, simStrip, wasteView
+local rankTable, simStrip, wasteView, reviewView
 local currentFamily = "HealingTouch"
 local userPicked = false   -- once a tab is clicked, stop picking one automatically
 local spellTabs, highlightTab = {}, nil
@@ -51,7 +51,23 @@ local function Refresh()
         bonus, RM.base, RM.casting, spiritPerSec * 5, mp5Gear,
         unreported > 0 and string.format(", +%d mp5 Dreamstate (not in the API)", unreported * 5 + 0.5) or "")
 
-    -- the Waste view replaces the rank table, its hint and its callout
+    -- the Waste and Review views each replace the rank table, its hint and its
+    -- callout
+    local review = currentFamily == "Review"
+    reviewView.frame:SetShown(review)
+    if review then
+        wasteView.frame:Hide()
+        rankTable.frame:Hide()
+        effectiveCB:Hide()
+        messageFS:Hide()
+        rankTable:Release()
+        calloutFS:SetText("|cffffcc00The fights this character recorded, and what the engine can reproduce about each.|r")
+        hintFS:SetText("|cff888888A greyed row is a fight the model could not replay - the reason is in the validate " ..
+            "column. Coach only runs on fights that passed, because advice from a fight the engine gets wrong is worse than none.|r")
+        reviewView:Render()
+        return
+    end
+
     local waste = currentFamily == "Waste"
     wasteView.frame:SetShown(waste)
     rankTable.frame:SetShown(not waste)
@@ -175,6 +191,12 @@ local function CreateDashboard()
     wasteBtn.id = "Waste"
     wasteBtn:SetPoint("LEFT", prev, "RIGHT", -1, 0)
     buttons[#buttons + 1] = wasteBtn
+    -- and Review after it: also class-agnostic, because the recorded stream is
+    -- just numbers
+    local reviewBtn = UI.CreateButton(frame, "Review", "accent-hover", { 80, 20 }, false, false, UI.FONT_TITLE, UI.FONT_TITLE_DISABLE)
+    reviewBtn.id = "Review"
+    reviewBtn:SetPoint("LEFT", wasteBtn, "RIGHT", -1, 0)
+    buttons[#buttons + 1] = reviewBtn
     highlightTab = UI.CreateButtonGroup(buttons, function(id)
         currentFamily = id
         userPicked = true
@@ -193,8 +215,9 @@ local function CreateDashboard()
         "A grey ? means that rank has no measurement of its own yet.")
     effectiveCB:SetPoint("LEFT", settingsBtn, "LEFT", -80, 0) -- label runs right of the box
     effectiveCB:SetShown(MD.player.isDruid)
-    -- the Waste tab works for any class; only the rank tabs are druid-only
+    -- Waste and Review work for any class; only the rank tabs are druid-only
     wasteBtn:Show()
+    reviewBtn:Show()
 
     simStrip = MD.DashboardParts.CreateStrip(frame, 16, -42, Refresh)
 
@@ -226,6 +249,10 @@ local function CreateDashboard()
     wasteView = MD.DashboardParts.CreateWaste(frame, WIDTH)
     wasteView.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -138)
     wasteView.frame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 40)
+
+    reviewView = MD.DashboardParts.CreateReview(frame, WIDTH)
+    reviewView.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -138)
+    reviewView.frame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 40)
 
     recapFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     recapFS:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 16)

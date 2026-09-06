@@ -6,6 +6,7 @@ local tab = UI.CreateFrame("ManaDemonOptionsFrame_GeneralTab", MD.optionsFrame, 
 tab:SetAllPoints(MD.optionsFrame)
 tab:Hide()
 
+local recordCB, rebindCB, fullHpSlider, floorSlider
 local lockCB, restCB, tipCB, cdCB, muteCB, drinkCB, minimapCB, halfLifeSlider, confSlider, treeAuraCB, ngCB, calibCB
 
 --------------------------------------------------------------------------------
@@ -173,6 +174,46 @@ local function CreateMiscPane(anchor)
 end
 
 --------------------------------------------------------------------------------
+-- Simulation (v0.7). Only the settings a player would actually reach for: the
+-- gate thresholds and the search's internals stay in Core.lua's DEFAULTS with
+-- their provenance comments, because a slider invites tuning and these numbers
+-- are supposed to be argued with, not nudged.
+--------------------------------------------------------------------------------
+local function CreateSimPane(anchor)
+    local pane = UI.CreateTitledPane(tab, "Fight recording", 205, 175)
+    pane:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -10)
+
+    recordCB = UI.CreateCheckButton(pane, "Record fights", function(checked)
+        MD.db.recordFights = checked
+    end, "Keep the full event stream of the last 8 interesting pulls",
+        "so they can be replayed and reviewed (/md -> Review).",
+        "Fight summaries keep working either way.")
+    recordCB:SetPoint("TOPLEFT", pane, 5, -27)
+
+    rebindCB = UI.CreateCheckButton(pane, "Let Coach change ranks", function(checked)
+        MD.db.simAllowRebinds = checked
+    end, "Off: the card suggests thresholds for the ranks you already cast.",
+        "On: it may also suggest binding a different rank.",
+        "Off by default - a card that silently rebinds everything is",
+        "somebody else's strategy, not this fight's.")
+    rebindCB:SetPoint("TOPLEFT", recordCB, "BOTTOMLEFT", 0, -8)
+
+    fullHpSlider = UI.CreateSlider("Full health is above (%)", pane, 70, 99, 160, 1, function(value)
+        MD.db.simFullHp = value / 100
+    end, nil, true, "A cast on a target at or above this counts as healing nobody.",
+        "0.85 came from the first dungeon log, not from a rulebook.")
+    fullHpSlider:SetPoint("TOPLEFT", rebindCB, "BOTTOMLEFT", 17, -30)
+
+    floorSlider = UI.CreateSlider("Danger below (%)", pane, 10, 60, 160, 1, function(value)
+        MD.db.simFloor = value / 100
+    end, nil, true, "Seconds a tracked target spends below this are what a plan",
+        "is scored on first, ahead of mana.")
+    floorSlider:SetPoint("TOPLEFT", fullHpSlider, "BOTTOMLEFT", 0, -32)
+
+    return pane
+end
+
+--------------------------------------------------------------------------------
 -- build + show
 --------------------------------------------------------------------------------
 local built = false
@@ -180,7 +221,8 @@ local function Build()
     if built then return end
     built = true
     local widgetPane = CreateWidgetPane()
-    CreateAlertsPane(widgetPane)
+    local alertsPane = CreateAlertsPane(widgetPane)
+    CreateSimPane(alertsPane)
     local modelPane = CreateModelPane()
     CreateMiscPane(modelPane)
 end
@@ -204,5 +246,9 @@ local function ShowTab(which)
     treeAuraCB:SetChecked(MD.db.treeAura ~= false)
     ngCB:SetChecked(MD.db.naturesGrace ~= false)
     calibCB:SetChecked(MD.db.calibAlerts ~= false)
+    recordCB:SetChecked(MD.db.recordFights ~= false)
+    rebindCB:SetChecked(MD.db.simAllowRebinds == true)
+    fullHpSlider:SetValue(math.floor((MD.db.simFullHp or 0.85) * 100 + 0.5))
+    floorSlider:SetValue(math.floor((MD.db.simFloor or 0.30) * 100 + 0.5))
 end
 MD:RegisterCallback("ShowOptionsTab", ShowTab)

@@ -193,7 +193,7 @@ function SM:Run(scenario, plan, opts)
     -- timer). Carried by the scenario with its own provenance; zero unless a
     -- recording measured one. See docs/DECISIONS.md v0.7 "unreported energize".
     local energize = init.energize or 0
-    local floor = scenario.floor or 0.35
+    local floor = scenario.floor or (MD.db and MD.db.simFloor) or 0.30
     local grace = scenario.grace or 6
     local dur = scenario.dur or 0
     local refreshKeepsTicks = opts.refreshKeepsTicks or false
@@ -749,7 +749,7 @@ function SM.ScenarioFromRecording(rec, kit)
         dur = rec.dur or 0, pool = rec.pool or 0,
         initial = rec.initial, targets = targets, ev = ev, rates = rates,
         sampleT = mn.t, hpSampleT = hp.t, kit = kit,
-        floor = (MD.db and MD.db.simFloor) or 0.35,
+        floor = (MD.db and MD.db.simFloor) or 0.30,
         script = script,
     }
 end

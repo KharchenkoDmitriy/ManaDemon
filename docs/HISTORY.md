@@ -963,3 +963,33 @@ pull.
 beats the max-rank baseline it was seeded with, and yields across frames.
 
 **Next:** v0.7.6 — the Review tab.
+
+## 2026-09-06 — v0.7.6: the Review tab
+
+Sixth dashboard tab after Waste, following `Dashboard_Waste.lua`'s pattern (constructor on
+`MD.DashboardParts`, shown when `currentFamily == "Review"`). One row per recorded fight —
+when, zone, duration, targets, casts, spend, mana low-water mark read back out of the recorded
+samples — and a **validate** column that is blank until asked, because replaying is not free.
+
+The validate column is the point of the tab. A fight the engine cannot reproduce is greyed,
+shows the first gate that failed, and has its **Coach button disabled with the reason in its
+tooltip**. Advice from a fight the model gets wrong is worse than no advice, and the UI should
+say that rather than quietly produce a card anyway. The row tooltip carries all eight gate
+results, the foreign share, and which targets were excluded and why.
+
+Below the list: habits over every summary that carries labels (top three by mana, `ok` never
+counts), and the since-your-last-card line once three fights in that zone have happened.
+Pin protects a recording; Export is `/md export`.
+
+Also `/md options` → General → **Fight recording**: the record toggle, "let Coach change
+ranks" (off by default — a card that silently rebinds everything is somebody else's strategy),
+and the two thresholds a player might reasonably move. The gate thresholds and the search's
+internals stay in `Core.lua`'s DEFAULTS with their provenance comments, because a slider
+invites tuning and those numbers are meant to be argued with. The General tab is 470px tall
+now to fit the fourth pane.
+
+Two API notes for future UI work here: `Enable()`/`Disable()` rather than `SetEnabled`, and
+`MD.Tip:Show(frame, anchor, lines)` takes the anchor as its second argument — both were got
+wrong first time and only a careful read caught them, since no harness covers UI.
+
+**Next:** v0.7.7 — `UI/SimWindow.lua`, `Data/SimPresets.lua`, `FromRecordings`, Monte Carlo.
