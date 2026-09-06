@@ -113,8 +113,9 @@ function Tip:Mana()
     lines[#lines + 1] = { l = "Spirit / gear mp5",
         r = string.format("~%d / ~%d", spiritPerSec * 5, mp5Gear) }
     if unreported > 0 then
-        lines[#lines + 1] = { l = "Dreamstate mp5 (added, not in the API)",
-            r = string.format("%d", unreported * 5 + 0.5) }
+        lines[#lines + 1] = { l = "mp5 added, not in the API",
+            r = string.format("%d  (Dreamstate %d, measured %d)", unreported * 5 + 0.5,
+                RM.dreamstate * 5 + 0.5, RM.measured * 5 + 0.5) }
     end
     if RM:InFSR() then
         lines[#lines + 1] = { l = "Spirit regen resumes",

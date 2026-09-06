@@ -1416,3 +1416,47 @@ the run strip in the replay window. Six calls in `docs/DECISIONS.md` §v0.9, a r
 (no file writing, no preset drink rate, no blended score, no run-level play-through), and the
 author questions with defaults (measure vs read the mp5: measure; drinks vs added time in the
 score: added time first). Auto-start stays reserved behind a setting that ships off.
+
+## 2026-09-06 — v0.9.0: the character the engine replays is now yours
+
+"Go, implement v0.9.x." First of five, `docs/SPEC-v0.9.md` §2: the engine stops replaying a
+stand-in druid.
+
+**The measured mp5.** `/md regentest` already *named* the beat the API omits — a constant
+size on a 2.00 s cadence next to the spirit tick. It now **stores** it: `cdb.mp5 = { perSec,
+mp5, at, source, ticks, level, hint, solo }`, and only from a clean window (nothing spent, no
+drink, out of the five-second rule throughout, at least 5 beats, the beat constant to within
+±1 mana). A dirty window prints which of those it failed and changes nothing. `RM:Unreported()`
+is now `RM:Dreamstate() + RM:MeasuredMp5()`, so the measurement lands in both rates exactly
+the way the talent does; `RM.dreamstate` / `RM.measured` keep the split, and the dashboard,
+the tooltip and `/md profile` name both terms instead of saying "Dreamstate".
+
+**Into the recordings.** `FightRecorder:Start` writes `initial.energize` — everything the API
+omits for this character, as measured *at that pull* — so a fight recorded before a
+re-measurement still replays against what was true then. `ScenarioFromRecording` passes it
+through, and for recordings that predate the measurement entirely it applies the current one
+and flags the scenario `energizeAssumed`; every validation report says which of the two it
+used. That flag is the whole point of the version: with 31 mp5 applied, the author's 87 s
+Hellfire fight moves from `mana mean 3.3%` (FAIL, limit 2%) to **0.8%** — the fight that
+could not be coached from can be. `spend coverage` (69%, the utility hole) is still its
+remaining gate.
+
+**The profile.** `MD:WriteProfile()` persists `cdb.profile` — level, class, +healing, crit,
+spirit, intellect, pool, the raw API regen rates, every talent `RankMath` reads, the relic and
+the form — at login (twice: once immediately, once after 5 s when the stat APIs have settled),
+on a talent change and on a gear change. `tools/import.lua` applies it to the stub before
+building the kit and prints `kit: the character's (profile of ...)`; without one it says the
+file carries no profile and keeps the harness's BF-1 stand-in. A gear change also reminds the
+author once per session, out of combat, that the measurement predates the gear — an old
+measurement is still a measurement, so nothing is invalidated automatically.
+
+**Harness.** `regencheck` 8 → 18: a clean scripted window stores the beat with its
+provenance, the model adds it to both rates, a new recording carries it, a window with a spend
+in it refuses and leaves the old value alone, and a window with no beat refuses too. One
+harness artifact fixed on the way: assigning `S.mana` without firing the power event made the
+model see the drop at the next *gain*, which put five seconds of the measurement window inside
+the five-second rule — exactly what the new code refuses to store from. `replaycheck` 31 → 33:
+energize moves the mana curve by exactly `energize × t`, and the run result must be read out
+of its pooled slot before the next run reuses it.
+
+Suites: simcheck 10, reccheck 38, simwindow 8, regencheck 18, replaycheck 33, replayui 50.

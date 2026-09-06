@@ -846,9 +846,27 @@ function SM.ScenarioFromRecording(rec, kit)
     local mn = rec.mana or {}
     for i = 1, #(mn.t or {}) do rates[i] = { mn.t[i], mn.base[i] or 0, mn.cast[i] or 0 } end
 
+    -- v0.9.0: recordings made from now on carry `initial.energize` -- everything
+    -- GetManaRegen omits for this character, measured at the pull. Older ones
+    -- carry nothing, and replaying them without it is what put the author's
+    -- 87s Hellfire fight 3.3% off its own mana curve. When the character HAS a
+    -- measurement and the recording has none, the measurement is applied and
+    -- the scenario is flagged: the replay then rests on an assumption (the
+    -- gear was the same then), which every report that uses it states.
+    local initial, assumed = rec.initial, false
+    if initial and (initial.energize or 0) <= 0 and MD.Regen then
+        local u = MD.Regen:Unreported()
+        if u > 0 then
+            local copy = {}
+            for k, v in pairs(initial) do copy[k] = v end
+            copy.energize, initial, assumed = u, copy, true
+        end
+    end
+
     return {
         dur = rec.dur or 0, pool = rec.pool or 0,
-        initial = rec.initial, targets = targets, ev = ev, rates = rates,
+        initial = initial, energizeAssumed = assumed,
+        targets = targets, ev = ev, rates = rates,
         sampleT = mn.t, hpSampleT = hp.t, kit = kit,
         floor = (MD.db and MD.db.simFloor) or 0.30,
         script = script,
@@ -907,7 +925,9 @@ function SM:Validate(rec, kit)
     local sc = SM.ScenarioFromRecording(rec, kit)
     local r = SM:Run(sc, nil, { critMode = "ev" })
 
-    local out = { gates = {}, excluded = {}, ok = true, rec = rec }
+    local out = { gates = {}, excluded = {}, ok = true, rec = rec,
+                  energize = (sc.initial and sc.initial.energize) or 0,
+                  energizeAssumed = sc.energizeAssumed or false }
     local function Gate(name, ok, text, value, limit, why)
         out.gates[#out.gates + 1] = { name = name, ok = ok, text = text,
                                       value = value, limit = limit, why = why }

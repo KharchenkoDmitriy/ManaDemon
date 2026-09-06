@@ -263,6 +263,48 @@ function MD:TalentSummary()
 end
 
 --------------------------------------------------------------------------------
+-- The profile snapshot (v0.9.0, docs/SPEC-v0.9.md 2.2). Everything
+-- Engine/RankMath.lua's Context() reads about this character, written into the
+-- SavedVariables so the offline tools can build THIS character's spell kit
+-- instead of the harness's stand-in. It is a handful of numbers, rewritten at
+-- login, on a talent change and on a gear change; nothing reads it in-game --
+-- in the client the live API is always better.
+--------------------------------------------------------------------------------
+function MD:WriteProfile()
+    if not MD.cdb then return end
+    local function pcallv(fn, ...)
+        if not fn then return nil end
+        local ok, v = pcall(fn, ...)
+        if ok then return v end
+        return nil
+    end
+    local talents = {}
+    for _, name in ipairs(MD.RELEVANT_TALENTS) do talents[name] = MD:TalentRank(name) end
+    local _, relicID = nil, nil
+    if MD.SpellData and MD.SpellData.Relic then
+        local _, id = MD.SpellData:Relic()
+        relicID = id
+    end
+    MD.cdb.profile = {
+        v = 1, at = time(), charKey = MD.player.charKey,
+        class = MD.player.class, level = UnitLevel("player") or MD.player.level or 0,
+        healing = pcallv(GetSpellBonusHealing) or 0,
+        crit = pcallv(GetSpellCritChance, 4) or 0,
+        spirit = UnitStat("player", 5) or 0,
+        intellect = UnitStat("player", 4) or 0,
+        manaMax = UnitPowerMax("player", 0) or 0,
+        apiBase = MD.Regen and MD.Regen.apiBase or 0,
+        apiCasting = MD.Regen and MD.Regen.apiCasting or 0,
+        talents = talents,
+        relic = relicID,
+        form = MD:InTreeForm() and "tree" or "caster",
+    }
+    MD:Debug("other", "profile written: level %d, +%d healing, %.1f%% crit, %d spirit, %d int, relic %s",
+        MD.cdb.profile.level, MD.cdb.profile.healing, MD.cdb.profile.crit,
+        MD.cdb.profile.spirit, MD.cdb.profile.intellect, tostring(relicID))
+end
+
+--------------------------------------------------------------------------------
 -- Init
 --------------------------------------------------------------------------------
 -- Fill missing keys recursively so nested defaults (debug.categories) are
@@ -298,6 +340,10 @@ MD:On("PLAYER_LOGIN", function()
         end)())
     MD:ScanTalents()
     MD:Fire("MD_READY")
+    -- once now, and again once the client has settled: at PLAYER_LOGIN the
+    -- stat APIs can still read zero.
+    MD:WriteProfile()
+    if C_Timer and C_Timer.After then C_Timer.After(5, function() MD:WriteProfile() end) end
 
     if MD.db.firstRun then
         MD.db.firstRun = false
@@ -306,8 +352,24 @@ MD:On("PLAYER_LOGIN", function()
     end
 end)
 
-MD:On("CHARACTER_POINTS_CHANGED", function() MD:ScanTalents() end)
-MD:On("PLAYER_TALENT_UPDATE", function() MD:ScanTalents() end)
+MD:On("CHARACTER_POINTS_CHANGED", function() MD:ScanTalents(); MD:WriteProfile() end)
+MD:On("PLAYER_TALENT_UPDATE", function() MD:ScanTalents(); MD:WriteProfile() end)
+
+-- Gear changes move both the profile and the measured mp5. The profile is
+-- rewritten (it is free); the measurement is NOT invalidated -- an old
+-- measurement is still a measurement -- but the author is reminded once per
+-- session, out of combat, that it predates the gear they are wearing.
+local gearReminded = false
+MD:On("PLAYER_EQUIPMENT_CHANGED", function()
+    if not MD.cdb then return end
+    MD:WriteProfile()
+    if gearReminded or UnitAffectingCombat("player") then return end
+    local m = MD.cdb.mp5
+    if not m or not m.at then return end
+    gearReminded = true
+    MD:Print(string.format("item mp5 was measured on %s (%d mp5); gear changed since - |cffffff00/md regentest|r " ..
+        "solo to re-measure.", date("%d %b", m.at), m.mp5 or 0))
+end)
 MD:On("PLAYER_LEVEL_UP", function(level)
     MD.player.level = tonumber(level) or UnitLevel("player") or MD.player.level
 end)

@@ -49,7 +49,8 @@ local function Refresh()
     statsFS:SetFormattedText(
         "+%d healing   regen |cff33ff66%d|r mana/s out of 5SR, |cffffaa33%d|r casting   ~%d mp5 spirit, ~%d mp5 gear/buffs%s",
         bonus, RM.base, RM.casting, spiritPerSec * 5, mp5Gear,
-        unreported > 0 and string.format(", +%d mp5 Dreamstate (not in the API)", unreported * 5 + 0.5) or "")
+        unreported > 0 and string.format(", +%d mp5 not in the API (Dreamstate %d, measured %d)",
+            unreported * 5 + 0.5, RM.dreamstate * 5 + 0.5, RM.measured * 5 + 0.5) or "")
 
     -- the Waste and Review views each replace the rank table, its hint and its
     -- callout

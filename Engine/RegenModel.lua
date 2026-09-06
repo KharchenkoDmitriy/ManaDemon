@@ -14,7 +14,9 @@ MD.Regen = RM
 
 RM.fsrEnd = 0                     -- GetTime() when the five-second rule expires
 RM.apiBase, RM.apiCasting = 0, 0  -- raw GetManaRegen("player")
-RM.unreported = 0                 -- regen the client does not report (Dreamstate)
+RM.unreported = 0                 -- regen the client does not report (Dreamstate + measured mp5)
+RM.dreamstate = 0                 -- of that: the talent
+RM.measured = 0                   -- of that: the measured item-mp5 beat (cdb.mp5, v0.9.0)
 RM.base = 0                       -- mana/sec outside the FSR (api + unreported)
 RM.casting = 0                    -- mana/sec inside the FSR (api + unreported)
 
@@ -82,10 +84,27 @@ end
 --------------------------------------------------------------------------------
 local DREAMSTATE_PCT = { 0.04, 0.07, 0.10 }
 
-function RM:Unreported()
+function RM:Dreamstate()
     local r = MD:TalentRank("Dreamstate")
     if r == 0 then return 0 end
     return (DREAMSTATE_PCT[r] or 0) * (UnitStat("player", 4) or 0) / 5
+end
+
+-- The second unreported stream (v0.9.0): a constant beat the API leaves out
+-- that is NOT a talent -- item mp5 on this client, measured on three solo
+-- recordings at ~31 mp5 and confirmed by /md regentest's tick histogram (a
+-- 2.00s beat next to the spirit tick, in and out of the five-second rule).
+-- It is a MEASUREMENT with a date, stored per character by the test itself
+-- (Verify.lua), never a constant and never inferred from gear. No measurement
+-- means zero: the model does not guess.
+function RM:MeasuredMp5()
+    local m = MD.cdb and MD.cdb.mp5
+    if not m or not m.perSec or m.perSec <= 0 then return 0 end
+    return m.perSec
+end
+
+function RM:Unreported()
+    return RM:Dreamstate() + RM:MeasuredMp5()
 end
 
 function RM:Refresh()
@@ -99,9 +118,11 @@ function RM:Refresh()
         or math.abs(extra - RM.unreported) > 0.005 then
         MD:Debug("regen", "GetManaRegen base %.2f/s casting %.2f/s (mp5 %d / %d)%s",
             base, casting, base * 5 + 0.5, casting * 5 + 0.5,
-            extra > 0 and string.format(" + Dreamstate %.2f/s (%d mp5, not in the API)", extra, extra * 5 + 0.5) or "")
+            extra > 0 and string.format(" + %.2f/s not in the API (%d mp5: Dreamstate %d, measured %d)",
+                extra, extra * 5 + 0.5, RM:Dreamstate() * 5 + 0.5, RM:MeasuredMp5() * 5 + 0.5) or "")
     end
     RM.apiBase, RM.apiCasting, RM.unreported = base, casting, extra
+    RM.dreamstate, RM.measured = RM:Dreamstate(), RM:MeasuredMp5()
     RM.base = base + extra
     RM.casting = casting + extra
 end

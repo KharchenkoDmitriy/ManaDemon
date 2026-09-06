@@ -189,6 +189,15 @@ function FR:Start(t0)
         apiBase = RM and RM.apiBase or 0,
         apiCasting = RM and RM.apiCasting or 0,
         form = MD:InTreeForm() and "tree" or "caster",
+        -- v0.9.0: every mana/s this character gains that GetManaRegen does not
+        -- report -- Dreamstate (a talent, computed) plus the measured item-mp5
+        -- beat (/md regentest, stored in cdb.mp5). apiBase/apiCasting above are
+        -- the RAW client numbers, so the engine's `energize` term is the only
+        -- place this is counted. It rides with the recording rather than being
+        -- looked up at replay time, so a fight recorded before a re-measurement
+        -- still replays against what was true then.
+        energize = RM and RM:Unreported() or 0,
+        energizeParts = RM and { dreamstate = RM:Dreamstate(), measured = RM:MeasuredMp5() } or nil,
     }
     stream.initial.auras, stream.initial.buffs = ScanAuras(stream)
 

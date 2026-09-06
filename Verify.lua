@@ -103,8 +103,17 @@ function MD:Snapshot()
         add("GetManaRegen: base %.2f/s, casting %.2f/s (x5 = %d / %d mp5)",
             RM.apiBase, RM.apiCasting, RM.apiBase * 5 + 0.5, RM.apiCasting * 5 + 0.5)
         if RM.unreported > 0 then
-            add("model adds Dreamstate %.2f/s (%d mp5) -> base %.2f/s, casting %.2f/s",
-                RM.unreported, RM.unreported * 5 + 0.5, RM.base, RM.casting)
+            add("model adds %.2f/s the API omits (%d mp5: Dreamstate %d, measured %d) -> base %.2f/s, casting %.2f/s",
+                RM.unreported, RM.unreported * 5 + 0.5, RM.dreamstate * 5 + 0.5, RM.measured * 5 + 0.5,
+                RM.base, RM.casting)
+        end
+        local m = MD.cdb and MD.cdb.mp5
+        if m then
+            add("measured mp5: %d (%.2f/s) from %s on %s, %d beat(s)%s", m.mp5 or 0, m.perSec or 0,
+                m.source or "?", date("%Y-%m-%d %H:%M", m.at or 0), m.ticks or 0,
+                m.hint and (" at " .. m.hint) or "")
+        else
+            add("measured mp5: none - run /md regentest solo to measure the beat the API omits")
         end
         local drinking = MD:HasBuff("Drink") or MD:HasBuff("Refreshment") or MD:HasBuff("Food & Drink")
         add("drink buff up: %s; observed OOC fill %.2f/s (FSR duty %d%%)",
@@ -469,6 +478,49 @@ local function IsDrinking()
     return MD:HasBuff("Drink") or MD:HasBuff("Refreshment") or MD:HasBuff("Food & Drink")
 end
 
+--------------------------------------------------------------------------------
+-- Storing the measurement (v0.9.0, docs/SPEC-v0.9.md 2.1). The histogram
+-- already NAMES the beat the API omits; this writes it down, with its date, so
+-- RM:MeasuredMp5() can add it and every recording can carry it. It stores only
+-- from a CLEAN window -- nothing spent, no drink, out of the five-second rule
+-- throughout, at least MP5_MIN_TICKS beats, and the beat constant to within
+-- +-1 mana -- because a measurement taken through a cast is not a measurement.
+-- A dirty test says why it did not store. What lands in the bucket is whatever
+-- was up: run it SOLO (docs/TESTING.md 27), or you are measuring somebody
+-- else's blessing into your own gear.
+--------------------------------------------------------------------------------
+local MP5_MIN_TICKS = 5
+
+local function StoreMeasuredMp5(t, own, elapsed)
+    local why = nil
+    if not MD.cdb then why = "no character database yet"
+    elseif t.spent > 0 then why = string.format("%d mana was spent during the window", t.spent)
+    elseif t.drank then why = "a drink/food buff was up"
+    elseif t.fsrTime > 0.5 then why = string.format("%.1fs of the window were inside the 5SR", t.fsrTime)
+    elseif not own then why = "no 2s beat outside the spirit tick was seen"
+    elseif own.n < MP5_MIN_TICKS then why = string.format("the beat was seen %d time(s), needs %d", own.n, MP5_MIN_TICKS)
+    elseif own.hi - own.lo > 1 then why = string.format("the beat was not constant (%d-%d mana)", own.lo, own.hi)
+    end
+    if why then
+        MD:Print("regentest: not stored - " .. why .. ". Nothing was changed.")
+        return
+    end
+
+    local perSec = (own.sum / own.n) / 2       -- a 2s beat: mana per second
+    local prev = MD.cdb.mp5
+    MD.cdb.mp5 = {
+        perSec = perSec, mp5 = math.floor(perSec * 5 + 0.5), at = time(),
+        source = "regentest", ticks = own.n, level = UnitLevel("player") or 0,
+        hint = GetRealZoneText and GetRealZoneText() or nil,
+        window = elapsed, solo = (GetNumGroupMembers and GetNumGroupMembers() or 1) <= 1,
+    }
+    if MD.Regen then MD.Regen:Refresh() end
+    MD:Print(string.format("regentest: |cff33ff66stored %d mp5|r (%.2f/s, %d beats over %.0fs) - was: %s.%s",
+        MD.cdb.mp5.mp5, perSec, own.n, elapsed,
+        prev and string.format("%d mp5 measured %s", prev.mp5 or 0, date("%Y-%m-%d", prev.at or 0)) or "none",
+        MD.cdb.mp5.solo and "" or " |cffffaa33You were in a group - a blessing on you was measured in.|r"))
+end
+
 local function FinishRegenTest(reason)
     local t = regenTest
     regenTest = nil
@@ -544,6 +596,7 @@ local function FinishRegenTest(reason)
         return hits / #ts
     end
 
+    local own = nil   -- the 2s beat that is not the spirit tick: this character's own mp5
     if #clusters > 0 then
         local spirit = t.apiSum / elapsed * 2 -- what a 2s tick of the reported rate weighs
         MD:Print("regentest: tick histogram (size x count, cadence) -")
@@ -560,6 +613,7 @@ local function FinishRegenTest(reason)
                 note = "a 3s beat - a party energize, not yours"
             elseif b2 >= 0.4 then
                 note = string.format("a 2s beat - %d mp5 the API does not report", mean * 2.5 + 0.5)
+                if not own or c.n > own.n then own = c end
             elseif c.n > 2 then
                 note = string.format("no clean beat (2s %d%%, 3s %d%%)", b2 * 100, b3 * 100)
             else
@@ -568,6 +622,7 @@ local function FinishRegenTest(reason)
             MD:Print(string.format("    %7s x %-3d  %s", label, c.n, note))
         end
     end
+    StoreMeasuredMp5(t, own, elapsed)
 
     if dsRank == 0 then
         MD:Print(string.format("no Dreamstate talent: diff should be ~0 (it is %+.2f/s). A large positive diff means " ..
@@ -1053,6 +1108,12 @@ function MD:ValidationReport(rec, n)
     }
     for _, g in ipairs(v.gates) do
         out[#out + 1] = string.format("  %-18s %-4s %s", g.name, g.ok and "ok" or "FAIL", g.text)
+    end
+    if (v.energize or 0) > 0 then
+        out[#out + 1] = string.format("  energize: %.2f/s (%d mp5) the API does not report%s",
+            v.energize, v.energize * 5 + 0.5,
+            v.energizeAssumed and " - ASSUMED: this recording predates the measurement, so the current one was applied"
+                or " - recorded with the fight")
     end
     for i, why in pairs(v.excluded) do
         local name = rec.roster[i] and rec.roster[i].name or ("target " .. i)

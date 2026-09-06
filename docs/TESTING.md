@@ -496,6 +496,39 @@ default), lists every recording with its validate verdict, and `validate N` / `r
 now reaches the engine without a paste.** The one thing that still needs you: `/reload` (or
 logout) after a fight, because the client writes the file only then.
 
+## 27. Measure the mp5 the API does not report (v0.9.0)
+**Solo** — out of a group, no blessings or buffs on you from anyone else, standing still,
+out of combat, and not at full mana (spend a few hundred first):
+
+```
+/md regentest 30
+```
+
+Expect the histogram as before and then one new line: `regentest: stored NN mp5 (x.xx/s, N
+beats over 30s) - was: none.` If it says **not stored**, it names the reason (mana spent, a
+drink up, part of the window inside the five-second rule, fewer than 5 beats, or a beat that
+was not constant) — nothing is changed, so just run it again cleanly.
+
+Then `/reload` (the client only writes the file then) and, on the machine:
+
+```
+tools/run.sh tools/import.lua validate 2
+```
+
+The header should now read `kit: the character's (profile of ...)` and `mp5: NN measured by
+regentest on ...`, and the 87 s Hellfire fight's **mana mean** gate should be under 2%
+(it was 3.3% before). With an injected 31 mp5 it reads 0.8% here, so the real number should
+land near that.
+
+Report: the `stored` line verbatim, and the `mana mean` line from `validate 2`. If you were in
+a group when you measured, the line says so — a blessing that was up on you got measured into
+your own gear, and the value is that group's, not yours.
+
+Two follow-ups worth doing once:
+1. Change a piece of gear out of combat. You should get one line, once per session, saying the
+   measurement predates the gear. Nothing is invalidated; re-measure when convenient.
+2. `/md profile` now carries `measured mp5: ...` with its date next to the regen block.
+
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
 raw numbers. `/md profile` output is welcome with any report. I turn them into

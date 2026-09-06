@@ -15,10 +15,12 @@
 --                          .logs/ManaDemon.lua, then the author's install)
 --          --char <key>    "Name-Realm" (default: the first character with recordings)
 --
--- Caveat printed on every run: the spell kit is the harness's (the BF-1 build,
--- +450 healing, 15% crit), not the character's -- the profile is not in the
--- SavedVariables. Costs are the recorded ones, so the mana side is exact; the
--- heal side is the model at those stats.
+-- The spell kit is the CHARACTER's when the file carries a profile (v0.9.0:
+-- ManaDemon writes cdb.profile at login, on a talent change and on a gear
+-- change) -- healing, crit, spirit, intellect, level, talents and the relic are
+-- applied to the stub before the kit is built. Without one, the kit is the
+-- harness's stand-in (the BF-1 build, +450 healing, 15% crit) and every run
+-- says so. Costs are the recorded ones either way, so the mana side is exact.
 local here = arg[0]:match("^(.*)/[^/]+$")
 
 -- arguments
@@ -73,12 +75,61 @@ end
 MD.cdb = realDB.char[charKey]
 MD.player.charKey = charKey
 
+-- The character, applied to the stub (v0.9.0). Every number RankMath:Context()
+-- reads comes from the client in game; here it comes from the profile the addon
+-- wrote. Talents replace the harness's BF-1 build, so a spell kit built after
+-- this is THIS druid's. Anything the profile does not carry keeps the stub's
+-- value, and the header line says which of the two you are looking at.
+local profile = MD.cdb.profile
+local kitLine
+if profile then
+    S.level = profile.level or S.level
+    S.stats[4] = profile.intellect or S.stats[4]
+    S.stats[5] = profile.spirit or S.stats[5]
+    S.manaMax = profile.manaMax or S.manaMax
+    S.mana = S.manaMax
+    local healing, crit = profile.healing or 0, profile.crit or 0
+    _G.GetSpellBonusHealing = function() return healing end
+    _G.GetSpellCritChance = function() return crit end
+    if profile.relic then _G.GetInventoryItemID = function() return profile.relic end end
+    local talents = profile.talents or {}
+    function MD:TalentRank(name) return talents[name] or 0 end
+    MD.player.class = profile.class or MD.player.class
+    MD.player.isDruid = (profile.class == "DRUID")
+    MD.player.level = S.level
+    -- the form the profile was taken in, so the Tree aura and the costs agree
+    if profile.form == "tree" then
+        function MD:InTreeForm() return true end
+    elseif profile.form then
+        function MD:InTreeForm() return false end
+    end
+    MD.Regen:Refresh()
+    kitLine = string.format("kit:   the character's (profile of %s): level %d %s, +%d healing, %.1f%% crit, " ..
+        "%d spirit, %d int, %s", os.date("%Y-%m-%d %H:%M", profile.at or 0), profile.level or 0,
+        profile.class or "?", profile.healing or 0, profile.crit or 0, profile.spirit or 0,
+        profile.intellect or 0, profile.form == "tree" and "Tree of Life form" or "caster form")
+else
+    kitLine = "kit:   the harness's (BF-1 build, +450 healing, 15% crit) -- this file carries no profile; " ..
+        "log in with v0.9.0 or later and it will"
+end
+
+local mp5 = MD.cdb.mp5
+local mp5Line
+if mp5 then
+    mp5Line = string.format("mp5:   %d measured by %s on %s (%d beats%s) - the model adds %.2f/s the API omits",
+        mp5.mp5 or 0, mp5.source or "?", os.date("%Y-%m-%d", mp5.at or 0), mp5.ticks or 0,
+        mp5.solo == false and ", IN A GROUP" or "", MD.Regen:Unreported())
+else
+    mp5Line = "mp5:   not measured (/md regentest solo) - recordings made before it carry energize 0"
+end
+
 local function Say(fmt, ...) print(string.format(fmt, ...)) end
 local function Strip(s) return (tostring(s):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
 
 Say("file:  %s", file)
 Say("char:  %s   (%d recording(s), %d summarised fight(s))", charKey, #(MD.cdb.recordings or {}), #(MD.cdb.fights or {}))
-Say("kit:   the harness's (BF-1 build, +450 healing, 15%% crit) -- the profile is not in the SavedVariables")
+Say("%s", kitLine)
+Say("%s", mp5Line)
 Say("")
 
 local FR, SM, SP = MD.FightRecorder, MD.SimModel, MD.SimPlanner

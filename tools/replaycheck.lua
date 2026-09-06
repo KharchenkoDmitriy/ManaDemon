@@ -290,6 +290,33 @@ do
 end
 
 --------------------------------------------------------------------------------
+-- 9b. v0.9.0: the measured mp5 the recording carries reaches the engine. The
+-- recorder writes initial.energize at the pull (whatever the API omits for THIS
+-- character, as measured then), the scenario passes it through, and the mana
+-- curve has to move by exactly energize x t -- that is the whole reason the 87s
+-- Hellfire fight missed its mana gate.
+--------------------------------------------------------------------------------
+do
+    local saved, savedMana = rec.initial.energize, rec.initial.mana
+    -- start well below the pool: at full mana the regen has nowhere to go and
+    -- both curves would read the same for a reason that is not the model's
+    rec.initial.mana = math.floor((rec.pool or 7009) * 0.4)
+    rec.initial.energize = 0
+    -- the run result lives in a pooled slot, so read the number out before the
+    -- next run reuses it
+    local dry = SM:Run(SM.ScenarioFromRecording(rec, kit), nil, { critMode = "ev" }).manaEnd
+    rec.initial.energize = 5.0
+    local wet = SM:Run(SM.ScenarioFromRecording(rec, kit), nil, { critMode = "ev" }).manaEnd
+    rec.initial.energize, rec.initial.mana = saved, savedMana
+    local expect = 5.0 * (rec.dur or 0)
+    local got = wet - dry
+    check("energize moves the mana curve", math.abs(got - expect) < 1.0,
+        string.format("%.0f vs %.0f over %.1fs", got, expect, rec.dur or 0))
+    check("the recording carries what was measured", saved ~= nil,
+        saved and string.format("%.2f/s", saved) or "nil")
+end
+
+--------------------------------------------------------------------------------
 -- 9. no trace unless asked
 --------------------------------------------------------------------------------
 local plain = SM:Run(rp.scenario, nil, { critMode = "ev" })
