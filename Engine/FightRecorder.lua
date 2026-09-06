@@ -541,3 +541,21 @@ function FR:Get(n)
     local list = FR:List()
     return list[n or 1]
 end
+
+-- One address for both kinds of recording (v0.9.2). "3" is the third single
+-- fight; "2:7" is the seventh pull of the second run. Everything that takes a
+-- recording by number -- /md coach, /md simreplay, /md replay, the Review tab's
+-- buttons -- goes through this, so a pull inside a run is reachable everywhere a
+-- fight is, under a label the author can retype.
+-- Returns: recording, label, run, pullIndex.
+function MD:GetRecording(spec)
+    spec = tostring(spec or 1)
+    local a, b = spec:match("^(%d+):(%d+)$")
+    if a then
+        if not MD.RunRecorder then return nil, spec end
+        local rec, run = MD.RunRecorder:GetPull(tonumber(a), tonumber(b))
+        return rec, spec, run, tonumber(b)
+    end
+    local n = tonumber(spec) or 1
+    return FR:Get(n), tostring(n)
+end

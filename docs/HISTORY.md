@@ -1505,3 +1505,41 @@ and the `# run` export. The stub gained `UnitBuff` and `IsInInstance`.
 
 Suites: simcheck 10, reccheck 38, simwindow 8, regencheck 18, replaycheck 33, replayui 50,
 runcheck 49.
+
+## 2026-09-06 — v0.9.2: one address for a pull, wherever it lives
+
+`docs/SPEC-v0.9.md` §4. A run's pulls are now reachable everywhere a single fight is, under one
+address: **`run:pull`**. `MD:GetRecording(spec)` resolves `"3"` to the third single recording
+and `"2:7"` to the seventh pull of the second run, and everything that took a recording by
+number now goes through it — `/md coach`, `/md simreplay`, `/md replay`, the Review tab's
+buttons and the import tool's `--run`.
+
+**The Review tab** gained a source selector above the list: `[Fights]`, then one button per
+stored run (labelled with the run's name, `*` when pinned). Selecting a run lists its pulls in
+order, with the `when` column showing the offset into the run (`+12:41`) instead of a wall
+clock. A pull under the recording gate is greyed with `short - under the recording gate` and
+its Coach button is disabled, with a tooltip that says why it is kept anyway: a dungeon is
+mostly those. **Pin** becomes **Pin run** while a run is shown, because a run is kept or dropped
+whole. **Start run / Stop run** sits at the left of the button row and follows the recorder's
+state. The run's line is printed above the list; with no run selected, the live run's status is
+there instead.
+
+**`tools/import.lua`**: `runs` lists the stored runs with their stats and says how to address
+their pulls; `--run K` points `list` / `validate` / `replay` / `coach` / `export` at that run;
+`export --run K` writes the whole run (header, gap events, mana samples and every pull's stream)
+to `.logs/runs/<id>.txt`, while `export N --run K` writes one pull. One bug found on the way and
+worth remembering: loading the addon over the real database runs its login path, and that path
+now *writes* `cdb.profile` — with the stub's stats, over the character's own. The tool captures
+the file's profile and measured mp5 before the harness loads and puts them back. It reads the
+game's database; it does not get to invent one.
+
+**`tools/reviewui.lua`** (new, 23 assertions): the Review tab painted under the stub. It records
+a scripted run, clicks the run's button and its rows the way a mouse would, and reads back the
+cells, the greyed `short` pull, which buttons the pane disabled, that Pin pinned the run and not
+the pull, and that Play opened the replay window on `1:1` with the run named in its header. The
+stub grew three things to make that possible: `Enable`/`Disable` now store state instead of
+being no-ops, font strings and textures are registered alongside frames so a harness can read
+every painted string, and `UnitBuff` / `IsInInstance` exist.
+
+Suites: simcheck 10, reccheck 38, simwindow 8, regencheck 18, replaycheck 33, replayui 50,
+runcheck 49, reviewui 23.

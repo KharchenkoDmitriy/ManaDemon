@@ -1058,9 +1058,10 @@ function MD:OpenReplay(n)
         MD:Print("replay: not in combat - it is a review tool.")
         return
     end
-    n = tonumber(n) or 1
-    local rec = FR:Get(n)
+    -- "3" is a single fight, "2:7" the seventh pull of run 2 (v0.9.2)
+    local rec, label, run, pullK = MD:GetRecording(n)
     if not rec then MD:Print("replay: no recording " .. tostring(n) .. ".") return end
+    n = label
 
     Build()
     playing = false
@@ -1070,7 +1071,7 @@ function MD:OpenReplay(n)
     local RT = MD.ReplayTrace
     left.state = RT.New(rp.left.trace, rp.scenario, { onEvent = MakeOnEvent(left) })
     right.state = rp.right and RT.New(rp.right.trace, rp.scenario, { onEvent = MakeOnEvent(right) }) or nil
-    MD:Debug("sim", "replay %d opened: %d rows, %d/%d trace events, dt %.2f, %.0f ms", n, #(rec.tracked or {}),
+    MD:Debug("sim", "replay %s opened: %d rows, %d/%d trace events, dt %.2f, %.0f ms", tostring(n), #(rec.tracked or {}),
         rp.left.trace.nEv, rp.right and rp.right.trace.nEv or 0, rp.left.trace.dt,
         (debugprofilestop and debugprofilestop() or 0) - t0)
 
@@ -1086,7 +1087,8 @@ function MD:OpenReplay(n)
         end
     end
     local when = rec.id and date and date("%H:%M", rec.id) or ""
-    headerFS:SetText(string.format("|cffffcc00#%d|r  %s  %s  %s   %s%s", n, rec.zone or "?", when,
+    headerFS:SetText(string.format("|cffffcc00#%s|r  %s%s  %s  %s   %s%s", tostring(n),
+        run and (run.name .. " pull " .. tostring(pullK) .. " - ") or "", rec.zone or "?", when,
         Clock(rec.dur or 0), v and (v.ok and "|cff99dd99replays|r" or "|cffff9966does not replay|r") or "",
         fit ~= "" and ("  |cff888888" .. fit .. "|r") or ""))
     if rp.right then

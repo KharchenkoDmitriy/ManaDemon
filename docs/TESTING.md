@@ -571,6 +571,37 @@ Limits worth knowing: two runs are kept (pin one on the Review tab from v0.9.2 t
 a run stops itself after 90 minutes, and a very long run stops *recording* new pulls at 30 000
 events while still counting them — the stop line says `STREAM FULL` if that happened.
 
+## 29. Review a run: the tab, and the tools (v0.9.2)
+After §28's dungeon, open `/md` → **Review**. Above the list there is now a row of buttons:
+**Fights** (the eight single pulls, as before) and one button per stored run.
+
+1. Click the run. The list becomes **its pulls, in order**, and the `when` column shows how far
+   into the run each one started (`+12:41`). The run's line is printed above the list.
+2. A pull under the recording gate is greyed and reads `short - under the recording gate`, with
+   **Coach** disabled. It is *kept on purpose*: a dungeon is mostly those. Hover Coach to see it
+   say so.
+3. **Validate**, **Play** and **Coach** work on the selected pull exactly as they do on a single
+   fight. Play should open the replay with the run's name and the pull number in its header.
+4. **Pin** reads **Pin run** while a run is shown: a run is kept or dropped whole. Two runs are
+   kept; pin the one you want to keep before the next dungeon.
+5. **Start run / Stop run** is at the left of the button row, the same as the slash command.
+
+The same address works from chat: `/md replay 1:3` plays the third pull of the first run, and
+`/md coach 1:3` coaches it.
+
+Then `/reload` and, on the machine:
+
+```bash
+tools/run.sh tools/import.lua runs
+```
+
+It lists the stored runs with their stats; `tools/run.sh tools/import.lua list --run 1` lists
+that run's pulls, `validate 3 --run 1` is its third pull, and `export --run 1` writes the whole
+run to `.logs/runs/<id>.txt`.
+
+Report: whether the pulls in the tab match the pulls you remember (count and rough order),
+anything greyed that you think should not be, and the `runs` output.
+
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
 raw numbers. `/md profile` output is welcome with any report. I turn them into

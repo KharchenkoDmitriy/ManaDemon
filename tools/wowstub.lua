@@ -177,7 +177,11 @@ function FrameMT:GetBottom() return 0 end
 -- textures are frames too (every unknown method is a no-op), text and values
 -- are stored so a harness can read back what was painted.
 local function Child(kind)
-    return setmetatable({ events = {}, scripts = {}, kind = kind }, FrameMT)
+    local c = setmetatable({ events = {}, scripts = {}, kind = kind }, FrameMT)
+    -- font strings and textures go into the same registry as frames, so a
+    -- harness can read back every string a pane painted (tools/reviewui.lua)
+    frames[#frames + 1] = c
+    return c
 end
 function FrameMT:CreateFontString() return Child("FontString") end
 function FrameMT:CreateTexture() return Child("Texture") end
@@ -194,6 +198,11 @@ function FrameMT:SetColorTexture(r, g, b, a) self.color = { r, g, b, a } end
 function FrameMT:SetBackdropBorderColor(r, g, b, a) self.border = { r, g, b, a } end
 function FrameMT:SetStatusBarColor(r, g, b) self.barColor = { r, g, b } end
 function FrameMT:SetTextColor(r, g, b) self.textColor = { r, g, b } end
+-- enabled state is stored (not a no-op) so a harness can read back which
+-- buttons a pane turned off and why
+function FrameMT:Enable() self.enabled = true end
+function FrameMT:Disable() self.enabled = false end
+function FrameMT:IsEnabled() return self.enabled ~= false end
 _G.strtrim = function(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 _G.tinsert = table.insert
 _G.UISpecialFrames = {}
@@ -215,6 +224,9 @@ function CreateFrame(kind, name, parent, tmpl)
     frames[#frames + 1] = f
     return f
 end
+
+-- every frame ever created, so a harness can find the rows a pane painted
+S.allFrames = frames
 
 _G.UIParent = CreateFrame("Frame")
 _G.GameTooltip = CreateFrame("GameTooltip")

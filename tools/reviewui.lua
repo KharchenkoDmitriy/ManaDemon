@@ -1,0 +1,208 @@
+-- tools/run.sh tools/reviewui.lua
+--
+-- The Review TAB under the stub (docs/SPEC-v0.9.md 4): loads the UI kit and
+-- UI/Dashboard_Review.lua on top of the engine harness, records a scripted run,
+-- and drives the pane the way a mouse would -- click the run's button, click a
+-- row, read back what was painted and which buttons the pane turned off.
+--
+-- It exists for the same reason tools/replayui.lua does: a UI file's bugs are
+-- nil indexes, argument orders and bare pipes, and none of those show up in a
+-- syntax check. The v0.9.2 addition it guards is the "run:pull" address -- the
+-- tab, the slash commands and the replay window all take it, so one of them
+-- getting it wrong has to fail here.
+local here = arg[0]:match("^(.*)/[^/]+$")
+local a0 = arg[0]; arg[0] = here .. "/harness.lua"
+local MD = dofile(here .. "/harness.lua"); arg[0] = a0
+local S = _G.STUB
+
+S.Load({ "UI/Style.lua", "UI/Tooltip.lua", "UI/Dashboard_Review.lua", "UI/ReplayWindow.lua" },
+    "ManaDemon", MD)
+
+local ok, fails = 0, {}
+local function check(name, cond, detail)
+    if cond then ok = ok + 1 else fails[#fails + 1] = name .. (detail and (" - " .. detail) or "") end
+    print(string.format("%-46s %s%s", name, cond and "ok" or "FAIL", detail and (" - " .. detail) or ""))
+end
+
+local chat = {}
+_G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) chat[#chat + 1] = m end }
+
+--------------------------------------------------------------------------------
+-- one single fight (the shared scripted pull), then a run of two
+--------------------------------------------------------------------------------
+local ids = dofile(here .. "/fakepull.lua")(MD, S)
+check("a single fight was recorded", #(MD.cdb.recordings or {}) == 1,
+    tostring(#(MD.cdb.recordings or {})))
+
+local parent = CreateFrame("Frame")
+parent:SetSize(760, 420)
+local api = MD.DashboardParts.CreateReview(parent, 760)
+api.frame:SetSize(760, 420)
+api.frame:Show()
+api:Render()
+
+-- the rows the pane painted, newest first, as the author sees them
+local function Rows()
+    local out = {}
+    for _, f in ipairs(S.allFrames) do
+        if f.cells and f.shown and f.cells.n then out[#out + 1] = f end
+    end
+    return out
+end
+local function CellText(row, key)
+    local t = row.cells[key] and row.cells[key]:GetText() or ""
+    return (t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+end
+local function ButtonNamed(text)
+    for _, f in ipairs(S.allFrames) do
+        if f.kind == "Button" and f.text == text and f.shown ~= false then return f end
+    end
+    return nil
+end
+local function Click(btn) local fn = btn and btn:GetScript("OnClick"); if fn then fn(btn) end end
+
+local rows = Rows()
+check("the fights list paints a header and a row", #rows >= 2, tostring(#rows))
+check("the fight's zone is in the row", (function()
+    for _, r in ipairs(rows) do if CellText(r, "zone") == "Blood Furnace" then return true end end
+    return false
+end)())
+check("no run button before a run exists", ButtonNamed("Blood Furnace test") == nil)
+
+--------------------------------------------------------------------------------
+-- a run: two pulls, one of them under the recording gate
+--------------------------------------------------------------------------------
+local SD = MD.SpellData
+local PLAYER = "Player-1"
+local function ev(sub, src, dst, dstName, ...)
+    S.Combat(0, sub, false, src, "src", 0, 0, dst, dstName, 0, 0, ...)
+end
+local function cast(spellID)
+    ev("SPELL_CAST_SUCCESS", PLAYER, "Tank-1", "Destroyka", spellID, "S", 8)
+    S.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", nil, spellID)
+    S.mana = S.mana - (SD:GetCost(spellID) or 0)
+    S.Fire("UNIT_POWER_UPDATE", "player", "MANA")
+end
+local function advance(sec) for _ = 1, math.floor(sec / 0.5 + 0.5) do S.Tick(0.5) end end
+local function pull(dur, casts)
+    S.units.party1.hp = 3000
+    S.Fire("PLAYER_REGEN_DISABLED")
+    ev("SWING_DAMAGE", "Mob-1", "Tank-1", "Destroyka", 5000, 0, 1, 0, 0, 0, false)
+    local gap = dur / (casts + 1)
+    for i = 1, casts do
+        advance(gap)
+        cast(i % 2 == 0 and SD.maxRank.Regrowth or SD.maxRank.Rejuvenation)
+    end
+    advance(gap)
+    S.Fire("PLAYER_REGEN_ENABLED")
+end
+
+S.mana = 5000
+local run = MD.RunRecorder:Start("manual", "Ramparts test")
+pull(40, 8)
+advance(6)
+pull(8, 2)          -- under the gate
+advance(2)
+MD.RunRecorder:Stop("manual")
+check("the run kept both pulls", #run.pulls == 2, tostring(#run.pulls))
+
+api:Render()
+local runBtn = ButtonNamed("Ramparts test")
+check("a button appears for the run", runBtn ~= nil)
+Click(runBtn)
+
+rows = Rows()
+local pullRows = {}
+for _, r in ipairs(rows) do
+    local n = CellText(r, "n")
+    if n == "1" or n == "2" then pullRows[tonumber(n)] = r end
+end
+check("the run's pulls are listed", pullRows[1] ~= nil and pullRows[2] ~= nil)
+check("a pull's time is its offset into the run", CellText(pullRows[2], "when"):match("^%+%d+:%d%d$") ~= nil,
+    pullRows[2] and CellText(pullRows[2], "when"))
+check("the short pull says why it is greyed",
+    CellText(pullRows[2], "valid"):find("short") ~= nil, CellText(pullRows[2], "valid"))
+check("the long pull is not called short",
+    CellText(pullRows[1], "valid"):find("short") == nil, CellText(pullRows[1], "valid"))
+check("the run line is painted above the list", (function()
+    for _, f in ipairs(S.allFrames) do
+        local t = f.GetText and f:GetText() or ""
+        if type(t) == "string" and t:find("run Ramparts test") then return true end
+    end
+    return false
+end)())
+
+-- Coach is off for a pull under the gate, on for the one above it
+Click(pullRows[2]); api:Render()
+local coach = ButtonNamed("Coach")
+check("Coach is disabled on the short pull", coach and coach.enabled == false, tostring(coach and coach.enabled))
+Click(pullRows[1]); api:Render()
+check("Coach is enabled on the real pull", coach and coach.enabled ~= false, tostring(coach and coach.enabled))
+
+-- Pin, while a run is shown, pins the RUN
+local pin = ButtonNamed("Pin run")
+check("the pin button offers the run", pin ~= nil)
+Click(pin); api:Render()
+check("pinning a run pins the run, not the pull", run.pinned == true and not run.pulls[1].pinned)
+check("the button now offers to unpin", ButtonNamed("Unpin run") ~= nil)
+Click(ButtonNamed("Unpin run")); api:Render()
+check("unpinning works", run.pinned == false)
+
+--------------------------------------------------------------------------------
+-- the run:pull address, end to end: the tab's Play button opens the replay
+-- window on a pull inside a run
+--------------------------------------------------------------------------------
+local realValidate = MD.SimModel.Validate
+function MD.SimModel:Validate(...) local v = realValidate(self, ...); v.ok = true; return v end
+Click(pullRows[1]); api:Render()
+Click(ButtonNamed("Play"))
+local W = MD.Replay._state()
+check("Play opened the replay window", W.frame ~= nil and W.frame:IsShown())
+local head = W.frame and MD.Replay._state() and nil
+local headText = (function()
+    for _, f in ipairs(S.allFrames) do
+        local t = f.GetText and f:GetText() or ""
+        if type(t) == "string" and t:find("Ramparts test pull 1") then return t end
+    end
+    return nil
+end)()
+check("the replay header names the run and the pull", headText ~= nil, headText or "not painted")
+MD.SimModel.Validate = realValidate
+
+-- the same address from the command line
+MD:OpenReplay("1:2")
+check("/md replay 1:2 opens the second pull", (function()
+    for _, f in ipairs(S.allFrames) do
+        local t = f.GetText and f:GetText() or ""
+        if type(t) == "string" and t:find("Ramparts test pull 2") then return true end
+    end
+    return false
+end)())
+local before = #chat
+MD:OpenReplay("1:9")
+check("a pull that does not exist says so, and does not error",
+    (chat[#chat] or ""):find("no recording 1:9") ~= nil, chat[#chat])
+
+--------------------------------------------------------------------------------
+-- back to the fights list, and no bare pipes anywhere
+--------------------------------------------------------------------------------
+Click(ButtonNamed("Fights"))
+api:Render()
+rows = Rows()
+check("switching back shows the single fights", (function()
+    for _, r in ipairs(rows) do if CellText(r, "zone") == "Blood Furnace" then return true end end
+    return false
+end)())
+
+local bad = {}
+for _, f in ipairs(S.allFrames) do
+    local t = f.GetText and f:GetText() or ""
+    if type(t) == "string" then
+        local stripped = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        if stripped:find("|", 1, true) then bad[#bad + 1] = t end
+    end
+end
+check("no bare pipe in any painted string", #bad == 0, bad[1])
+
+print(string.format("\n%d ok, %d failed", ok, #fails))
+if #fails > 0 then for _, m in ipairs(fails) do print("  FAIL " .. m) end; os.exit(1) end

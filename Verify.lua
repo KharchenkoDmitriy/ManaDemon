@@ -1118,13 +1118,12 @@ function MD:RunSimReplay(arg)
         end
         return
     end
-    local n = tonumber(arg)
-    local rec = MD.FightRecorder and MD.FightRecorder:Get(n or 1)
+    local rec, label = MD:GetRecording(arg)
     if not rec then
         MD:Print("simreplay: no recording " .. tostring(arg) .. " (try /md simreplay fixture).")
         return
     end
-    for _, line in ipairs(MD:ValidationReport(rec, n or 1)) do
+    for _, line in ipairs(MD:ValidationReport(rec, label)) do
         MD:Print(line)
         MD:Debug("sim", "simreplay %s", line)
     end
@@ -1140,7 +1139,7 @@ function MD:ValidationReport(rec, n)
     local v = MD.SimModel:Validate(rec)
     if not v then return { "simreplay: nothing to validate." } end
     local out = {
-        string.format("recording %d: %s, %.0fs, %d casts, %d mana%s", n or 1,
+        string.format("recording %s: %s, %.0fs, %d casts, %d mana%s", tostring(n or 1),
             rec.zone or "?", rec.dur or 0, rec.ownCasts or 0, rec.spent or 0,
             rec.truncated and " (stream truncated)" or ""),
         string.format("  verdict: %s", v.ok and "REPLAYS - safe to coach from"
@@ -1179,16 +1178,18 @@ function MD:RunCoach(arg)
         else MD:Print("coach: nothing running.") end
         return
     end
-    local n, rest = arg:match("^(%d*)%s*(%a*)$")
-    n = tonumber(n) or 1
-    local rec = MD.FightRecorder:Get(n)
-    if not rec then MD:Print("coach: no recording " .. n .. ".") return end
+    -- "2" is a single fight, "2:7" the seventh pull of the second run
+    local n, rest = arg:match("^([%d:]*)%s*(%a*)$")
+    if not n or n == "" then n = "1" end
+    local rec, label = MD:GetRecording(n)
+    if not rec then MD:Print("coach: no recording " .. tostring(n) .. ".") return end
+    n = label
     if MD.coachSearch then MD:Print("coach: already searching (/md coach cancel).") return end
 
     local function Show(lines)
         MD.coachSearch = nil
         if MD.ShowCopyPopup and #lines > 6 then
-            MD:ShowCopyPopup("ManaDemon coach: recording " .. n, table.concat(lines, "\n"))
+            MD:ShowCopyPopup("ManaDemon coach: recording " .. tostring(n), table.concat(lines, "\n"))
         end
         for _, line in ipairs(lines) do
             MD:Print(line)

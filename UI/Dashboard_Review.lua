@@ -7,6 +7,13 @@
 -- is disabled with the reason on it. Nothing is hidden and nothing is guessed:
 -- if the model cannot replay a pull, saying so is more useful than a card.
 --
+-- v0.9.2: the tab lists two kinds of thing. [Fights] is the ring of 8 single
+-- recordings; one button per stored RUN lists that run's pulls in order, the
+-- ones under the recording gate included -- greyed, with Coach disabled,
+-- because a dungeon is mostly those and hiding them would misrepresent the run.
+-- Every button (Validate / Coach / Play) addresses a pull as "run:pull", which
+-- is the same address the slash commands take (/md replay 2:7).
+--
 -- Class-agnostic for listing (the stream is just numbers); Coach needs the
 -- druid spell kit.
 local _, MD = ...
@@ -59,8 +66,28 @@ function MD.DashboardParts.CreateReview(parent, width)
     pane:Hide()
     local rowPool, usedRows = {}, {}
     local selected = 1
+    local source = "fights"   -- "fights" or "run1" / "run2": which list is shown
     local cache = {}     -- recording id -> validation result (validating is not cheap)
     local api = { frame = pane }
+
+    -- Which run is shown, if any, and the list of rows to draw.
+    local function RunIndex()
+        return tonumber(source:match("^run(%d+)$"))
+    end
+    local function CurrentRun()
+        local i = RunIndex()
+        return i and MD.RunRecorder and MD.RunRecorder:Get(i) or nil
+    end
+    local function Rows()
+        local run = CurrentRun()
+        if run then return run.pulls or {} end
+        return MD.FightRecorder and MD.FightRecorder:List() or {}
+    end
+    -- The address the commands take: "3" for a single fight, "2:7" for a pull.
+    local function Spec()
+        local i = RunIndex()
+        return i and (i .. ":" .. selected) or tostring(selected)
+    end
 
     local habitsFS = pane:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     habitsFS:SetPoint("BOTTOMLEFT", pane, "BOTTOMLEFT", 12, 20)
@@ -72,20 +99,62 @@ function MD.DashboardParts.CreateReview(parent, width)
     progressFS:SetJustifyH("LEFT")
     progressFS:SetWidth(width - 60)
 
+    -- the source selector: [Fights] and one button per stored run. The buttons
+    -- are a fixed pool (a run list is at most MAX_RUNS long) relabelled on
+    -- render, so a run appearing or being replaced never leaves a dead button.
+    local sourceBtns, prevBtn = {}, nil
+    for i = 1, 3 do
+        local b = UI.CreateButton(pane, i == 1 and "Fights" or "run", "accent-hover", { 110, 16 },
+            false, false, UI.FONT_SMALL, nil)
+        b.id = i == 1 and "fights" or ("run" .. (i - 1))
+        if prevBtn then b:SetPoint("LEFT", prevBtn, "RIGHT", -1, 0)
+        else b:SetPoint("TOPLEFT", pane, "TOPLEFT", 0, -2) end
+        sourceBtns[i] = b
+        prevBtn = b
+    end
+    local highlightSource = UI.CreateButtonGroup(sourceBtns, function(id)
+        source = id
+        selected = 1
+        api:Render()
+    end)
+
+    local runFS = pane:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    runFS:SetPoint("TOPLEFT", pane, "TOPLEFT", 2, -22)
+    runFS:SetJustifyH("LEFT")
+    runFS:SetWidth(width - 60)
+
     local validateBtn = UI.CreateButton(pane, "Validate", "accent-hover", { 72, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL, "Replay this fight through the engine",
         "Runs the eight gates and shows what matched and what did not.")
     local coachBtn = UI.CreateButton(pane, "Coach", "accent-hover", { 60, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL)
-    local pinBtn = UI.CreateButton(pane, "Pin", "accent-hover", { 44, 18 }, false, false,
+    local pinBtn = UI.CreateButton(pane, "Pin", "accent-hover", { 68, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL, "Keep this recording",
-        "Pinned fights are never replaced (at most two).")
+        "Pinned fights are never replaced (at most two).",
+        "While a run is shown this pins the whole run: a run is kept or dropped as one thing.")
     local exportBtn = UI.CreateButton(pane, "Export", "accent-hover", { 60, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL, "Copy every recording as text", "Same as /md export.")
     local playBtn = UI.CreateButton(pane, "Play", "accent-hover", { 48, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL, "Play this fight as unit frames",
         "What you did on the left; what Coach suggested on the right.",
         "Press Coach first for the right column. Any class can play the left one.")
+
+    local runBtn = UI.CreateButton(pane, "Start run", "accent-hover", { 76, 18 }, false, false,
+        UI.FONT_SMALL, UI.FONT_SMALL, "Record a whole dungeon",
+        "Every pull and the gaps between them - drinking, deaths, the clock.",
+        "Same as /md run start; it stops itself 30s after you leave the instance.")
+    runBtn:SetPoint("BOTTOMLEFT", pane, "BOTTOMLEFT", 12, 40)
+    runBtn:SetScript("OnClick", function()
+        local RR = MD.RunRecorder
+        if not RR then return end
+        if RR.active then
+            RR:Stop("manual")
+        else
+            local run, why = RR:Start("manual")
+            if not run then MD:Print("run: " .. tostring(why)) end
+        end
+        api:Render()
+    end)
 
     exportBtn:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", -12, 40)
     pinBtn:SetPoint("RIGHT", exportBtn, "LEFT", -4, 0)
@@ -94,7 +163,7 @@ function MD.DashboardParts.CreateReview(parent, width)
     validateBtn:SetPoint("RIGHT", coachBtn, "LEFT", -4, 0)
 
     local function Selected()
-        return MD.FightRecorder and MD.FightRecorder:Get(selected)
+        return Rows()[selected]
     end
 
     local function Validation(rec, force)
@@ -109,13 +178,21 @@ function MD.DashboardParts.CreateReview(parent, width)
         local rec = Selected()
         if not rec then return end
         Validation(rec, true)
-        for _, line in ipairs(MD:ValidationReport(rec, selected)) do MD:Print(line) end
+        for _, line in ipairs(MD:ValidationReport(rec, Spec())) do MD:Print(line) end
         api:Render()
     end)
     coachBtn:SetScript("OnClick", function()
-        if MD.RunCoach then MD:RunCoach(tostring(selected)) end
+        if MD.RunCoach then MD:RunCoach(Spec()) end
     end)
+    -- Pinning a pull would be meaningless: a run is kept or dropped whole, so
+    -- while a run is shown this pins the RUN.
     pinBtn:SetScript("OnClick", function()
+        local run = CurrentRun()
+        if run then
+            run.pinned = not run.pinned
+            api:Render()
+            return
+        end
         local rec = Selected()
         if not rec then return end
         rec.pinned = not rec.pinned
@@ -124,7 +201,7 @@ function MD.DashboardParts.CreateReview(parent, width)
     exportBtn:SetScript("OnClick", function() if MD.RunExport then MD:RunExport() end end)
     -- runtime lookup: UI/ReplayWindow.lua loads after this file
     playBtn:SetScript("OnClick", function()
-        if MD.Replay then MD.Replay:Open(selected) end
+        if MD.Replay then MD.Replay:Open(Spec()) end
     end)
 
     local function AcquireRow()
@@ -201,10 +278,37 @@ function MD.DashboardParts.CreateReview(parent, width)
         if not pane:IsShown() then return end
         api:Release()
 
-        local list = MD.FightRecorder and MD.FightRecorder:List() or {}
+        -- the selector: [Fights] plus one button per stored run
+        local RR = MD.RunRecorder
+        local runs = RR and RR:List() or {}
+        for i = 2, #sourceBtns do
+            local run = runs[i - 1]
+            if run then
+                sourceBtns[i]:SetText((run.pinned and "*" or "") .. (run.name or "run"))
+                sourceBtns[i]:Show()
+            else
+                sourceBtns[i]:Hide()
+            end
+        end
+        if RunIndex() and not runs[RunIndex()] then source = "fights"; selected = 1 end
+        highlightSource(source)
+
+        local run = CurrentRun()
+        local list = Rows()
         if selected > #list then selected = math.max(1, #list) end
 
-        local y = -6
+        if run then
+            runFS:SetText("|cffffcc00" .. RR:Line(run) .. "|r" ..
+                (run.truncated and "" or ""))
+        elseif RR and RR.active then
+            local st = RR:Status()
+            runFS:SetText("|cff99dd99" .. (st[1] or "") .. "|r")
+        else
+            runFS:SetText("|cff888888The last 8 single pulls. A whole dungeon - every pull and the gaps - " ..
+                "is recorded with Start run.|r")
+        end
+
+        local y = -38
         local header = AcquireRow()
         header:SetPoint("TOPLEFT", pane, "TOPLEFT", 0, y)
         header:EnableMouse(false)
@@ -214,7 +318,8 @@ function MD.DashboardParts.CreateReview(parent, width)
         if #list == 0 then
             local row = AcquireRow()
             row:SetPoint("TOPLEFT", pane, "TOPLEFT", 0, y)
-            row.cells.when:SetText("|cff888888No recorded fights yet - pull something for 20s.|r")
+            row.cells.when:SetText(run and "|cff888888This run kept no pulls.|r"
+                or "|cff888888No recorded fights yet - pull something for 20s.|r")
             row.cells.when:SetWidth(width - 80)
         end
 
@@ -229,9 +334,14 @@ function MD.DashboardParts.CreateReview(parent, width)
 
             local v = cache[rec.id]
             local cell, ok = ValidateCell(v)
-            local c = (v and not ok) and "|cffbbbbbb" or "|cffffffff"
+            if rec.short then
+                -- under the recording gate (20s / 5 casts). Kept, because a
+                -- dungeon is mostly these; not coachable, and the cell says so.
+                cell, ok = "|cff888888short - under the recording gate|r", false
+            end
+            local c = ((v and not ok) or rec.short) and "|cffbbbbbb" or "|cffffffff"
             row.cells.n:SetText(c .. i .. (rec.pinned and "*" or "") .. "|r")
-            row.cells.when:SetText(c .. When(rec.id) .. "|r")
+            row.cells.when:SetText(c .. (run and ("+" .. Clock(rec.runT0 or 0)) or When(rec.id)) .. "|r")
             row.cells.zone:SetText(c .. (rec.zone or "?") .. "|r")
             row.cells.dur:SetText(c .. Clock(rec.dur or 0) .. "|r")
             row.cells.tgts:SetText(c .. #(rec.tracked or {}) .. "|r")
@@ -271,19 +381,30 @@ function MD.DashboardParts.CreateReview(parent, width)
         -- buttons follow the selection
         local rec = Selected()
         local v = rec and cache[rec.id]
-        pinBtn:SetText(rec and rec.pinned and "Unpin" or "Pin")
+        if run then
+            pinBtn:SetText(run.pinned and "Unpin run" or "Pin run")
+        else
+            pinBtn:SetText(rec and rec.pinned and "Unpin" or "Pin")
+        end
+        runBtn:SetText(RR and RR.active and "Stop run" or "Start run")
         -- Enable/Disable rather than SetEnabled: the older call exists on every
         -- client this addon targets.
         local function Set(btn, on) if on then btn:Enable() else btn:Disable() end end
-        Set(pinBtn, rec ~= nil)
+        Set(pinBtn, run ~= nil or rec ~= nil)
         Set(validateBtn, rec ~= nil)
         Set(playBtn, rec ~= nil and MD.Replay ~= nil)
         Set(exportBtn, #list > 0)
-        Set(coachBtn, rec ~= nil and MD.player.isDruid and not (v and not v.ok))
+        Set(runBtn, RR ~= nil)
+        Set(coachBtn, rec ~= nil and not rec.short and MD.player.isDruid and not (v and not v.ok))
         coachBtn:SetScript("OnEnter", function(self)
             if not MD.Tip then return end
             local lines = { { l = "Coach", r = "" } }
-            if not MD.player.isDruid then
+            if rec and rec.short then
+                lines[#lines + 1] = { l = "|cff888888This pull is under the recording gate", r = "" }
+                lines[#lines + 1] = { l = "|cff888888(20s and 5 casts). It is kept because a dungeon", r = "" }
+                lines[#lines + 1] = { l = "|cff888888is mostly these - but there is nothing to learn", r = "" }
+                lines[#lines + 1] = { l = "|cff888888from eight seconds.|r", r = "" }
+            elseif not MD.player.isDruid then
                 lines[#lines + 1] = { l = "|cff888888Coaching is Druid-only in v1.|r", r = "" }
             elseif v and not v.ok then
                 lines[#lines + 1] = { l = "|cffff9966This fight does not replay, so nothing would be", r = "" }
