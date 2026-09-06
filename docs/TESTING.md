@@ -10,7 +10,7 @@ exposed a sim leak (fixed). Also found: a false "cooldown used: Innervate" on ev
 (the GCD; fixed) and the `/md profile` paste came out **empty** (see §2b).
 
 **Still to do, in this order:** §0b · §2b · **§12 roster in a group** (the biggest unknown)
-· **§15 (new in v0.7.0, and it depends on §12 working)** · **§16 (new in v0.7.1)** · §17 · §18 · §5 (needs a hard pull) · §9
+· **§15 (new in v0.7.0, and it depends on §12 working)** · **§16 (new in v0.7.1)** · §17 · §18 · §19 · §5 (needs a hard pull) · §9
 (needs one Innervate) · §11 again after a dungeon night · §13 · §14. §1, §3, §4, §4b, §7
 are regression-only.
 
@@ -318,6 +318,25 @@ Paste the output. The interesting failures, in order of what they would teach:
 A pull with a death, or with more than 25% of the healing coming from somebody else, is
 rejected outright and that is correct: the log truncates damage after a death, and a fight
 somebody else healed is not your fight to learn from.
+
+## 19. The card (after a dungeon, v0.7.4) — NEW
+`/md coach 1` on a recorded pull. If the fight did not pass §18's gates it **refuses and says
+which gate failed** — that is the intended behaviour, not a bug; `/md coach 1 force` shows a
+card anyway with the failures listed in its caveat line.
+
+The card names the binds, the five rules with their thresholds, a mana comparison against
+"max rank" and "HoTs only", and where your casts went relative to the plan (`early`, `rank`,
+`spell`, `stack`, `late`, `overheal`, `unclassified`, plus `idle` moments).
+
+Two things to judge, and they are the whole point:
+
+1. **Is the advice followable?** If a rule reads like something you could not do while
+   watching health bars, say so — a suggestion nobody can execute is worse than none.
+2. **Is it right?** In particular the verdict line: *"you had 2.1k headroom — nothing here
+   needed to change"* should appear on the easy pulls. If every card finds something to fix,
+   the card is wrong, not you.
+
+Also check the debug `sim` line `classifier: N labelled vs M spent` — those two must match.
 
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the

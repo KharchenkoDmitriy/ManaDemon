@@ -888,3 +888,41 @@ the scripted pull — which has a death and 69% foreign healing — is **rejecte
 that passed everything would be worth nothing.
 
 **Next:** v0.7.4 — `Engine/SimPlanner.lua`, the rules plan, the classifier and the card.
+
+## 2026-09-06 — v0.7.4: plans, the classifier, and the card
+
+`Engine/SimPlanner.lua`. The causality invariant from spec §5.2 is pasted at the top of the
+file, and the code keeps it: `Plan:Decide` reads the present state plus exactly one derived
+input, each target's trailing-5 s damage, which the engine now maintains as a fixed circular
+buffer per target (allocation-free after warm-up). The engine also grew spell cooldowns
+(Swiftmend's 15 s) and a `plan:Reset()` call, so a plan that caches its anchor cannot carry it
+between two runs the search is comparing.
+
+A plan is five bound spells and five rules in a fixed order, with small parameter domains.
+That is a deliberate constraint, not a simplification: "rank 7 here, rank 9 there" is not a
+strategy a person can execute in a heroic, and the point of a card is that it can be followed.
+Binds default to the ranks the player actually cast in that recording.
+
+Score is the lexicographic tuple `(deaths, floorSeconds, manaSpent, -heldOn, #binds,
+overhealSim)`, compared element-wise. Nothing is blended into a scalar — a plan that lets
+somebody die is not redeemed by saving mana, and no weight exists that says otherwise.
+
+The classifier runs the best plan **in lockstep** with the replay: at each real cast the engine
+calls back with the recording's own state and the plan is asked what it would have done then.
+Eight of the ten labels come from that. Two cannot — `late` and `idle` are about moments the
+plan wanted and the player did not act — so they come from running the plan alone and
+comparing timelines. **The card says so in its caveat line** rather than blurring the two.
+
+The card leads with a verdict that is allowed to say *"you had 2.1k headroom — nothing here
+needed to change"*, because most pulls do not need coaching and a card that always finds
+something is a card nobody trusts twice. `SP.Mark` / `SP.Progress` close the loop per zone:
+after three later fights there, the Review tab can say what actually changed.
+
+`/md coach [n]` — and it **refuses** a fight that failed §18's gates, listing which ones;
+`force` overrides and puts the failures in the caveat line.
+
+**Verified:** `tools/reccheck.lua` is 30 assertions. The classifier's mana identity holds
+exactly (2199 labelled vs 2199 spent) and the coach's refusal path is tested as well as the
+card, because silence on a bad fight is the more important behaviour.
+
+**Next:** v0.7.5 — the coordinate-descent search.

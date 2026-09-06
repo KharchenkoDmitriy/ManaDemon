@@ -102,7 +102,8 @@ one commit with its "verifiable by" line in the spec §0.
   end to end offline by `tools/run.sh tools/reccheck.lua`, 20 assertions.)*
 - [x] **v0.7.3** HP half of replay; the six gates; `/md simreplay [n]`; Validate. *(shipped;
   the gates correctly reject the scripted pull in `tools/reccheck.lua`.)*
-- [ ] **v0.7.4** `Engine/SimPlanner.lua` rules + classifier; card; loop closure.
+- [x] **v0.7.4** `Engine/SimPlanner.lua` rules + classifier; card; loop closure. *(shipped;
+  `/md coach [n]`. The classifier's mana identity holds exactly in `tools/reccheck.lua`.)*
 - [ ] **v0.7.5** the search.
 - [ ] **v0.7.6** `UI/Dashboard_Review.lua`.
 - [ ] **v0.7.7** `UI/SimWindow.lua`, `Data/SimPresets.lua`, `FromRecordings`, Monte Carlo.

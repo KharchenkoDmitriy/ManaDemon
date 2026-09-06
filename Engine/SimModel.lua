@@ -47,6 +47,12 @@ local HOT_INDEX = SM.HOT_INDEX
 
 local EMPTY = {}
 local LIFEBLOOM_MAX_STACKS = 3
+-- Spell cooldowns the engine has to respect. Only the ones a plan can choose;
+-- Innervate and potions are recorded events, not decisions (spec 13).
+local SPELL_CD = { [18562] = 15 }   -- Swiftmend
+-- Trailing damage per target, kept as a small circular buffer. This is the ONE
+-- derived input a plan is allowed (see the causality note in SimPlanner).
+local DMG_RING = 32
 local GCD = 1.5
 local FSR = 5
 
@@ -122,8 +128,10 @@ local function NewSlot()
     return {
         busy = false,
         heap = HeapNew(),
-        hp = {}, maxHP = {}, dead = {}, tracked = {},
+        nT = 0, hp = {}, maxHP = {}, dead = {}, tracked = {}, role = {},
         hots = {},        -- [target][hotIndex] = state table (reused)
+        cd = {},          -- spellID -> time it is ready again
+        dmg = {},         -- [target] = { t = {}, a = {}, head = 0 } circular, DMG_RING wide
         byFamily = {}, healByFamily = {}, ohByFamily = {},
         -- deaths as parallel arrays and one reused "lowest" table: a search
         -- runs Run thousands of times and a per-run table is pure garbage.
@@ -189,6 +197,7 @@ function SM:Run(scenario, plan, opts)
     local grace = scenario.grace or 6
     local dur = scenario.dur or 0
     local refreshKeepsTicks = opts.refreshKeepsTicks or false
+    local onCast = opts.onCast
     local critMode = opts.critMode or "ev"
     local crit = (kit and kit.crit) or 0
 
@@ -202,11 +211,18 @@ function SM:Run(scenario, plan, opts)
             S.hp[i] = tg.hp0 or S.maxHP[i]
             S.dead[i] = false
             S.tracked[i] = tg.tracked ~= false
+            S.role[i] = tg.role
             local row = S.hots[i]
             if row then for fi = 1, 3 do local st = row[fi]; if st then st.active = false end end end
+            local ring = S.dmg[i]
+            if not ring then ring = { t = {}, a = {}, head = 0 }; S.dmg[i] = ring end
+            for j = 1, DMG_RING do ring.t[j], ring.a[j] = -1000, 0 end
+            ring.head = 0
         end
+        for k in pairs(S.cd) do S.cd[k] = nil end
     end
 
+    S.nT = nT
     for k in pairs(S.byFamily) do S.byFamily[k] = nil end
     for k in pairs(S.healByFamily) do S.healByFamily[k] = nil end
     for k in pairs(S.ohByFamily) do S.ohByFamily[k] = nil end
@@ -223,6 +239,7 @@ function SM:Run(scenario, plan, opts)
     local healed, overhealed, floorSeconds = 0, 0, 0
     local tickCount, bloomCount = 0, 0
     local waitTime, busyUntil = 0, 0
+    local waitRun, maxWaitRun, maxWaitAt = 0, 0, 0
     -- A healer who was idle does not start the next cast the instant the model
     -- says to. The delay applies ONLY coming out of a wait: the BF-1 log's
     -- inter-cast gaps (p10/p25 = 1.50/1.52s) show chaining happens at the GCD
@@ -259,6 +276,12 @@ function SM:Run(scenario, plan, opts)
             d.tgt[d.n], d.t[d.n] = ti, t
         else
             S.hp[ti] = hp
+        end
+        local ring = S.dmg[ti]
+        if ring then
+            local head = ring.head % DMG_RING + 1
+            ring.head = head
+            ring.t[head], ring.a[head] = t, amount
         end
         local frac = S.hp[ti] / S.maxHP[ti]
         if S.tracked[ti] and frac < lowestHp then lowestTgt, lowestHp, lowestHpT = ti, frac, t end
@@ -349,11 +372,15 @@ function SM:Run(scenario, plan, opts)
             manaSpent = manaSpent + cost
         end
         fsrUntil = t + FSR
+        if SPELL_CD[spellID] then S.cd[spellID] = t + SPELL_CD[spellID] end
         casts = casts + 1
         local fam = (e and e.family) or "other"
         S.byFamily[fam] = (S.byFamily[fam] or 0) + 1
         if mana < lowestMana then lowestMana = mana end
         if not oomAt and pool > 0 and mana <= pool * 0.02 then oomAt = t end
+        -- Lockstep hook: the classifier asks a plan what it would have done at
+        -- this instant, with the REPLAY's state rather than the plan's own.
+        if onCast then onCast(S, t, spellID, ti, mana, form) end
         LandCast(spellID, ti)
     end
 
@@ -427,7 +454,13 @@ function SM:Run(scenario, plan, opts)
             end
         end
     end
-    if deciding then HeapPush(h, 0, E_DECIDE, 0, 0, 0) end
+    if deciding then
+        -- a plan may cache anything it likes WITHIN a run (the anchor, say);
+        -- across runs it must start clean or the search compares plans that
+        -- remember different fights
+        if plan.Reset then plan:Reset() end
+        HeapPush(h, 0, E_DECIDE, 0, 0, 0)
+    end
 
     local function TakeSample()
         S.manaCurve[#S.manaCurve + 1] = mana
@@ -551,6 +584,7 @@ function SM:Run(scenario, plan, opts)
                     local castTime = (e and e.cast) or GCD
                     local instant = e == nil or e.type == "hot" or e.type == "lifebloom"
                         or e.type == "instant"
+                    waitRun = 0
                     -- Cast commitment: once started, the cast is locked in and
                     -- the plan is not asked again until it has landed.
                     local succeedAt = instant and t or (t + castTime)
@@ -568,7 +602,10 @@ function SM:Run(scenario, plan, opts)
                     local nextT = h.n > 0 and h.t[1] or (t + 0.5)
                     if nextT > t + 0.5 then nextT = t + 0.5 end
                     if nextT <= t then nextT = t + 0.5 end
-                    waitTime = waitTime + (nextT - t)
+                    local span = nextT - t
+                    waitTime = waitTime + span
+                    waitRun = waitRun + span
+                    if waitRun > maxWaitRun then maxWaitRun, maxWaitAt = waitRun, t + span end
                     if nextT < dur then HeapPush(h, nextT, E_DECIDE, 0, 0, 0) end
                 end
             end
@@ -602,6 +639,7 @@ function SM:Run(scenario, plan, opts)
     S.lowest.tgt, S.lowest.hp, S.lowest.t = lowestTgt, lowestHp, lowestHpT
     r.lowest = S.lowest
     r.waitFraction = dur > 0 and (waitTime / dur) or 0
+    r.maxWaitRun, r.maxWaitAt = maxWaitRun, maxWaitAt
     r.evals = 1
     r.ms = ((GetTime and GetTime()) or 0) - startClock
     -- The result and its arrays belong to the pool slot: read them before the
@@ -609,6 +647,28 @@ function SM:Run(scenario, plan, opts)
     -- rule and it is stated here rather than discovered later.
     Release(S)
     return r
+end
+
+--------------------------------------------------------------------------------
+-- What a plan may read (see Engine/SimPlanner.lua's causality note).
+--------------------------------------------------------------------------------
+
+-- Damage this target took over the trailing `window` seconds, from events the
+-- engine has ALREADY applied. Nothing here can see the future.
+function SM.RecentDamage(S, ti, t, window)
+    local ring = S.dmg and S.dmg[ti]
+    if not ring then return 0 end
+    local cutoff = t - (window or 5)
+    local sum = 0
+    for j = 1, DMG_RING do
+        if ring.t[j] >= cutoff and ring.t[j] <= t then sum = sum + ring.a[j] end
+    end
+    return sum
+end
+
+function SM.Ready(S, spellID, t)
+    local at = S.cd and S.cd[spellID]
+    return at == nil or at <= t
 end
 
 --------------------------------------------------------------------------------

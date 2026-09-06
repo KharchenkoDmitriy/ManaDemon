@@ -327,6 +327,7 @@ MD.COMMANDS = {
     { "/md spamtest",     "arm, then chain-cast one spell to OOM: checks the dashboard's To OOM column" },
     { "/md simrun",       "self-tests for the simulation engine (heals, HoT refresh, GCD, 5SR)" },
     { "/md simreplay [n]", "replay recorded fight n (or the BF-1 fixture) and score it against the log" },
+    { "/md coach [n]",    "what a plan would have done on recorded fight n, and where your mana went" },
     { "/md debug",        "toggle the debug console (enable logging there, Copy to export)" },
 }
 
@@ -395,6 +396,8 @@ SlashCmdList.MANADEMON = function(msg)
         if MD.RunSimRun then MD:RunSimRun() end
     elseif cmd == "simreplay" then
         if MD.RunSimReplay then MD:RunSimReplay(arg) end
+    elseif cmd == "coach" then
+        if MD.RunCoach then MD:RunCoach(arg) end
     elseif cmd == "debug" then
         if MD.ToggleDebugConsole then MD:ToggleDebugConsole() end
     else

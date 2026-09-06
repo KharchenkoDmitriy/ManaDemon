@@ -990,3 +990,22 @@ function MD:ValidationReport(rec, n)
     end
     return out
 end
+
+--------------------------------------------------------------------------------
+-- /md coach [n] [force]
+--------------------------------------------------------------------------------
+function MD:RunCoach(arg)
+    if not (MD.SimPlanner and MD.FightRecorder) then MD:Print("coach: not loaded.") return end
+    local n, rest = (arg or ""):match("^(%d*)%s*(%a*)$")
+    n = tonumber(n) or 1
+    local rec = MD.FightRecorder:Get(n)
+    if not rec then MD:Print("coach: no recording " .. n .. ".") return end
+    local lines = MD.SimPlanner.Coach(rec, { n = n, force = (rest == "force") })
+    if MD.ShowCopyPopup and #lines > 6 then
+        MD:ShowCopyPopup("ManaDemon coach: recording " .. n, table.concat(lines, "\n"))
+    end
+    for _, line in ipairs(lines) do
+        MD:Print(line)
+        MD:Debug("sim", "coach %s", line)
+    end
+end
