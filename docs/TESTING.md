@@ -442,10 +442,12 @@ than one snapshot, and whether the window felt readable at 1× — that is the d
 ## 24. Indicators and labels in the replay (v0.8.2) — a coached pull, 5 min
 Coach a fight, then Play it.
 
-1. **HoT squares** under the role letter: Rejuvenation, Regrowth, Lifebloom, in the family
-   colours. Rejuvenation and Regrowth count down their last 9 seconds as a digit; Lifebloom
-   shows its stacks, brightens per stack, and turns **white in its last second** — the bloom is
-   coming. Watch one Lifebloom roll 1-2-3 and whiten; watch one Rejuvenation reach `0` and go.
+1. **HoT icons** under the role letter: Rejuvenation, Regrowth, Lifebloom, as their spell
+   icons, dimming **from the top down** as they run out (Cell's vertical sweep). Lifebloom
+   shows its stacks bottom-right and its border turns **white in its last second** — the bloom
+   is coming. Watch one Lifebloom roll 1-2-3 and whiten; watch one Rejuvenation dim to the
+   bottom and go. Defensives and debuffs sweep the same way, for exactly as long as they were
+   up.
 2. **The orange dot** after the squares: Swiftmend is ready *and* has something to eat. It
    should vanish for 15 s after every Swiftmend you cast.
 3. **Labels** under the cast text on the left, in the card's colours: `late` red, `overheal`

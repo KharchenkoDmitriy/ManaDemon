@@ -85,7 +85,8 @@ while MD.Replay._state().playing and frames < 2000 do
         local lb = lf.hots[HOT_INDEX.Lifebloom]
         if lb:IsShown() and lb.text:GetText() == "1" then sawLBStack = true end
         local rj = lf.hots[HOT_INDEX.Rejuvenation]
-        if rj:IsShown() and rj.text:GetText():match("^%d$") then sawRejuvDigit = true end
+        -- the sweep: the dim overlay partway down the icon while the HoT runs
+        if rj:IsShown() and rj.dim:IsShown() and rj.dim.h and rj.dim.h > 0.5 and rj.dim.h < rj.size - 2 then sawRejuvDigit = true end
         if lf.dot:IsShown() then sawDot = true end
     end
     if W.right.strip.why then sawWhy = true end
@@ -112,8 +113,8 @@ check("no bare pipe in painted text", #bad == 0, bad[1])
 
 -- v0.8.2
 check("'early' label shown under its cast", sawEarly)
-check("Lifebloom square counts a stack", sawLBStack)
-check("Rejuvenation square shows seconds", sawRejuvDigit)
+check("Lifebloom icon counts a stack", sawLBStack)
+check("Rejuvenation icon sweeps its duration", sawRejuvDigit)
 check("Swiftmend-ready dot shown", sawDot)
 check("right cast bar carries a why", sawWhy)
 check("wait band drawn while the plan holds", sawBand)
@@ -149,7 +150,7 @@ for _, ti in ipairs(W.rows) do if W.left.frames[ti].label:GetText() ~= "" then a
 check("seek clears the labels", not anyLabel)
 local anyHot = false
 for _, ti in ipairs(W.rows) do for fi = 1, 3 do if W.left.frames[ti].hots[fi]:IsShown() then anyHot = true end end end
-check("no HoT squares at t=0", not anyHot)
+check("no HoT icons at t=0", not anyHot)
 check("seek resets the clock", W.timeFS:GetText():match("^0:00%.0") ~= nil, W.timeFS:GetText())
 check("warlock alive again at 0", W.left.frames[lockRow].pct:GetText() ~= "dead", W.left.frames[lockRow].pct:GetText())
 

@@ -131,8 +131,21 @@ local function Reset(self)
     end
 end
 
+-- When a recorded aura comes off: the next removal of the same aura on the
+-- same target, or the end of the fight. Known in full because the recording
+-- is, which is what lets the icon sweep exactly.
+local function AuraEnd(sev, j, tgt, x)
+    local K = MD.SimModel.K
+    for k = j + 1, #sev.t do
+        if sev.kind[k] == K.AURA and sev.tgt[k] == tgt and sev.x[k] == x and (sev.amt[k] or 0) < 0 then
+            return sev.t[k]
+        end
+    end
+    return nil
+end
+
 -- A recorded AURA event: state whether or not visuals fire.
-local function ApplyAura(self, tgt, amt, x, t)
+local function ApplyAura(self, sev, j, tgt, amt, x, t)
     local row = self.auras[tgt]
     if not row then return end
     local FLAG = MD.SimModel.AURA_BUFF_FLAG
@@ -143,7 +156,10 @@ local function ApplyAura(self, tgt, amt, x, t)
     else
         local a = row[spellID]
         if a then a.stacks = amt or 1
-        else row[spellID] = { spellID = spellID, stacks = amt or 1, since = t, buff = buff } end
+        else
+            row[spellID] = { spellID = spellID, stacks = amt or 1, since = t, buff = buff,
+                             until_ = AuraEnd(sev, j, tgt, x) or self.dur }
+        end
     end
 end
 
@@ -189,7 +205,7 @@ local function Cross(self, t0, t1, fire)
         local j, m = self.dmgI, #sev.t
         while j <= m and sev.t[j] <= t1 do
             local k = sev.kind[j]
-            if k == K.AURA then ApplyAura(self, sev.tgt[j], sev.amt[j], sev.x[j], sev.t[j]) end
+            if k == K.AURA then ApplyAura(self, sev, j, sev.tgt[j], sev.amt[j], sev.x[j], sev.t[j]) end
             if fire and self.onEvent and sev.t[j] > t0 then
                 if k == K.DMG then self.onEvent(RT.EV_DMG, sev.tgt[j], sev.amt[j], 0, sev.t[j], 0)
                 elseif k == K.FHEAL then self.onEvent(RT.EV_FHEAL, sev.tgt[j], sev.amt[j], 0, sev.t[j], 0) end
@@ -251,7 +267,7 @@ function State:Hot(ti, fi)
     if not h then return nil end
     local remaining = h.expires - self.t
     if remaining < 0 then remaining = 0 end
-    return { stacks = h.stacks, remaining = remaining, since = h.since }
+    return { stacks = h.stacks, remaining = remaining, since = h.since, duration = h.expires - h.since }
 end
 
 function State:Casting()

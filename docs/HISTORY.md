@@ -1269,3 +1269,18 @@ only for families with more than one) and a lettered square where a Barkskin ico
 
 `tools/replayui.lua` asserts the bar progressing during the Regrowth, the GCD sweep after an
 instant, the name persisting after the fight, and the five speeds. Six suites green.
+
+## 2026-09-06 — v0.8.5: icons that sweep, like Cell
+
+The author: "use icons, and instead of duration text a duration animation like Cell does" —
+the top-to-bottom dimming over the icon. Done for the three HoT indicators (the spell's own
+icon, 14 px, the elapsed share dimmed from the top with a 1 px spark at the edge; Lifebloom's
+stacks bottom-right, its border white in the last second) and, since the recording knows when
+every aura came off, for the defensive and debuff icons too — `State:Auras` now carries
+`until_` from a look-ahead to the removal, so a Shield Wall's icon sweeps for exactly the
+14 s it was up. Cell does it with a reverse-filled vertical StatusBar masking a desaturated
+copy; ours is a plain overlay whose height the paint loop sets, which comes to the same
+picture without mask textures. One icon builder serves all three kinds; textures are cached
+per spell with the `GetSpellInfo` fallback and a debug line when neither resolves.
+`tools/replayui.lua` now asserts the Rejuvenation icon's overlay partway down the icon while
+it runs (42). Six suites green.

@@ -286,10 +286,14 @@ right moment; close and reopen with no plan and confirm the single column.
 
 ### 4.1 HoT indicators (from `st:Hot(ti, fi)`, both columns)
 
-Three small squares at the frame's left, under the role letter, Cell-indicator style
-(10 × 10, family colour, dark border): Rejuvenation, Regrowth, Lifebloom. Each shows its
-remaining seconds as a 1-digit text (`7`, `3`); Lifebloom shows its stack count instead,
-with the square brightening per stack, and turns white for the last second before a bloom.
+Three **spell icons** at the frame's left, under the role letter (14 × 14): Rejuvenation,
+Regrowth, Lifebloom. Remaining time is a **Cell-style vertical sweep** — the elapsed share of
+the icon dimmed from the top down with a 1 px spark at the edge (`Cell/Indicators/Base.lua`
+VerticalCooldown; ours is an overlay rather than a mask because the window paints every
+frame) — **not a digit** (author, 2026-09-06, v0.8.5: "use icons and a duration animation
+like Cell"). Lifebloom shows its stack count bottom-right and its border turns white for the
+last second before a bloom. Defensive and debuff icons (§5.2) get the same sweep, exact,
+because the recording knows when each came off.
 A `Swiftmend`-ready dot (orange, 5 × 5) sits next to them while Rejuvenation or Regrowth is
 active and the cooldown (`SM.Ready`) is up — the plan's rule 3 made visible.
 

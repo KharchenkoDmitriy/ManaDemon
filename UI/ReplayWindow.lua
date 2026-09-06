@@ -18,7 +18,7 @@ local UI = MD.UI
 local COL_W, FRAME_H, FRAME_GAP = 360, 38, 6
 local GUTTER = 14
 local HEADER_H, STRIP_H, SCRUB_H = 26, 92, 78
-local NAME_X, BAR_X, PCT_W = 46, 130, 44
+local NAME_X, BAR_X, PCT_W = 58, 142, 44
 local DT_STEP_MAX = 0.25       -- never advance more than this per frame at 1x (a hitch is not a skip)
 local FLASH_CAST, FLASH_TEXT, FLASH_FOREIGN, PULSE_DMG = 0.8, 2.0, 0.4, 0.4
 local GCD = 1.5                -- an instant still locks the healer for this long
@@ -39,7 +39,7 @@ local LABEL_COLOR = {
     unclassified = { 0.5, 0.5, 0.5 },
 }
 local LABEL_FLASH = 1.5
-local HOT_SQ, HOT_GAP = 8, 2   -- the three HoT squares under the role letter
+local HOT_SQ, HOT_GAP = 14, 2  -- the three HoT icons under the role letter
 local SWIFTMEND = 18562
 local ICON_DEBUFF, ICON_DEF, MAX_DEBUFF_ICONS = 14, 16, 3
 local ROLE_LETTER = { TANK = "T", HEALER = "H", DAMAGER = "D" }
@@ -127,19 +127,55 @@ local function CreateUnitFrame(parent, x, y)
     f.name:SetJustifyH("LEFT")
     f.name:SetWordWrap(false)
 
-    -- HoT squares (Rejuvenation, Regrowth, Lifebloom in SM.HOT_INDEX order),
-    -- Cell-indicator style, and the Swiftmend-ready dot after them
+    -- One icon builder for HoTs, defensives and debuffs: the spell's texture,
+    -- a Cell-style VERTICAL sweep (the elapsed share of the icon dimmed from
+    -- the top down, a 1px spark at the edge -- Cell/Indicators/Base.lua's
+    -- VerticalCooldown, done with an overlay rather than a mask because the
+    -- window paints every frame anyway), a stack count bottom-right, and a
+    -- lettered fallback when no texture resolves.
+    local function Icon(size)
+        local ic = CreateFrame("Frame", nil, f, "BackdropTemplate")
+        ic:SetSize(size, size)
+        UI.StylizeFrame(ic, { 0.15, 0.15, 0.15, 1 }, { 0, 0, 0, 1 })
+        ic.tex = ic:CreateTexture(nil, "ARTWORK")
+        ic.tex:SetPoint("TOPLEFT", ic, "TOPLEFT", 1, -1)
+        ic.tex:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT", -1, 1)
+        ic.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        ic.dim = ic:CreateTexture(nil, "OVERLAY", nil, 1)
+        ic.dim:SetPoint("TOPLEFT", ic, "TOPLEFT", 1, -1)
+        ic.dim:SetPoint("TOPRIGHT", ic, "TOPRIGHT", -1, -1)
+        ic.dim:SetHeight(1)
+        ic.dim:SetColorTexture(0, 0, 0, 0.65)
+        ic.dim:Hide()
+        ic.spark = ic:CreateTexture(nil, "OVERLAY", nil, 2)
+        ic.spark:SetPoint("TOPLEFT", ic.dim, "BOTTOMLEFT", 0, 0)
+        ic.spark:SetPoint("TOPRIGHT", ic.dim, "BOTTOMRIGHT", 0, 0)
+        ic.spark:SetHeight(1)
+        ic.spark:SetColorTexture(0.8, 0.8, 0.8, 0.9)
+        ic.spark:Hide()
+        ic.letter = ic:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+        ic.letter:SetPoint("CENTER")
+        ic.count = ic:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+        ic.count:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT", 1, -1)
+        ic.text = ic.count   -- older name, kept for the harness
+        ic:EnableMouse(true)
+        ic:SetScript("OnEnter", function(self)
+            if MD.Tip and self.tip then MD.Tip:Show(self, "ANCHOR_RIGHT", self.tip) end
+        end)
+        ic:SetScript("OnLeave", function() if MD.Tip then MD.Tip:Hide() end end)
+        ic.size = size
+        ic:Hide()
+        return ic
+    end
+    f.Icon = Icon
+
+    -- HoT icons (Rejuvenation, Regrowth, Lifebloom in SM.HOT_INDEX order)
+    -- and the Swiftmend-ready dot after them
     f.hots = {}
     for fi = 1, 3 do
-        local sq = CreateFrame("Frame", nil, f, "BackdropTemplate")
-        sq:SetSize(HOT_SQ, HOT_SQ)
-        sq:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 6 + (fi - 1) * (HOT_SQ + HOT_GAP), 4)
-        UI.StylizeFrame(sq, { 0.15, 0.15, 0.15, 1 }, { 0, 0, 0, 1 })
-        sq.text = sq:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-        sq.text:SetPoint("CENTER", sq, "CENTER", 0, 0)
-        sq.text:SetText("")
-        sq:Hide()
-        f.hots[fi] = sq
+        local ic = Icon(HOT_SQ)
+        ic:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 6 + (fi - 1) * (HOT_SQ + HOT_GAP), 3)
+        f.hots[fi] = ic
     end
     f.dot = f:CreateTexture(nil, "OVERLAY")
     f.dot:SetSize(5, 5)
@@ -151,25 +187,6 @@ local function CreateUnitFrame(parent, x, y)
     -- front; up to three debuffs over the bar's right end, with their stacks.
     -- Recorded and drawn, never modelled -- the damage they changed was
     -- recorded as changed.
-    local function Icon(size)
-        local ic = CreateFrame("Frame", nil, f, "BackdropTemplate")
-        ic:SetSize(size, size)
-        UI.StylizeFrame(ic, { 0.2, 0.2, 0.2, 1 }, { 0, 0, 0, 1 })
-        ic.tex = ic:CreateTexture(nil, "ARTWORK")
-        ic.tex:SetPoint("TOPLEFT", ic, "TOPLEFT", 1, -1)
-        ic.tex:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT", -1, 1)
-        ic.letter = ic:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-        ic.letter:SetPoint("CENTER")
-        ic.count = ic:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
-        ic.count:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT", 1, -1)
-        ic:EnableMouse(true)
-        ic:SetScript("OnEnter", function(self)
-            if MD.Tip and self.tip then MD.Tip:Show(self, "ANCHOR_RIGHT", self.tip) end
-        end)
-        ic:SetScript("OnLeave", function() if MD.Tip then MD.Tip:Hide() end end)
-        ic:Hide()
-        return ic
-    end
     f.defIcon = Icon(ICON_DEF)
     f.defIcon:SetPoint("TOPLEFT", f, "TOPLEFT", 24, -3)
     f.defIcon:SetBackdropBorderColor(UI.accent[1], UI.accent[2], UI.accent[3], 1)
@@ -330,25 +347,57 @@ local function AuraName(spellID)
     return (ok and name) or ("spell " .. tostring(spellID))
 end
 
-local function PaintIcon(ic, a, t, isDef)
-    if ic.spellID ~= a.spellID then
-        ic.spellID = a.spellID
-        local ok, tex = pcall(GetSpellTexture, a.spellID)
-        if not (ok and tex) then
-            -- this client may not have GetSpellTexture; GetSpellInfo's third
-            -- return is the icon on the 2.5.x client
-            local ok2, _, _, icon = pcall(GetSpellInfo, a.spellID)
-            if ok2 and icon then ok, tex = true, icon end
-        end
-        if not (ok and tex) then MD:Debug("sim", "replay: no texture for aura %d", a.spellID) end
-        if ok and tex then
+local textureCache = {}
+local function SpellTexture(spellID)
+    local tex = textureCache[spellID]
+    if tex ~= nil then return tex or nil end
+    local ok, t = pcall(GetSpellTexture, spellID)
+    if not (ok and t) then
+        -- this client may not have GetSpellTexture; GetSpellInfo's third
+        -- return is the icon on the 2.5.x client
+        local ok2, _, _, icon = pcall(GetSpellInfo, spellID)
+        if ok2 and icon then ok, t = true, icon end
+    end
+    if not (ok and t) then MD:Debug("sim", "replay: no texture for spell %d", spellID); t = false end
+    textureCache[spellID] = t
+    return t or nil
+end
+
+-- Set the icon's texture (or its lettered fallback) once per spell, then the
+-- sweep: the elapsed share of (since .. until) dimmed from the top down.
+local function SetIcon(ic, spellID, fallbackName)
+    if ic.spellID ~= spellID then
+        ic.spellID = spellID
+        local tex = SpellTexture(spellID)
+        if tex then
             ic.tex:SetTexture(tex)
             ic.letter:SetText("")
         else
             ic.tex:SetTexture(nil)
-            ic.letter:SetText(AuraName(a.spellID):sub(1, 1))
+            ic.letter:SetText((fallbackName or "?"):sub(1, 1))
         end
     end
+end
+
+local function Sweep(ic, since, until_, t)
+    local dur = (until_ or 0) - (since or 0)
+    if dur <= 0 then ic.dim:Hide(); ic.spark:Hide(); return end
+    local frac = (t - since) / dur
+    if frac < 0 then frac = 0 end
+    if frac > 1 then frac = 1 end
+    local h = (ic.size - 2) * frac
+    if h < 0.5 then
+        ic.dim:Hide(); ic.spark:Hide()
+    else
+        ic.dim:SetHeight(h)
+        ic.dim:Show()
+        Shown(ic.spark, frac < 1)
+    end
+end
+
+local function PaintIcon(ic, a, t, isDef)
+    SetIcon(ic, a.spellID, AuraName(a.spellID))
+    Sweep(ic, a.since, a.until_, t)
     ic.count:SetText((a.stacks or 1) > 1 and tostring(a.stacks) or "")
     ic.tip = ic.tip or {}
     ic.tip[1] = { l = AuraName(a.spellID), r = isDef and "|cff888888defensive|r" or "|cff888888debuff|r" }
@@ -381,31 +430,30 @@ local function PaintFrame(f, st, ti, isLeft, now)
     if f.textUntil <= now and f.cast:GetText() ~= "" then f.cast:SetText("") end
     if f.labelUntil <= now and f.label:GetText() ~= "" then f.label:SetText("") end
 
-    -- HoT squares: remaining seconds as one digit (nothing above 9), Lifebloom
-    -- its stack count, brighter per stack and white in its last second (the
+    -- HoT icons with the vertical sweep of their remaining time; Lifebloom
+    -- shows its stacks and its border turns white in the last second (the
     -- bloom is coming). The dot: Swiftmend has something to eat and is ready.
-    local HOT_INDEX = MD.SimModel.HOT_INDEX
+    local SM = MD.SimModel
+    local HOT_INDEX = SM.HOT_INDEX
     local eatable = false
     for fi = 1, 3 do
-        local sq = f.hots[fi]
+        local ic = f.hots[fi]
         local h = (not dead) and st:Hot(ti, fi) or nil
         if h then
-            local fam = MD.SimModel.HOT_NAME[fi]
-            local c = FAMILY_COLOR[fam] or FAMILY_COLOR.other
+            local fam = SM.HOT_NAME[fi]
+            SetIcon(ic, MD.SpellData.maxRank[fam] or 0, fam)
+            Sweep(ic, h.since, h.since + (h.duration or 0), st.t)
             if fi == HOT_INDEX.Lifebloom then
-                local k = 0.45 + 0.25 * (h.stacks or 1)
-                if h.remaining <= 1 then sq:SetBackdropColor(1, 1, 1, 1)
-                else sq:SetBackdropColor(c[1] * k, c[2] * k, c[3] * k, 1) end
-                sq.text:SetText(tostring(h.stacks or 1))
+                ic.count:SetText(tostring(h.stacks or 1))
+                if h.remaining <= 1 then ic:SetBackdropBorderColor(1, 1, 1, 1)
+                else ic:SetBackdropBorderColor(0, 0, 0, 1) end
             else
-                sq:SetBackdropColor(c[1], c[2], c[3], 1)
-                local r = math.floor(h.remaining)
-                sq.text:SetText(r <= 9 and tostring(r) or "")
+                ic.count:SetText("")
                 eatable = true
             end
-            sq:Show()
+            ic:Show()
         else
-            sq:Hide()
+            ic:Hide()
         end
     end
     Shown(f.dot, eatable and st:Ready(SWIFTMEND))
@@ -759,6 +807,7 @@ local function Layout()
                 f:SetBackdropBorderColor(0, 0, 0, 1)
                 f.defIcon.spellID = nil
                 for _, ic in ipairs(f.debuffs) do ic.spellID = nil end
+                for _, ic in ipairs(f.hots) do ic.spellID = nil end
                 f:Show()
             end
         end
