@@ -300,6 +300,13 @@ function State:Auras(ti, out)
     return out
 end
 
+-- When this spell's cooldown ends (nil if it is not on cooldown at st.t).
+function State:CooldownUntil(spellID)
+    local until_ = self.cdUntil[spellID]
+    if until_ and self.t < until_ then return until_ end
+    return nil
+end
+
 -- Is this spell off cooldown at st.t? Only the cooldowns the engine respects
 -- (SM.SPELL_CD: Swiftmend) -- everything else is always ready.
 function State:Ready(spellID)

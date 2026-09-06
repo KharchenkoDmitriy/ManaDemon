@@ -124,7 +124,8 @@ check("no bare pipe in painted text", #bad == 0, bad[1])
 check("'early' label shown under its cast", sawEarly)
 check("Lifebloom icon counts a stack", sawLBStack)
 check("Rejuvenation icon sweeps its duration", sawRejuvDigit)
-check("Swiftmend-ready dot shown", sawDot)
+check("Swiftmend icon shown", sawDot)
+check("Swiftmend icon carries its texture", W.left.frames[tankRow].dot.spellID == 18562 or (mageRow and W.left.frames[mageRow].dot.spellID == 18562))
 check("right cast bar carries a why", sawWhy)
 check("wait band drawn while the plan holds", sawBand)
 local enter = W.right.strip.cast:GetScript("OnEnter")
@@ -179,6 +180,9 @@ check("warlock alive again at 0", W.left.frames[lockRow].pct:GetText() ~= "dead"
 MD.Replay._seek(5.0)
 local tick = W.left.frames[tankRow].tick
 check("snapshot tick drawn on the left", tick.color and tick.color[4] > 0, tick.color and tostring(tick.color[4]))
+local hit = W.left.frames[tankRow].tickHit
+check("tick has a hover frame", hit:IsShown() and W.left.frames[tankRow].tickInfo ~= nil)
+check("tick tooltip does not error", pcall(hit:GetScript("OnEnter"), hit))
 check("no tick on the right", W.right.frames[tankRow].tick.color[4] == 0)
 
 -- markers on the scrubber: the death, the casts

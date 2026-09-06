@@ -1353,3 +1353,13 @@ the recorder's roster carries the guid now and the window matches on it (older r
 And the strip's GCD sweep was too light under white text.
 
 `tools/replayui.lua` 46. Six suites green.
+
+## 2026-09-06 — v0.8.10: the two unlabeled things
+
+The author asked what the white line at the right edge and the orange square were. The
+snapshot tick and the Swiftmend dot — both intentional, neither explained itself. The dot is a
+Swiftmend **icon** now, under the HoT row: full while it is ready and has a HoT to eat,
+sweeping its cooldown otherwise (`State:CooldownUntil`, new), with a tooltip either way. The
+tick has an 8 px hover frame and a tooltip: the recorded HP and when it was read, the engine's
+reconstruction at this moment, and whether the two are within the health gate's 5% — the
+sentence that says what the line is *for*. `tools/replayui.lua` 49. Six suites green.

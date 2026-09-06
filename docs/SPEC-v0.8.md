@@ -308,8 +308,10 @@ frame) — **not a digit** (author, 2026-09-06, v0.8.5: "use icons and a duratio
 like Cell"). Lifebloom shows its stack count bottom-right and its border turns white for the
 last second before a bloom. Defensive and debuff icons (§5.2) get the same sweep, exact,
 because the recording knows when each came off.
-A `Swiftmend`-ready dot (orange, 5 × 5) sits next to them while Rejuvenation or Regrowth is
-active and the cooldown (`SM.Ready`) is up — the plan's rule 3 made visible.
+A **Swiftmend icon** (v0.8.10; was a 5 × 5 dot) sits under the HoT row while Rejuvenation or
+Regrowth is active: full when the cooldown is up, sweeping the cooldown otherwise, with a
+tooltip — the plan's rule 1 made visible. The snapshot tick has a hover frame and a tooltip
+naming the recorded HP, the engine's value now, and whether they are within the health gate.
 
 ### 4.2 Per-cast labels
 

@@ -181,9 +181,27 @@ local function CreateUnitFrame(parent, x, y)
     f.pulse:SetAllPoints(f.bar)
     f.pulse:SetColorTexture(CELL.lossFlash[1], CELL.lossFlash[2], CELL.lossFlash[3], 0)
 
-    -- the snapshot tick (left column only): the truth over the reconstruction
+    -- the snapshot tick (left column only): the truth over the reconstruction,
+    -- with a hover frame wide enough to hit that says what it is
     f.tick = f.bar:CreateTexture(nil, "OVERLAY")
     f.tick:SetColorTexture(1, 1, 1, 0)
+    f.tickHit = CreateFrame("Frame", nil, f)
+    f.tickHit:SetFrameLevel(base + 21)
+    f.tickHit:EnableMouse(true)
+    f.tickHit:Hide()
+    f.tickHit:SetScript("OnEnter", function(self)
+        if not (MD.Tip and f.tickInfo) then return end
+        local ti = f.tickInfo
+        MD.Tip:Show(self, "ANCHOR_RIGHT", {
+            { l = "Recorded health", r = string.format("%d%% at %s", ti.rec * 100 + 0.5, Clock(ti.at)) },
+            { l = "Engine's reconstruction now", r = string.format("%d%%", ti.sim * 100 + 0.5) },
+            { l = string.format("|cff888888%s|r", math.abs(ti.rec - ti.sim) <= 0.05
+                and "within the health gate's 5%" or "outside the health gate's 5% -- this is the replay's error"), r = "" },
+            { l = "|cff888888The recorder reads real HP every 5s; the bar is the engine's|r", r = "" },
+            { l = "|cff888888account of the same fight. The tick is the truth mark.|r", r = "" },
+        })
+    end)
+    f.tickHit:SetScript("OnLeave", function() if MD.Tip then MD.Tip:Hide() end end)
 
     -- nameText: centred on the bar, class colour, 75% of the bar's width
     f.name = f.bar:CreateFontString(nil, "OVERLAY", UI.FONT)
@@ -263,9 +281,10 @@ local function CreateUnitFrame(parent, x, y)
 
     f.hots = {}
     for fi = 1, 3 do f.hots[fi] = Icon(5) end
-    f.dot = f.top:CreateTexture(nil, "OVERLAY")
-    f.dot:SetColorTexture(1, 0.6, 0.2, 1)
-    f.dot:Hide()
+    -- Swiftmend: an icon under the HoT row -- full while it is ready and has
+    -- something to eat, sweeping its cooldown otherwise (the author asked for
+    -- the icon in place of the 5px dot)
+    f.dot = Icon(5)
     f.defIcon = Icon(10)
     f.defIcon:SetBackdropBorderColor(UI.accent[1], UI.accent[2], UI.accent[3], 1)
     f.debuffs = {}
@@ -317,9 +336,10 @@ local function CreateUnitFrame(parent, x, y)
             ic:SetPoint(ho[1], f, ho[1], (ho[2] + ho[5] * (fi - 1) * ho[4]) * sc, ho[3] * sc)
             Font(ic.count, CELL.fonts.count * ts); Font(ic.letter, CELL.fonts.count * ts)
         end
-        f.dot:SetSize(5 * sc, 5 * sc)
+        f.dot:SetSize(ho[4] * sc, ho[4] * sc); f.dot.size = ho[4] * sc
         f.dot:ClearAllPoints()
-        f.dot:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -(ho[4] + 4) * sc)
+        f.dot:SetPoint("TOPRIGHT", f, "TOPRIGHT", ho[2] * sc, (ho[3] - ho[4] - 1) * sc)
+        Font(f.dot.count, CELL.fonts.count * ts); Font(f.dot.letter, CELL.fonts.count * ts)
         local de = CELL.defensives
         f.defIcon:SetSize(de[4] * sc, de[5] * sc); f.defIcon.size = de[5] * sc
         f.defIcon:ClearAllPoints()
@@ -589,7 +609,25 @@ local function PaintFrame(f, st, ti, isLeft, now)
             ic:Hide()
         end
     end
-    Shown(f.dot, eatable and st:Ready(SWIFTMEND))
+    if eatable and not dead then
+        SetIcon(f.dot, SWIFTMEND, "Swiftmend")
+        local cdUntil = st:CooldownUntil(SWIFTMEND)
+        if cdUntil then
+            local cd = MD.SimModel.SPELL_CD[SWIFTMEND] or 15
+            Sweep(f.dot, cdUntil - cd, cdUntil, st.t)
+            f.dot.tip = f.dot.tip or {}
+            f.dot.tip[1] = { l = "Swiftmend", r = string.format("|cffff9966%.1fs|r", cdUntil - st.t) }
+            f.dot.tip[2] = { l = "|cff888888a HoT to eat, the cooldown running|r", r = "" }
+        else
+            f.dot.dim:Hide(); f.dot.spark:Hide()
+            f.dot.tip = f.dot.tip or {}
+            f.dot.tip[1] = { l = "Swiftmend", r = "|cff99dd99ready|r" }
+            f.dot.tip[2] = { l = "|cff888888a Rejuvenation or Regrowth to eat, and it is off cooldown|r", r = "" }
+        end
+        f.dot:Show()
+    else
+        f.dot:Hide()
+    end
 
     -- auras: the defensive on the left edge, the debuffs bottom-left
     local auras = st:Auras(ti, f.auraBuf)
@@ -629,12 +667,21 @@ local function PaintFrame(f, st, ti, isLeft, now)
             if alpha < 0.3 then alpha = 0.3 end
             f.tick:SetColorTexture(1, 1, 1, alpha)
             f.tick:ClearAllPoints()
-            f.tick:SetPoint("LEFT", f.bar, "LEFT", v * f.bar:GetWidth(), 0)
+            local x = v * f.bar:GetWidth()
+            f.tick:SetPoint("LEFT", f.bar, "LEFT", x, 0)
+            f.tickInfo = f.tickInfo or {}
+            f.tickInfo.rec, f.tickInfo.at, f.tickInfo.sim = v, ts[j], hp or 0
+            f.tickHit:SetSize(8, f.bar:GetHeight())
+            f.tickHit:ClearAllPoints()
+            f.tickHit:SetPoint("CENTER", f.tick, "CENTER", 0, 0)
+            f.tickHit:Show()
         else
             f.tick:SetColorTexture(1, 1, 1, 0)
+            f.tickHit:Hide()
         end
     else
         f.tick:SetColorTexture(1, 1, 1, 0)
+        f.tickHit:Hide()
     end
 end
 
@@ -967,7 +1014,7 @@ local function Layout()
                 f.flashUntil, f.textUntil, f.labelFrom, f.labelUntil, f.pulseUntil, f.tickIdx = 0, 0, 0, 0, 0, nil
                 f.SetCast(""); f.SetLabel("")
                 f:SetBackdropBorderColor(0, 0, 0, 1)
-                f.defIcon.spellID = nil
+                f.defIcon.spellID, f.dot.spellID = nil, nil
                 for _, ic in ipairs(f.debuffs) do ic.spellID = nil end
                 for _, ic in ipairs(f.hots) do ic.spellID = nil end
                 f:Show()
