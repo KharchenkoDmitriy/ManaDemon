@@ -6,7 +6,7 @@ local tab = UI.CreateFrame("ManaDemonOptionsFrame_GeneralTab", MD.optionsFrame, 
 tab:SetAllPoints(MD.optionsFrame)
 tab:Hide()
 
-local recordCB, rebindCB, fullHpSlider, floorSlider
+local recordCB, rebindCB, fullHpSlider, floorSlider, runsCB, nextPullCB
 local lockCB, restCB, tipCB, cdCB, muteCB, drinkCB, minimapCB, halfLifeSlider, confSlider, treeAuraCB, ngCB, calibCB
 
 --------------------------------------------------------------------------------
@@ -180,7 +180,7 @@ end
 -- are supposed to be argued with, not nudged.
 --------------------------------------------------------------------------------
 local function CreateSimPane(anchor)
-    local pane = UI.CreateTitledPane(tab, "Fight recording", 205, 175)
+    local pane = UI.CreateTitledPane(tab, "Fight recording", 205, 225)
     pane:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -10)
 
     recordCB = UI.CreateCheckButton(pane, "Record fights", function(checked)
@@ -198,11 +198,26 @@ local function CreateSimPane(anchor)
         "somebody else's strategy, not this fight's.")
     rebindCB:SetPoint("TOPLEFT", recordCB, "BOTTOMLEFT", 0, -8)
 
+    -- v0.9: runs. Starting one is deliberate (/md run start, or the Review
+    -- tab's button); this only says whether that is allowed at all.
+    runsCB = UI.CreateCheckButton(pane, "Allow run recording", function(checked)
+        MD.db.recordRuns = checked
+    end, "A whole dungeon as one recording: every pull and the gaps",
+        "between them (drinking, deaths, the clock).",
+        "Runs are always started by hand - /md run start.")
+    runsCB:SetPoint("TOPLEFT", rebindCB, "BOTTOMLEFT", 0, -8)
+
+    nextPullCB = UI.CreateCheckButton(pane, "Replay: next pull follows", function(checked)
+        MD.db.replayNextPull = checked
+    end, "In a run, playing a pull to the end opens the next one.",
+        "Off: it stops at each pull's end.")
+    nextPullCB:SetPoint("TOPLEFT", runsCB, "BOTTOMLEFT", 0, -8)
+
     fullHpSlider = UI.CreateSlider("Full health is above (%)", pane, 70, 99, 160, 1, function(value)
         MD.db.simFullHp = value / 100
     end, nil, true, "A cast on a target at or above this counts as healing nobody.",
         "0.85 came from the first dungeon log, not from a rulebook.")
-    fullHpSlider:SetPoint("TOPLEFT", rebindCB, "BOTTOMLEFT", 17, -30)
+    fullHpSlider:SetPoint("TOPLEFT", nextPullCB, "BOTTOMLEFT", 17, -30)
 
     floorSlider = UI.CreateSlider("Danger below (%)", pane, 10, 60, 160, 1, function(value)
         MD.db.simFloor = value / 100
@@ -248,6 +263,8 @@ local function ShowTab(which)
     calibCB:SetChecked(MD.db.calibAlerts ~= false)
     recordCB:SetChecked(MD.db.recordFights ~= false)
     rebindCB:SetChecked(MD.db.simAllowRebinds == true)
+    runsCB:SetChecked(MD.db.recordRuns ~= false)
+    nextPullCB:SetChecked(MD.db.replayNextPull ~= false)
     fullHpSlider:SetValue(math.floor((MD.db.simFullHp or 0.85) * 100 + 0.5))
     floorSlider:SetValue(math.floor((MD.db.simFloor or 0.30) * 100 + 0.5))
 end

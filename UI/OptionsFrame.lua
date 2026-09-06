@@ -9,7 +9,10 @@ local WIDTH = 432
 -- its content (About does).
 -- General grew a fourth pane in v0.7.6 (Fight recording); the left column now
 -- runs widget + alerts + recording.
-local TAB_HEIGHT = { general = 470, about = 360 }
+-- general grew with v0.9's two run settings: the left column is widget (164) +
+-- alerts (95) + fight recording (225) plus the gaps, and a pane that does not
+-- fit is a setting nobody finds
+local TAB_HEIGHT = { general = 520, about = 360 }
 MD.optionsTabHeight = TAB_HEIGHT
 
 local frame = UI.CreateFrame("ManaDemonOptionsFrame", UIParent, WIDTH, TAB_HEIGHT.general)

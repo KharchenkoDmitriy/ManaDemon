@@ -1624,3 +1624,10 @@ and the tools (v0.9.2), the run in the engine with the drink model and a time-fi
 
 Suites: simcheck 10, reccheck 38, simwindow 8, regencheck 18, replaycheck 33, replayui 50,
 runcheck 69, reviewui 31.
+
+### v0.9 tidy-up (same day)
+The two run settings reached the options window (`Allow run recording`, `Replay: next pull
+follows`), which pushed the General tab from 470 to 520 tall — a pane that does not fit is a
+setting nobody finds. `docs/DECISIONS.md` §v0.9 gained four addenda from the implementation: the
+assumed energize on older recordings, the Innervate that is counted but not modelled and why,
+Coach-run versus Coach-pull, and the answered auto-advance question.

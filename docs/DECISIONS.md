@@ -610,3 +610,29 @@ carries the plan. The calls:
    the run longer, which is the thing the healer was trying not to do. The drink rate is the
    run's own, measured; there is no preset.
 6. **The profile is persisted** so the offline engine sees the character, not the BF-1 build.
+
+### Addendum (2026-09-06, from implementing v0.9.0–v0.9.4)
+
+7. **An older recording gets the current measurement, and the report says so.** A fight recorded
+   before `/md regentest` ever ran carries no `initial.energize`, and replaying it without one is
+   what put the author's 87 s Hellfire fight 3.3% off its own mana curve. `ScenarioFromRecording`
+   applies the character's current measurement to such a recording and flags the scenario
+   `energizeAssumed`; every validation report prints which of the two it used. Recordings made
+   from v0.9.0 on carry their own, so this only ever applies to the ones that predate it. The
+   assumption being made — that the gear was the same then — is stated rather than hidden, which
+   is the same rule the gates follow.
+8. **An Innervate inside a gap is counted, not modelled.** The spec said "a recorded Innervate or
+   potion in the gap is applied as recorded". A potion can be: its value is a table constant
+   (`Engine/ManaCooldowns.lua`), applied at the max roll. An Innervate cannot: it is 400% of the
+   **spirit share** of regen, and a recording carries the total rate, not the split — so putting
+   a number on it would be a guess, and nothing enters the model on a guess. The chain counts
+   them and the card names them as unmodelled. Both sides of every comparison see the same
+   recorded gaps, so the comparison stays fair either way. If the split turns out to matter, the
+   fix is to record it (the recorder already samples both API rates), not to estimate it.
+9. **Coach on a run coaches the run.** On the Review tab, while a run is shown, the Coach button
+   becomes *Coach run* — one plan and one drink policy for the dungeon — and a second *Coach
+   pull* button keeps the single-fight card for the selected pull. The run question and the pull
+   question have different answers and both are worth asking.
+10. **The next pull follows on its own** (the spec's open question, answered yes;
+    `db.replayNextPull`). Pull-by-pull is the way through a dungeon, and stopping to click at
+    every boundary makes it a chore. There is still no run-level play-through at 1×.
