@@ -40,7 +40,8 @@ local roster = rec.roster
 local inOrder = true
 for i = 2, #W.rows do if W.rows[i] < W.rows[i - 1] then inOrder = false end end
 check("rows in roster order (Cell: sortByRole off)", inOrder)
-check("buttons are Cell-sized", W.left.frames[W.rows[1]]:GetWidth() == 66 and W.left.frames[W.rows[1]]:GetHeight() == 46,
+-- five people: x1.6 tall, stretched across the column
+check("party buttons stretched to the column", W.left.frames[W.rows[1]]:GetWidth() == 420 and math.abs(W.left.frames[W.rows[1]]:GetHeight() - 46 * 1.6) < 0.01,
     string.format("%dx%d", W.left.frames[W.rows[1]]:GetWidth(), W.left.frames[W.rows[1]]:GetHeight()))
 check("right column built", W.right and W.right.state ~= nil and W.right.title:IsShown())
 check("time text", W.timeFS:GetText():match("^0:00%.0 / 0:%d%d%.%d$") ~= nil, W.timeFS:GetText())
@@ -102,7 +103,8 @@ while MD.Replay._state().playing and frames < 2000 do
         sawCastProgress = true; castProgressDetail = string.format("%.2f at %s", v, txt)
     end
     if txt:find("instant") and v > 0 and v < 1 then sawGcdSweep = true end
-    if W.left.frames[tankRow].castIcon:IsShown() and W.left.frames[tankRow].castIcon.dim:IsShown() then sawTargetIcon = true end
+    local tf = W.left.frames[tankRow]
+    if tf.cast:GetText():find("^Regrowth.*%.%.%.$") and tf.border and tf.border[2] > 0.8 then sawTargetIcon = true end
     if W.left.frames[tankRow].defIcon:IsShown() then sawDefIcon = true end
     if mageRow and W.left.frames[mageRow].debuffs[1]:IsShown() and W.left.frames[mageRow].debuffs[1].count:GetText() == "2" then sawDebuff2 = true end
     if W.right.strip.band.color and W.right.strip.band.color[4] > 0 then sawBand = true end
@@ -135,7 +137,7 @@ end
 check("scrubber tick coloured by label", labelled >= 1, tostring(labelled))
 -- v0.8.4
 check("cast bar progresses during the Regrowth", sawCastProgress, castProgressDetail)
-check("cast-target icon sweeps on the tank in flight", sawTargetIcon)
+check("in-flight cast named on the tank with its border", sawTargetIcon)
 check("instant sweeps the GCD", sawGcdSweep)
 check("last cast name stays after the fight", W.left.strip.castFS:GetText() ~= "", W.left.strip.castFS:GetText())
 check("five speeds incl. 1/4x", #W.speeds == 5 and W.speeds[1].id == 0.25, tostring(#W.speeds))
@@ -179,7 +181,7 @@ MD:OpenReplay(1)
 W = MD.Replay._state()
 check("left only without a plan", W.right.state == nil and not W.right.title:IsShown())
 check("hint says to coach first", W.frame.hint:GetText():find("Coach") ~= nil, W.frame.hint:GetText())
-check("narrower window", W.frame:GetWidth() < 400, tostring(W.frame:GetWidth()))
+check("narrower window", W.frame:GetWidth() < 500, tostring(W.frame:GetWidth()))
 
 -- in combat: refuses
 _G.UnitAffectingCombat = function() return true end

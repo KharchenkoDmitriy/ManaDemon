@@ -237,11 +237,15 @@ Drives the `reccheck` scripted pull, then `SP.Replay` on the recording with a ma
   75% width in the class colour; health text bottom-right as a short deficit; role icon
   top-left 11 px; Cell's `indicator1` "Healers" slot top-right (13 px, right-to-left) for the
   HoT icons; defensives 12 × 20 on the left edge; debuffs bottom-left 13 px × 3; the status
-  strip at the bottom for the landed cast's name, then its label, or `dead`. **The one thing
-  Cell has no slot for is the cast target**: the spell in flight is drawn in Cell's
-  `statusIcon` slot (top, 18 px) with the vertical sweep of its cast time, the button's border
-  in the family colour meanwhile, and the icon held a moment after it lands. Roster order
-  (`sortByRole` is off in the layout). Dead: bar empty, name grey, `dead` instead of
+  strip at the bottom for the cast, then its label, or `dead`. **The one thing Cell has no
+  slot for is the cast target**: while a spell is in flight to a unit its name sits in the
+  bottom status strip in the family colour with the button's border in the same colour; when
+  it lands the name stays a moment, then the label. (v0.8.6 tried the spell icon in Cell's
+  `statusIcon` slot; the author, on seeing it: no room, and the bottom text reads better.)
+  The strip's background is drawn only while it has text. Roster order (`sortByRole` is off
+  in the layout). **Frames scale with the head-count** (v0.8.8): one person ×3.5, up to five
+  ×1.6 tall and stretched across the column, up to ten ×1.25 in two columns, a raid at Cell's
+  own size five per column — so a solo test reads and 25 × 2 still fits. Dead: bar empty, name grey, `dead` instead of
   the percentage. Untracked roster members are not shown.
 - **Snapshot ticks** (left column only): a 1 px vertical line on the bar at the latest
   recorded snapshot's fraction, drawn in white at 90% and fading to 30% over the 5 s until the

@@ -6,7 +6,7 @@
 local _, MD = ...
 local UI = MD.UI
 
-local WIDTH, HEIGHT = 760, 514 -- +18 for the Simulate strip's second row
+local WIDTH, HEIGHT = 912, 617 -- +20% (author, 2026-09-06: not everything fit); was 760 x 514
 local frame, statsFS, calloutFS, hintFS, recapFS, messageFS, effectiveCB
 local rankTable, simStrip, wasteView, reviewView
 local currentFamily = "HealingTouch"

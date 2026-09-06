@@ -1319,3 +1319,18 @@ through. Cell gives the bar level 1 and its indicators 5 and 10; the window now 
 role icon on an overlay frame at +20). The hint is one short line now instead of wrapping
 into the controls in a single-column window. Not something the stub can see; noted here so
 the next indicator gets a level from the start.
+
+## 2026-09-06 — v0.8.8: room, scale, and the cast target where it reads
+
+Two more screenshots. The "ticks" checkbox fell off the right edge of a one-column window —
+the control row was wider than the column; the window is wider now (a column is at least 420,
+larger buttons, the scrubber row and the hint each on their own line) and the dashboard is 20%
+bigger (912 × 617) at the author's request, since not everything fit there either. The cast
+target loses its icon: no room in a 66 × 46 button, and the author liked the name in the bottom
+strip — so the spell in flight is named there in the family colour, with the border to match,
+and the strip draws no background when it has nothing to say. **Frames scale with the
+head-count**: one person ×3.5 both ways, a party ×1.6 tall and stretched across the column,
+up to ten ×1.25 in two columns, a raid at Cell's own size five per column — every slot keeps
+its Cell position, offsets and icons grow with the scale, the bar and the name stretch with
+the width (`f.Resize(W, H, s)`). `tools/replayui.lua` asserts the stretched party buttons and
+the in-flight name with its border (43). Six suites green.
