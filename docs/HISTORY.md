@@ -1029,3 +1029,60 @@ gates, v0.7.4 plans and the card, v0.7.5 search, v0.7.6 Review tab, v0.7.7 simul
 offline harnesses (`simcheck` 10, `reccheck` 34, `simwindow` 8) all pass. Everything that
 remains is in-game: TESTING §15-§21, and §16 (the 116 mp5 the regen API does not report) is
 still the single most valuable one.
+
+## 2026-09-06 — the second mana stream has a name
+
+The author, who was in that party: *"second mana stream was probably shadow priest."* That is
+checkable, so it was checked — against the whole 28-minute `dungeon-BF-1.txt`, not just the
+one pull the fixture was cut from.
+
+It holds, and the check produced something better than an identification. The 116 mp5
+`GetManaRegen` does not report is **two sources of completely different kinds**:
+
+**A — exactly 17, every 2.00 s, 497 times, never once a different value.** In combat and out
+of it in the same proportion as the time (380 / 117). This is the mp5 bucket: gear, an idol,
+or Blessing of Wisdom — all `MOD_POWER_REGEN`, all landing on the server's 2 s mana tick,
+none of it in `GetManaRegen`. 8.45 mana/s = **42 mp5 that belongs to the character**.
+
+**B — 13-15 at a time, on a 3.00 s beat.** The signature is unambiguous: **55% of its 378
+events have a partner exactly 3.00 s later**, against a 9% baseline at 3.5 / 4 / 5 s, with one
+to four phases overlapping (a burst of five inside 0.3 s, then the same burst 3.00 s later).
+**373 of the 378 are in combat** although combat is only 57% of the log. And per pull it
+yields between **0.0 and 17.6 mana/s** — exactly zero in two of the thirty.
+
+5% of a shadow DoT ticking every 3 s is precisely that shape, which is Vampiric Touch, which
+is the shadow priest. The log records names only — no classes — so this is corroboration
+rather than proof, and the one thing that does not fit is that Vampiric Touch is a level-70
+spell.
+
+**The ruling does not depend on naming the spell**, and that is the part worth keeping:
+
+- **A is a number about you** and may enter `RM:Unreported()` one day, by the same route
+  Dreamstate did: an in-game measurement, never a guess.
+- **B must never enter the model.** It is not yours, it is not in every group, and it is zero
+  in two of the thirty pulls in the only log we have. A clock that quietly assumes a shadow
+  priest is wrong precisely on the pull where being wrong costs someone their life. The
+  recorder's treatment — measure it per fight, replay what was measured — is the only correct
+  one.
+
+Changed: `Data/SimFixture_BF1.lua` no longer presents 23.1 mana/s as one number with one
+cause, and its roster classes are now marked **unverified** (they had been carried over from a
+mockup table in `docs/DESIGN-v0.6.md`; the log has no class data, and at least one of them is
+wrong). `docs/DECISIONS.md` §v0.7.1 carries the ruling. `docs/TESTING.md` §16 is rewritten as
+a three-step test that separates A from B — solo, then with a paladin, then with and without a
+shadow priest.
+
+`/md regentest` gained a **tick histogram**: gain sizes clustered within ±1, each with its
+count and its beat — the reported spirit tick, a 2 s beat (printed as the mp5 it implies) and
+a 3 s beat ("a party energize, not yours"). A size is what a source gives; a cadence is which
+source it is. That is the whole decomposition above, on one chat line, in 30 seconds, instead
+of a script over a 400 KB log.
+
+The beat is measured the way the log was read by hand — the share of a cluster's events that
+have a partner exactly one period later — and **not** as a median spacing, because a median
+is exactly what fails here: four overlapping 3.00 s phases read as ~1 s apart. `tools/
+regencheck.lua` (new, 8 assertions) drives `/md regentest` against a scripted stream of that
+shape and asserts the histogram recovers it.
+
+No model behaviour changed. All harnesses pass (simcheck 10, reccheck 34, simwindow 8,
+regencheck 8) and the fixture still replays at mean 1.3% / max 2.8%.

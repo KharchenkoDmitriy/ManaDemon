@@ -453,6 +453,13 @@ end
 -- difference is matched against the talent's expected contribution
 -- (4/7/10% of Intellect per 5s). Mana spent or a drink buff during the
 -- window invalidates the result (reported, not hidden).
+--
+-- It also prints a TICK HISTOGRAM: every distinct gain size with its count and
+-- median spacing. That is what identifies an energize the API is blind to --
+-- the BF-1 log carried a constant 17 every 2.00s next to the spirit tick
+-- (42 mp5, all 28 minutes, in and out of combat) that GetManaRegen never
+-- reported. A size is what a source is; a cadence is which source it is.
+-- See docs/TESTING.md 16.
 --------------------------------------------------------------------------------
 local DREAMSTATE_PCT = { 0.04, 0.07, 0.10 }
 local regenTest = nil
@@ -498,6 +505,69 @@ local function FinishRegenTest(reason)
     if t.ticks < 3 then
         MD:Print("|cffff4444WARNING|r fewer than 3 regen ticks observed - were you at full mana?")
     end
+    -- Tick histogram. The whole point of a size/cadence table is that a
+    -- periodic energize the API does not report (item mp5, Blessing of Wisdom,
+    -- a party effect) shows up as its OWN constant next to the spirit tick.
+    -- Sizes are clustered within +-1, because an energize proportional to
+    -- somebody else's damage jitters by a point or two while a mana tick does
+    -- not, and each cluster is tested for a beat the way the BF-1 log was
+    -- decomposed by hand: the share of its events that have a partner exactly
+    -- one period later. Interleaved phases of the same source ruin a median
+    -- spacing (four overlapping 3s streams read as ~1s) but not this.
+    local sizes = {}
+    for size in pairs(t.sizes) do sizes[#sizes + 1] = size end
+    table.sort(sizes)
+    local clusters = {}
+    for _, size in ipairs(sizes) do
+        local b = t.sizes[size]
+        local c = clusters[#clusters]
+        if not (c and size - c.hi <= 1) then
+            c = { lo = size, hi = size, n = 0, sum = 0, ts = {} }
+            clusters[#clusters + 1] = c
+        end
+        c.hi, c.n, c.sum = size, c.n + b.n, c.sum + size * b.n
+        for _, ts in ipairs(b.ts) do c.ts[#c.ts + 1] = ts end
+    end
+    table.sort(clusters, function(a, b) return a.n > b.n end)
+
+    -- share of events with a partner at +period (+-0.15s)
+    local function beat(ts, period)
+        local hits = 0
+        for i = 1, #ts do
+            for j = i + 1, #ts do
+                local d = ts[j] - ts[i]
+                if d > period + 0.15 then break end
+                if d >= period - 0.15 then hits = hits + 1; break end
+            end
+        end
+        return hits / #ts
+    end
+
+    if #clusters > 0 then
+        local spirit = t.apiSum / elapsed * 2 -- what a 2s tick of the reported rate weighs
+        MD:Print("regentest: tick histogram (size x count, cadence) -")
+        for i = 1, math.min(#clusters, 6) do
+            local c = clusters[i]
+            table.sort(c.ts)
+            local mean = c.sum / c.n
+            local label = c.lo == c.hi and tostring(c.lo) or string.format("%d-%d", c.lo, c.hi)
+            local b2, b3 = beat(c.ts, 2.0), beat(c.ts, 3.0)
+            local note
+            if spirit > 0 and math.abs(mean - spirit) <= 0.12 * spirit then
+                note = "the reported spirit tick"
+            elseif b3 >= 0.4 and b3 > b2 then
+                note = "a 3s beat - a party energize, not yours"
+            elseif b2 >= 0.4 then
+                note = string.format("a 2s beat - %d mp5 the API does not report", mean * 2.5 + 0.5)
+            elseif c.n > 2 then
+                note = string.format("no clean beat (2s %d%%, 3s %d%%)", b2 * 100, b3 * 100)
+            else
+                note = "seen too few times to read a cadence"
+            end
+            MD:Print(string.format("    %7s x %-3d  %s", label, c.n, note))
+        end
+    end
+
     if dsRank == 0 then
         MD:Print(string.format("no Dreamstate talent: diff should be ~0 (it is %+.2f/s). A large positive diff means " ..
             "GetManaRegen misses some regen source.", diff))
@@ -521,6 +591,10 @@ MD:On("UNIT_POWER_UPDATE", function(unit, powerType)
     if delta > 0 then
         regenTest.gained = regenTest.gained + delta
         regenTest.ticks = regenTest.ticks + 1
+        local b = regenTest.sizes[delta]
+        if not b then b = { n = 0, ts = {} }; regenTest.sizes[delta] = b end
+        b.n = b.n + 1
+        b.ts[#b.ts + 1] = GetTime()
         if cur >= UnitPowerMax("player", 0) then
             FinishRegenTest("mana full")
         end
@@ -572,6 +646,7 @@ function MD:RunRegenTest(seconds)
     regenTest = {
         t0 = nil, duration = seconds, last = mana,
         gained = 0, ticks = 0, spent = 0, apiSum = 0, modelSum = 0, fsrTime = 0, drank = IsDrinking(),
+        sizes = {}, -- [gain] = { n, ts = {} }
     }
     MD:Print(string.format("regentest: %ds - do not cast or drink. Mana %d/%d, raw API base %.2f/s, model %.2f/s, " ..
         "Dreamstate %d, int %d, %s%s.", seconds, mana, manaMax, RM.apiBase, RM.base,

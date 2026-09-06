@@ -28,15 +28,36 @@ MD.SimFixtures = MD.SimFixtures or {}
 MD.SimFixtures.BF1 = {
     v = 1, zone = "Hellfire Citadel", name = "BF-1 hard pull", t0 = 0, dur = 40.32, pool = 7009,
     -- energize: mana the client's regen API does not report, MEASURED off this
-    -- log's own mana lines rather than assumed. Over the 40.27s window the
+    -- log's own mana lines rather than assumed. Over the 40.26s window the
     -- player gained 2072 mana while continuously inside the five-second rule;
-    -- GetManaRegen's casting rate accounts for 1141 of it (19 ticks of ~57,
-    -- 27.2/s against the reported 28.33/s). The remaining 931 arrives as two
-    -- clean periodic streams the API is blind to -- exactly 17 every 2.00s
-    -- (8.45/s) and bursts of 13-15 on a ~3s cycle (8.37/s), plus merges --
-    -- most likely Blessing of Wisdom from the party's paladin and a second
-    -- source not yet identified. 931 / 40.27 = 23.1 mana/s = 116 mp5.
-    -- This is the same class of thing Dreamstate was in v0.5: a periodic
+    -- GetManaRegen's casting rate accounts for 1140 of it. The remaining 931
+    -- (23.1 mana/s = 116 mp5) arrives as TWO streams, decomposed out of the log
+    -- on 2026-09-06, and they are NOT the same kind of thing as each other:
+    --
+    --   * exactly 17 every 2.00s -- 20 ticks, 340 mana, 8.45/s = 42 mp5. Over
+    --     the whole 28-minute log this stream fires 497 times, always 17,
+    --     always 2.00s apart, in combat and out of it alike (380 / 117, the
+    --     same split as the time). It is a property of the CHARACTER: the mp5
+    --     bucket (gear, an idol, or a paladin's Blessing of Wisdom -- all of
+    --     them MOD_POWER_REGEN), which lands on the server's 2s mana tick and
+    --     which GetManaRegen does not report.
+    --
+    --   * 13-15 at a time, ~591 mana here (14.7/s): 445 in clean events plus
+    --     the rest inside UNIT_POWER updates that merged with a spirit tick
+    --     (+47, +71, +76). Across the log 373 of its 378 events are in combat
+    --     (combat is 57% of the log's time) and 55% of them have a partner
+    --     exactly 3.00s later, against a 9% baseline at 3.5 / 4 / 5s -- a
+    --     3-SECOND periodic party energize, one to four phases overlapping.
+    --     Per pull it yields between 0.0 and 17.6 mana/s and is exactly ZERO
+    --     in two of the log's 30 pulls. It is a property of the GROUP and the
+    --     pull, not of the character. The author recalls a shadow priest in
+    --     the party, and 5% of a shadow DoT ticking every 3s is precisely this
+    --     signature (Vampiric Touch); the log records no classes, so that is
+    --     corroboration, not proof, and VT is a level-70 spell.
+    --
+    -- 23.1 below is the SUM of the two over this one pull. DO NOT generalise
+    -- it: roughly a third of it is the character and the rest was the group.
+    -- This is the same class of thing Dreamstate was in v0.5 -- a periodic
     -- energize, not a regen stat. It is recorded here so the replay validates
     -- the ENGINE (5SR handling, per-cast deduction, curve shape) instead of
     -- re-measuring a rate the fixture already knows. See docs/TESTING.md 16.
@@ -45,6 +66,11 @@ MD.SimFixtures.BF1 = {
                     { target = 1, spellID = 33763, stacks = 1, remaining = 4.0 },  -- Lifebloom
                     { target = 1, spellID = 9858,  stacks = 1, remaining = 9.0 },  -- Regrowth HoT
                 } },
+    -- roster: the log records NAMES only -- no classes and no roles. The class
+    -- and role columns below were carried over from a mockup table in
+    -- docs/DESIGN-v0.6.md and are UNVERIFIED; the author recalls a shadow
+    -- priest in this party, so at least one of them is wrong. Nothing in the
+    -- engine reads them; they exist to make the replay output readable.
     roster = {
         { name = "Destroyka",  class = "WARRIOR", role = "TANK" },
         { name = "Penek",      class = "DRUID",   role = "HEALER" },

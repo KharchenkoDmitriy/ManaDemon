@@ -493,15 +493,44 @@ outside the game). Each is a correction from evidence, not a preference.
    gave 2.8%.
 
 **The BF-1 fixture carries ~23 mana/s of energize `GetManaRegen` never reports.** Measured
-from the log's own mana lines: over 40.27 s continuously inside the five-second rule the
-player gained 2072 mana; the reported casting rate accounts for 1141 (19 ticks of ~57, i.e.
-27.2/s against a reported 28.33/s). The remaining 931 arrives as two clean periodic streams —
-**exactly 17 every 2.00 s** (8.45/s) and **bursts of 13-15 on a ~3 s cycle** (8.37/s) — plus
-merges of the two. That is 116 mp5 the model is blind to. The party had a paladin, and
-Blessing of Wisdom is a periodic energize rather than a regen stat, so it would be invisible
-to the API exactly like drinking is; the second stream is not identified. **This is the same
-shape of finding as Dreamstate in v0.5 and it gets the same treatment: it is not added to
-`RM:Unreported()` on a guess.** `docs/TESTING.md` §16 is the in-game test that settles it.
+from the log's own mana lines: over 40.26 s continuously inside the five-second rule the
+player gained 2072 mana; the reported casting rate accounts for 1140. The remaining 931
+(116 mp5) arrives as two clean periodic streams — **exactly 17 every 2.00 s** and **13-15 on
+a 3.00 s cycle** — plus updates where the two merged. **This is the same shape of finding as
+Dreamstate in v0.5 and it gets the same treatment: it is not added to `RM:Unreported()` on a
+guess.** `docs/TESTING.md` §16 is the in-game test that settles it.
+
+### The two streams are different kinds of thing (2026-09-06)
+
+Taking the *whole* 28-minute log apart, rather than the one pull, separated them, and the
+distinction is a design constraint rather than trivia:
+
+| | cadence | in / out of combat | per-pull yield | what it is |
+|---|---|---|---|---|
+| **A** — 17 | exactly 2.00 s, **497 times, never a different value** | 380 / 117, the same split as the time | constant | a property of the **character**: the mp5 bucket (gear, an idol, or Blessing of Wisdom — all `MOD_POWER_REGEN`, all landing on the server's 2 s tick) |
+| **B** — 13-15 | **3.00 s**: 55% of its 378 events have a partner exactly 3.00 s later, against a 9% baseline at 3.5 / 4 / 5 s; one to four phases overlap | **373 of 378 in combat**, though combat is 57% of the log | **0.0 to 17.6 mana/s**, and exactly **zero in two of the thirty pulls** | a property of the **group and the pull**: a party-wide periodic energize |
+
+The author recalls a **shadow priest** in that party, and 5% of a shadow DoT ticking every
+3 s is exactly B's signature (Vampiric Touch). The log records no classes, so this is
+corroboration rather than proof — and Vampiric Touch is a level-70 spell, which is the one
+thing that does not fit. Either way the ruling does not depend on naming the spell:
+
+- **A may eventually enter the model**, as Dreamstate did, and only by the same route: an
+  in-game `/md regentest` that shows the constant on its 2 s beat next to the spirit tick,
+  cross-checked against the character sheet's mp5. It is a number about *you*.
+- **B must never enter the model.** It is not yours, it is not present in every group, and it
+  is *zero* in two of the thirty pulls in the one log we have. A healer's clock that assumes
+  a shadow priest is wrong on the pull where it matters. The only correct treatment is the
+  one the recorder already gives it: measure it per fight, replay what was measured.
+
+This is also why `Data/SimFixture_BF1.lua` no longer presents 23.1 mana/s as one number with
+one cause, and why the fixture's roster classes are now marked unverified — the log records
+names only, and the classes in it had been carried over from a mockup table in
+`docs/DESIGN-v0.6.md`.
+
+`/md regentest` gained a **tick histogram** (size x count, median spacing) for exactly this:
+a size is *what* a source gives, a cadence is *which* source it is. Reading it off a chat
+line beats hand-decomposing a 400 KB log.
 
 Consequently `/md simreplay fixture` reports three numbers rather than one pass/fail: `spend`
 (must be exact), `modelled` (the fit `GetManaRegen` alone can produce — mean 6.3%, max 12.1%

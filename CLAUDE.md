@@ -57,7 +57,7 @@ Load order is defined by `ManaDemon.toc` and matters — later files assume earl
 | `UI/Summary.lua` | Fight tracking, combat-log overheal, history ring, **own-cast capture (`MD.Recorder`) and the plan-free cast labels** (SPEC-v0.7 §2) |
 | `Integrations/ElvUIDatatext.lua` | `DT:RegisterDatatext` glue; only active when ElvUI is installed (`## OptionalDeps: ElvUI`) |
 | `Verify.lua` | `MD:Snapshot()` (every model input, shared), `/md verify` (static data vs live client), `/md profile` (snapshot + costs + clock + settings into the copy popup), `/md fsrtest`, `/md regentest`, `/md spamtest` |
-| `tools/` | **Offline harness** — `tools/run.sh <script>` builds a real Lua 5.1 into `tools/.lua` (gitignored) and runs a script against this checkout; `tools/wowstub.lua` fakes just enough client API for the non-UI files to load; `tools/harness.lua` loads them and returns `MD`; `tools/simcheck.lua` runs `/md simrun` + `/md simreplay fixture` (`--curve` prints the mana curve next to the log's); `tools/reccheck.lua` drives a whole fake pull (party of five, damage, own casts, a foreign heal, a death) through the real combat-log handler and asserts the recorded stream, the labels and the summary row. Not shipped: `release.sh` builds from the `.toc`'s file list |
+| `tools/` | **Offline harness** — `tools/run.sh <script>` builds a real Lua 5.1 into `tools/.lua` (gitignored) and runs a script against this checkout; `tools/wowstub.lua` fakes just enough client API for the non-UI files to load; `tools/harness.lua` loads them and returns `MD`; `tools/simcheck.lua` runs `/md simrun` + `/md simreplay fixture` (`--curve` prints the mana curve next to the log's); `tools/reccheck.lua` drives a whole fake pull (party of five, damage, own casts, a foreign heal, a death) through the real combat-log handler and asserts the recorded stream, the labels and the summary row; `tools/regencheck.lua` drives `/md regentest` against a scripted mana stream shaped like the BF-1 log and asserts its tick histogram (the spirit tick, a 2 s beat converted to mp5, four overlapping 3 s phases clustered into one row). Not shipped: `release.sh` builds from the `.toc`'s file list |
 | `release.sh` / `Makefile` | `make release` builds from the main checkout or any git worktree (interactive menu, or `SRC=<name>`) into the **top-level** `dist/<name>/ManaDemon/` + versioned zip, from the `.toc`'s own file list (dev files excluded by construction). `make install WOW_ADDONS=<AddOns dir>` also copies it into the game. `dist/` is gitignored |
 
 Every file starts with `local _, MD = ...` to pull the shared addon table. `MD.db` is account-wide settings, `MD.cdb` is per-character.
@@ -84,8 +84,8 @@ There is no build system. A change is "verified" when:
 2. the file is listed in `ManaDemon.toc` in a position consistent with what it reads from `MD`, and
 3. **for anything the engine or the recorder touches, both harnesses still pass**:
    `tools/run.sh tools/simcheck.lua` (ten self-tests over `Engine/SimModel.lua` plus the BF-1
-   fixture replay) and `tools/run.sh tools/reccheck.lua` (a scripted pull end to end, 20
-   assertions). They run the real files under a stub client, so they catch ordering and
+   fixture replay), `tools/run.sh tools/reccheck.lua` (a scripted pull end to end, 34
+   assertions) and, for the regen diagnostics, `tools/run.sh tools/regencheck.lua`. They run the real files under a stub client, so they catch ordering and
    arithmetic bugs a syntax check cannot — between them they have already found the engine's
    sample-ordering bug and a roster-index ordering bug in the recorder. This is the closest
    thing the repo has to a test suite; keep `tools/harness.lua`'s file list in step with the

@@ -249,31 +249,57 @@ Also: history now keeps **200** fights instead of 20, and a fight with fewer tha
 own casts is no longer recorded at all. After a dungeon night, `/md export` should list
 many more fights than before.
 
-## 16. Where does 116 mp5 come from? (5 min in a party, v0.7.1) — NEW, and the most interesting
+## 16. The 116 mp5 the regen API does not report (5 min, v0.7.1) — NEW, and the most interesting
 Replaying the BF-1 hard pull through the new engine turned up something the model does not
 know about. Over those 40 seconds, continuously inside the five-second rule, you gained
-**2072 mana**. `GetManaRegen` accounts for 1141 of it. The other **931 (23 mana/s, 116 mp5)**
-arrives as two clean periodic streams in your own log: **exactly 17 every 2.00 s**, and
-**bursts of 13-15 on a ~3 s cycle**. Neither is Dreamstate (you have no points in it — the
-log's regen lines carry no Dreamstate suffix).
+**2072 mana**. `GetManaRegen` accounts for 1140 of it. The other **931 (23 mana/s, 116 mp5)**
+is real, and taking the whole log apart on 2026-09-06 showed it is **two different things**:
 
-The strong suspect is **Blessing of Wisdom** from the party's paladin: a periodic energize, so
-`GetManaRegen` is blind to it exactly as it is to drinking. The ~3 s stream is unidentified.
+| | cadence | size | where it appears | what it is |
+|---|---|---|---|---|
+| **A** | exactly **2.00 s**, 497 times, never varying | **17** (8.45/s = **42 mp5**) | in combat *and* out of it, all 28 minutes | a property of **your character**: the mp5 bucket — gear, an idol, or a paladin's Blessing of Wisdom |
+| **B** | **3.00 s** (55% of its events have a partner exactly 3.00 s later; the baseline at 3.5/4/5 s is 9%), one to four phases overlapping | 13–15 each, ~14.7/s here | **373 of 378 events in combat**, and **0.0 to 17.6 mana/s** depending on the pull — exactly zero in two of the thirty | a property of **the group**: a party-wide periodic energize |
 
-Nothing is being added to the model on a guess. What settles it:
+Stream B is very likely the **shadow priest** — 5% of a shadow DoT that ticks every 3 s is
+precisely this shape (Vampiric Touch), and you remember one being in the party. The log
+records no classes, so that is corroboration rather than proof, and Vampiric Touch is a
+level-70 spell.
 
-1. **Solo, out of group, no buffs.** `/md regentest 30` standing still. Then again while
-   chain-casting (`/md fsrtest`). Note the tick sizes in the Mana category.
-2. **Same character, in a party with a paladin, Blessing of Wisdom on you.** Repeat both.
-   Copy the log. If the +17-every-2 s stream appears only in step 2, it is the blessing and
-   the model gets a "buffs that energize" term.
-3. If a stream shows up in step 1 as well, paste the log anyway — that is something on your
-   own character and it is worth 116 mp5, which is more than most gear upgrades.
+Neither is Dreamstate (no points in it). **Nothing is being added to the model on a guess** —
+and note that A and B want opposite treatment: A is a constant of your character that the
+clock could add once it is confirmed, while B is *not yours* and must never be modelled, only
+measured per fight by the recorder.
+
+What settles it, in this order:
+
+1. **Solo, out of a group, no buffs, out of combat.** `/md regentest 30` standing still. The
+   report now prints a **tick histogram** that does this decomposition for you — every gain
+   size (clustered within ±1) with its count and its beat:
+
+   ```
+   regentest: tick histogram (size x count, cadence) -
+         138 x 14   the reported spirit tick
+          17 x 14   a 2s beat - 43 mp5 the API does not report
+       13-15 x 36   a 3s beat - a party energize, not yours
+   ```
+
+   Solo, you should see the spirit tick and possibly one 2 s line. If a 2 s line appears, that
+   is stream A and it is **yours** — check the mp5 it prints against the mp5 on your character
+   sheet. If only the spirit tick appears, A is a buff rather than your gear, and step 2 says
+   which.
+2. **Same character, in a party with a paladin, Blessing of Wisdom on you.** Repeat. If A
+   only appears here, it is the blessing.
+3. **In a dungeon with a shadow priest, then one without.** Stream B should appear and vanish
+   with them. This is the cheap version of the test; `/md export` on two recorded fights is
+   the thorough one.
+
+Copy the log either way. If a stream shows up in step 1 it is worth 116 mp5 on your own
+character, which is more than most gear upgrades.
 
 Also, for reference: `/md simrun` should print **10 tests, all ok**, and `/md simreplay
 fixture` should print `spend ... (exact)` and a `measured ... -> PASS` line. Those two run
-anywhere, including at the character select screen's login, and are worth doing once after
-this update just to confirm nothing about your talents breaks the engine.
+anywhere, including right after login, and are worth doing once after this update just to
+confirm nothing about your talents breaks the engine.
 
 ## 17. Fight recording (one dungeon, v0.7.2) — NEW
 Nothing to do but play. After a few pulls, `/md export` should carry `# recording 1` ..
