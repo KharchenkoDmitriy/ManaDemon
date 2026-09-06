@@ -106,7 +106,7 @@ function GetItemCount() return 0 end
 function GetItemCooldown() return 0, 0 end
 function GetContainerNumSlots() return 0 end
 function GetContainerItemID() return nil end
-function CreateFont() return { SetFont = function() end, SetTextColor = function() end } end
+_G.STANDARD_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 function collectgarbage_count() return collectgarbage("count") end
 
 S.spellNames = setmetatable({}, { __index = function(_, k) return "Spell" .. tostring(k) end })
@@ -114,7 +114,7 @@ S.known = {}
 
 _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) print(m) end }
 _G.SlashCmdList = {}
-_G.UIParent = nil
+_G.UIParent = nil   -- set to a frame once CreateFrame exists (below)
 _G.C_Timer = {
     After = function(_, fn) S.timers = S.timers or {}; table.insert(S.timers, fn) end,
     NewTicker = function(period, fn)
@@ -130,21 +130,79 @@ local frames = {}
 local FrameMT = {}
 FrameMT.__index = FrameMT
 local function noop() end
-setmetatable(FrameMT, { __index = function() return noop end })
+-- Unknown METHODS are no-ops (WoW's are UpperCamelCase); unknown lowercase
+-- keys are plain nil so a frame can carry state fields like any table.
+setmetatable(FrameMT, { __index = function(_, k)
+    if type(k) == "string" and k:match("^%u") then return noop end
+    return nil
+end })
 function FrameMT:RegisterEvent(e) self.events[e] = true end
 function FrameMT:UnregisterEvent(e) self.events[e] = nil end
 function FrameMT:SetScript(k, fn) self.scripts[k] = fn end
 function FrameMT:GetScript(k) return self.scripts[k] end
-function FrameMT:IsShown() return false end
-function FrameMT:IsVisible() return false end
-function FrameMT:GetWidth() return 100 end
-function FrameMT:GetHeight() return 20 end
+function FrameMT:IsShown() return self.shown == true end
+function FrameMT:IsVisible() return self.shown == true end
+function FrameMT:Show() self.shown = true end
+function FrameMT:Hide() self.shown = false end
+function FrameMT:SetSize(w, h) self.w, self.h = w, h end
+function FrameMT:SetWidth(w) self.w = w end
+function FrameMT:SetHeight(h) self.h = h end
+function FrameMT:GetWidth() return self.w or 100 end
+function FrameMT:GetHeight() return self.h or 20 end
+function FrameMT:GetPoint() return "CENTER", nil, "CENTER", 0, 0 end
+function FrameMT:GetFrameLevel() return 1 end
+function FrameMT:GetScale() return 1 end
+function FrameMT:GetEffectiveScale() return 1 end
+function FrameMT:GetAlpha() return 1 end
+function FrameMT:GetLeft() return 0 end
+function FrameMT:GetRight() return self.w or 100 end
+function FrameMT:GetTop() return self.h or 20 end
+function FrameMT:GetBottom() return 0 end
+-- Enough of a widget for the UI files to load and paint: font strings and
+-- textures are frames too (every unknown method is a no-op), text and values
+-- are stored so a harness can read back what was painted.
+local function Child(kind)
+    return setmetatable({ events = {}, scripts = {}, kind = kind }, FrameMT)
+end
+function FrameMT:CreateFontString() return Child("FontString") end
+function FrameMT:CreateTexture() return Child("Texture") end
+function FrameMT:GetFontString() self.fs = self.fs or Child("FontString"); return self.fs end
+function FrameMT:SetText(t) self.text = t end
+function FrameMT:GetText() return self.text or "" end
+function FrameMT:GetStringWidth() return 40 end
+function FrameMT:SetValue(v) self.value = v end
+function FrameMT:GetValue() return self.value or 0 end
+function FrameMT:SetMinMaxValues(a, b) self.minV, self.maxV = a, b end
+function FrameMT:SetChecked(v) self.checked = v and true or false end
+function FrameMT:GetChecked() return self.checked == true end
+function FrameMT:SetColorTexture(r, g, b, a) self.color = { r, g, b, a } end
+function FrameMT:SetBackdropBorderColor(r, g, b, a) self.border = { r, g, b, a } end
+function FrameMT:SetStatusBarColor(r, g, b) self.barColor = { r, g, b } end
+function FrameMT:SetTextColor(r, g, b) self.textColor = { r, g, b } end
+_G.strtrim = function(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
+_G.tinsert = table.insert
+_G.UISpecialFrames = {}
+_G.PlaySound = noop
+-- font objects are frames too; GetFont is the one call the kit makes at load
+function FrameMT:GetFont() return "font", 12, "" end
+function CreateFont() return Child("Font") end
+_G.GameFontNormal = CreateFont()
+_G.GameFontNormalSmall = CreateFont()
+_G.GameFontHighlightSmall = CreateFont()
+_G.RAID_CLASS_COLORS = {
+    WARRIOR = { r = 0.78, g = 0.61, b = 0.43 }, DRUID = { r = 1, g = 0.49, b = 0.04 },
+    MAGE = { r = 0.41, g = 0.8, b = 0.94 }, WARLOCK = { r = 0.58, g = 0.51, b = 0.79 },
+    PALADIN = { r = 0.96, g = 0.55, b = 0.73 }, PRIEST = { r = 1, g = 1, b = 1 },
+}
 
 function CreateFrame(kind, name, parent, tmpl)
     local f = setmetatable({ events = {}, scripts = {}, kind = kind }, FrameMT)
     frames[#frames + 1] = f
     return f
 end
+
+_G.UIParent = CreateFrame("Frame")
+_G.GameTooltip = CreateFrame("GameTooltip")
 
 function S.Fire(event, ...)
     for _, f in ipairs(frames) do

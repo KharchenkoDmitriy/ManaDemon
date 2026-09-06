@@ -120,8 +120,9 @@ ticks. Spec: **`docs/SPEC-v0.8.md`**; the three calls are in `docs/DECISIONS.md`
 
 - [x] **v0.8.0** the trace (`opts.trace` on `SM:Run`), `Engine/ReplayTrace.lua`, `SP.Replay`,
   `tools/replaycheck.lua`. *(shipped; 27 assertions offline, nothing to see in-game yet)*
-- [ ] **v0.8.1** `UI/ReplayWindow.lua` — frames, healer strip, damage pulses, cast flashes,
-  snapshot ticks, scrubber; `/md replay [n]`; Play on the Review row.
+- [x] **v0.8.1** `UI/ReplayWindow.lua` — frames, healer strip, damage pulses, cast flashes,
+  snapshot ticks, scrubber; `/md replay [n]`; Play on the Review row. *(shipped; painted
+  offline by `tools/replayui.lua`, the look itself is TESTING §23)*
 - [ ] **v0.8.2** HoT indicators; per-cast labels at the moment of the cast; the right column's
   waits.
 - [ ] **v0.8.3** recorder: defensive cooldowns (whitelist) and debuffs on tracked targets;

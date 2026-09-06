@@ -1147,3 +1147,39 @@ full-health target `fine` when the plan wanted a Lifebloom on the anchor at that
 v0.7.4 order says "same family, different target" before "target above 85%", which reads
 wrong here; it is unchanged pending real pulls (the card's counts have not been seen in-game
 yet), and the per-cast labels in the window will make it visible when it matters.
+
+## 2026-09-06 — v0.8.1: the replay window
+
+`UI/ReplayWindow.lua`: `/md replay [n]`, and **Play** on the Review row next to Coach. One
+window, two columns of unit frames on one clock — ACTUAL on the left (the recorded casts
+through the engine), SUGGESTED on the right (the plan Coach cached in `SP.plans`; without one
+the window is a single narrower column and the hint says why). Per frame: role letter, name in
+class colour, HP bar with the percentage, `dead` in grey. A cast flashes the target's border in
+the family colour and prints `Regrowth R9` above the bar for a second; a foreign heal flashes
+white; recorded damage washes the bar red in proportion to the hit — identical on both sides,
+because the damage is. The recorder's real 5 s snapshots are **white ticks on the left bars**,
+fading until the next one: the health gate's number, seen. The healer strip carries the mana
+bar, the cast bar filling over the cast time (the right column shows `waiting 1.2s` while the
+plan holds), and the running `spent / lowest / dead` line, which at the end equals the card.
+A scrubber with markers (deaths red, big hits orange, the left column's casts as faint ticks),
+play / pause, 1× 2× 4×, the clock. Position and speed persist (`db.replayPos`,
+`db.replaySpeed`); the ticks can be hidden (`db.replayTicks`).
+
+The file only paints. Every fact comes from `Engine/ReplayTrace.lua`; both states advance the
+same `dt` from one `OnUpdate`; a seek clears every short-lived effect, because those belong to
+events crossed while playing. No interpolation, no opening in combat, no search from Play.
+
+**The window has an offline test**, the first UI file to get one: `tools/replayui.lua` loads
+`UI/Style.lua`, `UI/Tooltip.lua` and the window under the stub — whose frames now store
+text, values and colours, and whose no-op fallback is restricted to UpperCamelCase method
+names so a frame can carry state fields — opens the scripted pull, plays it to the end one
+0.1 s frame at a time, seeks, and reads back what was painted: five rows tank-first, the cast
+text appearing on the tank, the pulse on the mage, the warlock reading `dead`, the strip's
+`spent` equal to the recording's, no bare pipe in any painted string, the tick drawn on the
+left and never on the right, the markers, the single-column path, the refusal in combat.
+23 assertions. Three stub gaps surfaced on the way (fonts without `GetFont`, frames without
+`GetFrameLevel`, and the fallback-eats-fields one); none were window bugs, all are the kind
+that would have been a nil error on the first press of Play in-game.
+
+Six suites green: simcheck 10, reccheck 34, simwindow 8, regencheck 8, replaycheck 27,
+replayui 23. What only the game can answer is TESTING §23 — whether it *reads* at 1×.

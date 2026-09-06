@@ -415,6 +415,27 @@ after this update is the usual `/md simrun` (10 tests, all ok) and `/md coach 1`
 recorded fight, because `Plan:Decide` now returns a third value and Coach caches its plan
 for the window — both are invisible if they work and loud if they do not.
 
+## 23. The replay window (v0.8.1) — one recorded pull, 5 min
+Review tab → select a recorded fight → **Play** (or `/md replay 1`). Two columns if you have
+pressed Coach on that fight, one if not — the header says which and why.
+
+1. **Press play at 1×.** A Healing Touch is a *jump*; a Rejuvenation is four steps 3 s apart;
+   Lifebloom ticks every second. Nothing glides. If a bar slides smoothly, that is a bug.
+2. **The white tick on the left bars** is the recorder's real HP snapshot, fading over the 5 s
+   until the next one. It should sit *inside* the bar's reconstruction most of the time; when
+   it does not, note the target and the time — that is the health gate's number, seen.
+3. **Scrub.** Drag back and forth; the frames must follow instantly and nothing must flash
+   during a drag (flashes belong to events *crossed while playing*).
+4. **4× to the end.** The strip's `spent` must equal the summary line's for that fight; a death
+   greys the frame at the right moment and the scrubber shows it red.
+5. **The right column** (after Coach): its damage pulses land at the same instants as the
+   left's — the same red flashes, different green — and `waiting 1.2s` shows while the plan
+   holds. Its `spent` should be below the left's; if it is not, the card said so too.
+6. Close, reopen with `/md replay 2` (an older fight, no Coach yet): a single narrower column.
+
+Report: the fight number, anything that glided, any tick that sat outside its bar for more
+than one snapshot, and whether the window felt readable at 1× — that is the design question.
+
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
 raw numbers. `/md profile` output is welcome with any report. I turn them into

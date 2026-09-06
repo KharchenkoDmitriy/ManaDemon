@@ -82,10 +82,15 @@ function MD.DashboardParts.CreateReview(parent, width)
         "Pinned fights are never replaced (at most two).")
     local exportBtn = UI.CreateButton(pane, "Export", "accent-hover", { 60, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL, "Copy every recording as text", "Same as /md export.")
+    local playBtn = UI.CreateButton(pane, "Play", "accent-hover", { 48, 18 }, false, false,
+        UI.FONT_SMALL, UI.FONT_SMALL, "Play this fight as unit frames",
+        "What you did on the left; what Coach suggested on the right.",
+        "Press Coach first for the right column. Any class can play the left one.")
 
     exportBtn:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", -12, 40)
     pinBtn:SetPoint("RIGHT", exportBtn, "LEFT", -4, 0)
-    coachBtn:SetPoint("RIGHT", pinBtn, "LEFT", -4, 0)
+    playBtn:SetPoint("RIGHT", pinBtn, "LEFT", -4, 0)
+    coachBtn:SetPoint("RIGHT", playBtn, "LEFT", -4, 0)
     validateBtn:SetPoint("RIGHT", coachBtn, "LEFT", -4, 0)
 
     local function Selected()
@@ -117,6 +122,10 @@ function MD.DashboardParts.CreateReview(parent, width)
         api:Render()
     end)
     exportBtn:SetScript("OnClick", function() if MD.RunExport then MD:RunExport() end end)
+    -- runtime lookup: UI/ReplayWindow.lua loads after this file
+    playBtn:SetScript("OnClick", function()
+        if MD.Replay then MD.Replay:Open(selected) end
+    end)
 
     local function AcquireRow()
         local row = table.remove(rowPool)
@@ -268,6 +277,7 @@ function MD.DashboardParts.CreateReview(parent, width)
         local function Set(btn, on) if on then btn:Enable() else btn:Disable() end end
         Set(pinBtn, rec ~= nil)
         Set(validateBtn, rec ~= nil)
+        Set(playBtn, rec ~= nil and MD.Replay ~= nil)
         Set(exportBtn, #list > 0)
         Set(coachBtn, rec ~= nil and MD.player.isDruid and not (v and not v.ok))
         coachBtn:SetScript("OnEnter", function(self)

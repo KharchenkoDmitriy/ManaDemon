@@ -43,6 +43,8 @@ local DEFAULTS = {
     simGateHpMax = 0.15,      -- worst single health snapshot
     simForeignShare = 0.25,   -- above this share of foreign healing, replay is fiction
     simAllowRebinds = false,  -- let the search change which RANKS you bind, not just the thresholds
+    replaySpeed = 1,          -- the replay window's last playback speed (1, 2 or 4)
+    replayTicks = true,       -- draw the recorder's real HP snapshots over the left bars
     simBigHit = 0.15,         -- a single hit worth this much of a target's max health is a "big hit"
                               -- when a preset is derived from recordings (v0.7.7)
     simUtilityPerFight = nil, -- derived: median utility mana per fight, applied as a lump in
@@ -334,6 +336,7 @@ MD.COMMANDS = {
     { "/md simreplay [n]", "replay recorded fight n (or the BF-1 fixture) and score it against the log" },
     { "/md coach [n]",    "search for a better plan on recorded fight n and show the card (cancel stops it)" },
     { "/md sim",          "simulation window: build a fight and find the cheapest plan that holds it" },
+    { "/md replay [n]",   "play recorded fight n as unit frames: what you did, and what Coach suggested" },
     { "/md debug",        "toggle the debug console (enable logging there, Copy to export)" },
 }
 
@@ -406,6 +409,8 @@ SlashCmdList.MANADEMON = function(msg)
         if MD.RunCoach then MD:RunCoach(arg) end
     elseif cmd == "sim" then
         if MD.ToggleSimWindow then MD:ToggleSimWindow() end
+    elseif cmd == "replay" then
+        if MD.ToggleReplay then MD:ToggleReplay(arg) end
     elseif cmd == "debug" then
         if MD.ToggleDebugConsole then MD:ToggleDebugConsole() end
     else
