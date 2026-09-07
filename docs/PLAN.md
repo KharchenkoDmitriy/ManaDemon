@@ -207,6 +207,9 @@ enabled indicators are foresight: **aggro** and **an enemy cast with a named tar
   `Anchor` prefers a target that has threat.
 - [ ] **v0.12.2** the replay draws the Targeted Spells icon and the aggro border, in the author's
   own positions, on both columns.
+- [ ] **v0.12.3** why it cast that, there, then: a reason record from `Plan:Decide` with the
+  numbers that made the rule fire, the same treatment for the classifier's labels on the recorded
+  casts, rendered in the replay, on the card and in the import tool.
 
 ## Phase 2 — other classes (after 1 is green)
 

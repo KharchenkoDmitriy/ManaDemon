@@ -773,8 +773,15 @@ local function PaintStrip(s, st, pool, now)
         s.why = nil
     end
 
+    -- spent, floor, deaths -- and (v0.11.14) how much of the healing landed and
+    -- how much mana came back, which is what comparing two strategies needs:
+    -- cheap is only cheap if it was not thrown away.
     local spent, lowest, deaths = st:Score()
-    s.score:SetText(string.format("spent %s   lowest %d%%   %s", K(spent), lowest * 100 + 0.5,
+    local oh = st:Overheal()
+    s.score:SetText(string.format("spent %s   regen %s   overheal %s   lowest %d%%   %s",
+        K(spent), K(st:Regen()),
+        oh and string.format("%d%%", oh * 100 + 0.5) or "-",
+        lowest * 100 + 0.5,
         deaths > 0 and string.format("|cffff5555%d dead|r", deaths) or "0 dead"))
 end
 

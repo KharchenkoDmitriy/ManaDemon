@@ -333,3 +333,30 @@ end
 function State:Score()
     return self.spent, self.lowest, self.deaths, self.casts
 end
+
+-- v0.11.14: how well the healing landed, and how much mana came back, as of t.
+-- Both are read off the same grid as the mana curve, so they cost the state
+-- machine nothing and they answer the question a strategy comparison actually
+-- asks: cheap is only cheap if it was not wasted.
+--
+-- Overheal is a SHARE of gross healing (the convention everywhere else in this
+-- addon); nil until something has been healed, because 0% of nothing is a
+-- statement about nothing.
+function State:Overheal()
+    local k = GridIndex(self, self.t)
+    local h = (self.trace.healed and self.trace.healed[k]) or 0
+    local o = (self.trace.overhealed and self.trace.overhealed[k]) or 0
+    local total = h + o
+    if total <= 0 then return nil, 0, 0 end
+    return o / total, h, o
+end
+
+-- Mana that came back: what is in the pool now, less what was there at the
+-- pull, plus everything spent since. Regen the client reports, the regen it
+-- does not, and any energize the recording carried, without separating them --
+-- the replay is about what happened, not about attribution.
+function State:Regen()
+    local k = GridIndex(self, self.t)
+    local now = self.trace.mana[k] or 0
+    return now - (self.trace.mana0 or self.trace.mana[1] or now) + self.spent
+end

@@ -2278,3 +2278,37 @@ setting of the health gate — and **Least mana got cheaper doing it**, 3644 aga
 author was right that the pair was strictly worse: the same coverage for 117 mana less.
 
 replaycheck 71 → 72, replayui 66 → 68.
+
+## 2026-09-07 — v0.11.14: overheal and regen in the replay, and v0.12 re-scoped
+
+"I would like to see overheal % and mana regenerated overall in the replay, so I can estimate
+strategy efficiency." Both are on the score line of each column now, beside spent and the floor:
+
+```
+spent 2.2k   regen 467   overheal 4%   lowest 44%   0 dead
+```
+
+The trace samples cumulative healing and overhealing on the same grid as the mana curve (two more
+columns; the budget check already shrinks `dt` to fit), so `State:Overheal` and `State:Regen` cost
+the state machine nothing and move with the clock like everything else. Regen is what came *back*
+— the pool now, less the pool at the pull, plus everything spent — rather than what is in the
+pool, because that is the number that separates two strategies. Overheal is a share of gross
+healing, the convention everywhere else in the addon, and it reads `-` rather than `0%` until
+something has actually been healed.
+
+**And `docs/SPEC-v0.12.md` changed its rule.** The author: "you can keep the indicators that I
+switched off. If there is an option to see it, then technically I could see it — if it is
+switched off it means I prefer clarity, or maybe I do see those in another way." So the line is
+what Cell *can* display, not what is displayed today; the on/off column stays as a record,
+because it makes the explanations useful in the other direction — a card that reasons from
+something they are not showing is a finding about their UI.
+
+The spec gained **§6, why it cast that, there, then**: `Plan:Decide` returns a reason record with
+the numbers that made the rule fire (deficit, incoming rate, healing in flight, the room, what
+the spell heals, its rate per mana), rendered as a sentence under the cast in both columns —
+including for a *wait*, which is a decision. The classifier's labels on the recorded casts get
+the same treatment: not `overheal` but "target was at 92%, 1194 of 1592 wasted". With one rule
+about what a reason may be: the inputs the rule read, in the author's units, never a
+justification written afterwards and never a fact `Decide` was not given.
+
+replayui 68 → 72.

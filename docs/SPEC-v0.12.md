@@ -13,8 +13,23 @@ and, on how to decide what counts as "indicated":
 > "You can take a look at all the indication Cell does, and my settings, to understand what I am
 > actually able to see."
 
-So the rule for this version is not a judgement call. **The plan may know what the author's own
-unit frames tell them, and nothing else.** Their Cell layout is the specification.
+and then, on the indicators they have switched off:
+
+> "You can keep the indicators that I switched off. If there is an option to see it, then
+> technically I could see it — if it is switched off it means I prefer clarity, or maybe I do see
+> those in another way. Even so I would like an explanation on each coach cast on why it cast
+> exactly this spell, on that target, at that moment (and ideally why casts from the recording
+> were inefficient), so if I catch from the coach that I am missing some information because of a
+> switched-off Cell option, even better."
+
+So the rule for this version is not a judgement call, and it is not the *current* state of a
+checkbox either. **The plan may know what a healer using this UI could see** — anything Cell is
+able to display, whether or not it is displayed today. An indicator that is off is a preference
+about clarity, not a limit on what is knowable, and the author reads some of it elsewhere anyway.
+
+That cuts the other way too, and it is the better half of the deal: when the coach explains a
+decision with something the author is not currently showing, **that is a finding about their UI**,
+not a cheat. The explanation lines in §6 are what turn it into one.
 
 Read first: `Engine/SimPlanner.lua`'s causality block, `Engine/SimModel.lua` (`SM.SeenDamage`,
 `RecentDamage`, `ScenarioFromRecording`), `Engine/FightRecorder.lua`, `docs/DECISIONS.md` §v0.7.
@@ -37,14 +52,17 @@ Enabled indicators, and what each one is driven by:
 | Dispels, Debuffs (`raidDebuffs`) | yes | debuffs | no — recorded since v0.8.3 |
 | AoE Healing | yes | how many are hurt nearby | no — derivable from health |
 | Missing Buffs, Actions | yes | buffs | no |
-| Power Text, Health Thresholds, Combat Icon, Target Counter, Aggro (blink), Target Raid Icon | **off** | — | not available to this author |
+| Power Text | off | party mana | **usable** — a healer can read another healer's mana |
+| Health Thresholds | off | health | usable, and derivable from health anyway |
+| Target Counter | off | how many mobs on a unit | **usable** — the count Cell can show |
+| Combat Icon, Aggro (blink), Target Raid Icon, Party Assignment | off | present-tense state | usable; nothing new over what is above |
 
 Two of those are foresight, and only two: **aggro** and **an enemy cast with a named target**.
 Everything else is the present, and most of it the recorder already keeps.
 
-`Target Counter` and `Health Thresholds` are **off**, so the plan may not use "how many mobs are
-on this target" or a coloured threshold line. That is the point of reading the settings rather
-than the feature list.
+The off/on column is kept as a record of what the author sees *today*, because §6's explanations
+name it: a card that says "the tank had two mobs on him" when Target Counter is switched off is
+telling them something their frames are not.
 
 ## 2. What the plan may therefore know
 
@@ -111,7 +129,70 @@ offset `-4, 4`, one icon, `showAllSpells = false`), and the **aggro border** in 
 (2 px). Both from the recorded events, both on the left column *and* the right, because both
 columns are watching the same fight.
 
-## 6. Harness
+## 6. v0.12.3 — why it cast that, there, then
+
+> "I would like an explanation on each coach cast on why it cast exactly this spell, on that
+> target, at that moment — and ideally why casts from the recording were inefficient."
+
+Today the suggested column can say **which rule** fired (`SP.RULE_NAMES`, on hover) and the left
+column carries the classifier's one-word label. Neither says *why now*, and a rule name is not a
+reason: "the HoT that fits the deficit" does not tell you that the deficit was 1.2k, that 350 a
+second was coming in, and that all 1357 of a Lifebloom would therefore land.
+
+### 6.1 The numbers that made the rule fire
+
+`Plan:Decide` returns a third value already (the rule). It gains a fourth: a small **reason
+record**, reused per decision so the search allocates nothing:
+
+```lua
+{ rule = 4, deficit = 1204, rate = 351, pending = 0, room = 3661, heal = 1357,
+  hpm = 6.17, waitedFor = nil, threat = 2, incoming = { spellID = ..., at = 41.2 } }
+```
+
+The trace stores it beside the cast (the `why` slot becomes an index into a per-run reason list).
+The window renders it as a sentence under the cast bar and in the hover:
+
+```
+Lifebloom on Penek at 32.4s
+  1.2k missing, 350/s coming in -> all 1357 lands, none wasted
+  6.17 healing per mana, the best this plan can buy
+```
+
+and for a wait, which is a decision too:
+
+```
+waiting at 28.0s -- 620 missing, 74/s coming in; a Lifebloom would waste 737
+```
+
+### 6.2 Why *your* cast was inefficient
+
+The classifier already labels every recorded cast (`overheal`, `early`, `rank`, `spell`, `stack`,
+`late`, `idle`). Each label gains the same treatment — the numbers behind it, from the recording:
+
+```
+Rejuvenation on Penek at 44.1s -- overheal
+  target was at 92% (410 missing), the tick alone is 398: 1194 of 1592 wasted
+Regrowth on Destroyka at 51.0s -- rank
+  R9 healed 2702 into a 900 deficit; R6 would have covered it for 218 less mana
+```
+
+The label stays one word so the strip is readable; the sentence is the hover and the card.
+
+### 6.3 Where they appear
+
+- **The replay window**: under the cast in the strip, on both columns, for the cast that is
+  landing; and in the hover for any cast marker on the scrubber.
+- **The card**: a `why` section listing the plan's first divergence from the recording with both
+  sentences side by side, which is the comparison the author keeps making by hand.
+- **`tools/import.lua replay N`**: the same sentences, one per line, offline.
+
+### 6.4 What it must not become
+
+A reason is the inputs the rule read, in the units the author reads. It is **not** a
+justification written after the fact, it may not cite anything `Decide` did not see (§2), and a
+rule that fired on a number nobody can name is a rule that should not exist.
+
+## 7. Harness
 
 - `reccheck`: a scripted enemy cast on a tracked target is recorded with its landing time and its
   spell; a cast aimed at an untracked unit is not.
@@ -120,13 +201,14 @@ columns are watching the same fight.
   cast bar may not change anything before it. That pair is the whole of this version's ethics in
   two assertions.
 - `replayui`: the targeted-spell icon appears for the seconds the cast was in the air, on both
-  columns.
+  columns, and every cast in either column has a reason sentence carrying at least one number.
+- `replaycheck`: a reason never cites a fact the plan was not given -- the reason record's fields
+  are a subset of what `Decide` received, asserted field by field.
 
-## 7. Rejected
+## 8. Rejected
 
-- **Any indicator the author has switched off.** Target Counter, Health Thresholds, Aggro blink,
-  Combat Icon, Power Text and the target's raid icon are not on their screen, so the plan does not
-  get them. If they turn one on, that is a new version and a new line in §1.
+- **Anything Cell cannot show at all.** That is the line, not the checkbox: an option that exists
+  is knowable, an option that does not exist is not.
 - **Boss timers and encounter journals.** Not in Cell, not on their screen, and a dungeon trash
   pull has none.
 - **Predicting a swing.** A melee swing has no cast bar. The damage rate already carries it.

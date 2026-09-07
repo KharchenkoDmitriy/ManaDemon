@@ -284,9 +284,14 @@ function SM:Run(scenario, plan, opts)
     local trace, gridDt, gridN, gridI = nil, 0, 0, 1
     if opts.trace then
         gridDt = opts.trace.dt or 0.25
-        while (nT + 2) * (dur / gridDt + 1) > SM.TRACE_MAX_NUMBERS do gridDt = gridDt * 2 end
+        while (nT + 4) * (dur / gridDt + 1) > SM.TRACE_MAX_NUMBERS do gridDt = gridDt * 2 end
         gridN = math.floor(dur / gridDt + 1e-9) + 1
+        -- v0.11.14: healing and overhealing on the same grid, so the replay can
+        -- show a RUNNING overheal share and the mana regenerated so far. Two
+        -- arrays; the budget check above counts nT + 2 columns and these make
+        -- it nT + 4, which the same loop already shrinks dt to fit.
         trace = { dt = gridDt, n = gridN, dur = dur, nT = nT, mana = {}, form = {}, hp = {},
+                  healed = {}, overhealed = {}, mana0 = mana,
                   ev = { t = {}, kind = {}, tgt = {}, a = {}, b = {}, why = {} }, nEv = 0 }
         for i = 1, nT do if S.tracked[i] then trace.hp[i] = {} end end
         if gridDt ~= (opts.trace.dt or 0.25) then
@@ -307,6 +312,7 @@ function SM:Run(scenario, plan, opts)
         local k = gridI
         trace.mana[k] = mana
         trace.form[k] = (form == "tree") and 1 or 0
+        trace.healed[k], trace.overhealed[k] = healed, overhealed
         for i = 1, nT do
             local c = trace.hp[i]
             if c then c[k] = S.dead[i] and 0 or (S.hp[i] / S.maxHP[i]) end

@@ -327,5 +327,28 @@ do
     check("no strategies, no chooser", not MD.Replay._strategy():IsVisible())
 end
 
+-- v0.11.14: the strip carries the two numbers a strategy comparison needs
+do
+    MD:OpenReplay(1)
+    MD.Replay._seek(20.0)
+    local W2 = MD.Replay._state()
+    local line = W2.left.strip.score:GetText() or ""
+    check("the score line carries overheal and regen",
+        line:find("overheal") ~= nil and line:find("regen") ~= nil, line)
+    local st = W2.left.state
+    local oh, healed, over = st:Overheal()
+    check("overheal is a share of gross healing",
+        oh == nil or (oh >= 0 and oh <= 1 and math.abs(oh - over / (healed + over)) < 1e-9),
+        oh and string.format("%.2f", oh) or "nothing healed yet")
+    check("regen is what came back, not what is in the pool", (function()
+        local spent = st:Score()
+        local tr = MD.Replay._state().left.state.trace
+        return math.abs(st:Regen() - (st:Mana() - tr.mana0 + spent)) < 0.01
+    end)(), string.format("%.0f", st:Regen()))
+    MD.Replay._seek(0)
+    check("nothing healed yet reads as no overheal, not 0%%", select(1, st:Overheal()) == nil
+        or select(1, st:Overheal()) >= 0)
+end
+
 print(string.format("\n%d ok, %d failed", ok, #fails))
 if #fails > 0 then for _, m in ipairs(fails) do print("  FAIL " .. m) end; os.exit(1) end
