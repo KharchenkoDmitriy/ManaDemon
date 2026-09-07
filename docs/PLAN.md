@@ -167,9 +167,10 @@ Spec: **`docs/SPEC-v0.10.md`**; the calls in `docs/DECISIONS.md` §v0.10.
   costs), `MD:ClassifyCast`, the learned `cdb.spellbook`, per-stream spell names.
 - [ ] **v0.10.1** fixed points: non-healing casts happen in the suggested column at the same time
   and cost; `spend coverage` counts what the engine reproduces, not what the healing kit prices.
-- [ ] **v0.10.3** the deficit you still owe (health missing at the end priced as mana), the danger
-  line measured from the fight's biggest hit instead of a flat 30%, rule 4 able to bind Lifebloom,
-  and eating time in the run chain.
+- [x] **v0.10.0** the deficit you still owe (health missing at the end priced as mana), the danger
+  line measured from the fight's biggest hit instead of a flat 30%, and rule 4 casting the HoT
+  whose whole heal fits the deficit. *(2026-09-07; shipped first because it is what the author
+  kept seeing. Eating time in the run chain is still to do.)*
 - [ ] **v0.10.2** what the damage casts cost: their mana plus the regen lost to the five-second
   rule they restarted, measured as the difference between two runs.
 

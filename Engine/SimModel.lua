@@ -141,6 +141,7 @@ local function NewSlot()
         busy = false,
         heap = HeapNew(),
         nT = 0, hp = {}, maxHP = {}, dead = {}, tracked = {}, role = {},
+        danger = {},      -- [target] = the health fraction one recorded hit would take them through
         hots = {},        -- [target][hotIndex] = state table (reused)
         cd = {},          -- spellID -> time it is ready again
         dmg = {},         -- [target] = { t = {}, a = {}, head = 0 } circular, DMG_RING wide
@@ -224,6 +225,14 @@ function SM:Run(scenario, plan, opts)
             S.dead[i] = false
             S.tracked[i] = tg.tracked ~= false
             S.role[i] = tg.role
+            -- v0.10.3: "in danger" is ONE HIT FROM DEATH, measured. A flat 30%
+            -- means the same thing to a quest mob hitting for 7% of your health
+            -- and to a boss hitting for a third of the tank's. The line is the
+            -- biggest hit this target actually took in this fight (p90 when
+            -- there are enough of them to have an outlier), times
+            -- db.simDangerHits. A synthetic scenario has no recorded damage and
+            -- keeps the flat floor.
+            S.danger[i] = tg.danger or floor
             local row = S.hots[i]
             if row then for fi = 1, 3 do local st = row[fi]; if st then st.active = false end end end
             local ring = S.dmg[i]
@@ -483,7 +492,7 @@ function SM:Run(scenario, plan, opts)
             local span = nt - from
             if span > 0 then
                 for i = 1, nT do
-                    if S.tracked[i] and not S.dead[i] and (S.hp[i] / S.maxHP[i]) < floor then
+                    if S.tracked[i] and not S.dead[i] and (S.hp[i] / S.maxHP[i]) < (S.danger[i] or floor) then
                         floorSeconds = floorSeconds + span
                     end
                 end
@@ -738,6 +747,35 @@ function SM:Run(scenario, plan, opts)
     r.hpCurve = S.hpCurve
     S.lowest.tgt, S.lowest.hp, S.lowest.t = lowestTgt, lowestHp, lowestHpT
     r.lowest = S.lowest
+    -- v0.10.3: the health the fight ENDS with, as a deficit. Health missing at
+    -- the end is not a saving, it is mana that has not been spent yet -- the
+    -- healer will put it back before the next pull or carry the risk into it.
+    -- Counted only up to `fullAt` (a target at 85% is not hurt), and only for
+    -- the living: a corpse is the deaths term's business. HoTs still rolling
+    -- are healing already paid for, so their remaining ticks (and Lifebloom's
+    -- bloom) come off the deficit before it is measured.
+    local fullAt = scenario.fullHp or (MD.db and MD.db.simFullHp) or 0.85
+    local endDeficit = 0
+    for i = 1, nT do
+        if S.tracked[i] and not S.dead[i] and S.maxHP[i] > 0 then
+            local pending = 0
+            local row = S.hots[i]
+            if row then
+                for fi, st in pairs(row) do
+                    if st.active then
+                        pending = pending + (st.ticksLeft or 0) * (st.tick or 0) * (st.stacks or 1)
+                        if fi == HOT_INDEX.Lifebloom then pending = pending + (st.bloom or 0) end
+                    end
+                end
+            end
+            local hp = S.hp[i] + pending
+            if hp > S.maxHP[i] then hp = S.maxHP[i] end
+            local want = S.maxHP[i] * fullAt
+            if hp < want then endDeficit = endDeficit + (want - hp) end
+        end
+    end
+    r.endDeficit = endDeficit
+
     r.waitFraction = dur > 0 and (waitTime / dur) or 0
     r.maxWaitRun, r.maxWaitAt = maxWaitRun, maxWaitAt
     r.evals = 1
@@ -818,6 +856,24 @@ function SM.ScenarioFromRecording(rec, kit)
     local trackedSet = {}
     for _, idx in ipairs(rec.tracked or {}) do trackedSet[idx] = true end
 
+    -- the biggest hit each target took, which is what "one hit from death"
+    -- means for them in this fight. The MAXIMUM, not a percentile: that hit
+    -- happened, and one more like it takes them from the line to the floor.
+    -- A percentile would quietly discard exactly the tail the line is about.
+    local hits = {}
+    do
+        local ev, K2 = rec.ev or {}, SM.K
+        for i = 1, (rec.n or 0) do
+            if ev.kind[i] == K2.DMG then
+                local ti = ev.tgt[i]
+                hits[ti] = hits[ti] or {}
+                hits[ti][#hits[ti] + 1] = ev.amt[i] or 0
+            end
+        end
+        for _, list in pairs(hits) do table.sort(list) end
+    end
+    local dangerHits = (MD.db and MD.db.simDangerHits) or 1
+
     local hp = rec.hp or {}
     local targets = {}
     for i = 1, #roster do
@@ -826,7 +882,13 @@ function SM.ScenarioFromRecording(rec, kit)
         if hp.max and hp.max[i] and hp.max[i][1] and hp.max[i][1] > 0 then maxHP = hp.max[i][1] end
         if hp.hp and hp.hp[i] and hp.hp[i][1] and hp.hp[i][1] >= 0 then hp0 = hp.hp[i][1] end
         if maxHP <= 0 then maxHP = 1 end
+        local list = hits[i]
+        local danger
+        if list and #list > 0 and maxHP > 0 then
+            danger = math.min(1, (list[#list] * dangerHits) / maxHP)
+        end
         targets[i] = { name = roster[i].name, role = roster[i].role, maxHP = maxHP,
+                       danger = danger,
                        hp0 = hp0 >= 0 and hp0 or maxHP,
                        -- a target with no health readings cannot be scored, and
                        -- pretending otherwise would count a flat line as a pass

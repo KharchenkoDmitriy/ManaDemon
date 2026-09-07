@@ -36,6 +36,9 @@ SP.PARAM_ORDER = { "swiftmendBelow", "directBelow", "rollStacks", "hotBelow", "f
 -- table carries no heal values for it, so no plan may spend the player's mana
 -- on a number nobody has measured (spec 13 also rules it out of v0.7 planning).
 SP.BINDABLE = { "Lifebloom", "Rejuvenation", "Regrowth", "HealingTouch", "Swiftmend" }
+-- The families rule 4 may reach for. Regrowth is a direct heal with a tail and
+-- belongs to rule 2; Swiftmend consumes a HoT rather than applying one.
+SP.HOT_RULE = { "Lifebloom", "Rejuvenation" }
 
 --------------------------------------------------------------------------------
 -- Binds: which rank of which family the plan uses. Fixed by default to the
@@ -210,12 +213,41 @@ function Plan:Decide(S, t, mana, form)
         end
     end
 
-    -- 4. Rejuvenation on anyone hurt who does not already have one.
-    local rj = self.binds.Rejuvenation
-    local rjE = affordable(rj)
-    if rjE then
-        local i = Neediest(self, S, t, self.hotBelow, true, HOT_INDEX.Rejuvenation)
-        if i then return rj, i, 4 end
+    -- 4. A HoT on whoever is hurt -- the one that FITS. Casting a 1592
+    --    Rejuvenation into a 600 deficit throws two thirds of it away; the same
+    --    mana spent when the deficit has grown into the spell heals the same
+    --    amount and wastes none of it. So: of the bound HoTs not already on the
+    --    target, take the best heal per mana whose whole value will land, where
+    --    "will land" counts the deficit now PLUS the damage this target is
+    --    taking, over the HoT's own duration. Trailing-5s damage is the only
+    --    future the causality invariant allows, and it is the right one here.
+    --
+    --    On this author's gear that is Lifebloom at 6.17 health per mana
+    --    against Rejuvenation's 4.72 -- but only if it is left to bloom, which
+    --    is exactly what "the whole value lands" means (v0.10.3).
+    do
+        local i = Neediest(self, S, t, self.hotBelow)
+        if i then
+            local deficit = (S.maxHP[i] or 0) - (S.hp[i] or 0)
+            local rate = SM.RecentDamage(S, i, t, 5) / 5
+            local pick, pickE, pickHPM
+            for _, fam in ipairs(SP.HOT_RULE) do
+                local id = self.binds[fam]
+                local e = affordable(id)
+                local fi = HOT_INDEX[fam]
+                local st = fi and S.hots[i] and S.hots[i][fi]
+                if e and not (st and st.active) then
+                    local heal = (e.direct or 0) + (e.tick or 0) * (e.ticks or 0) + (e.bloom or 0)
+                    local horizon = e.duration or ((e.ticks or 0) * (e.tickPeriod or 3))
+                    local room = deficit + rate * horizon
+                    local hpm = heal / (e.cost or 1)
+                    if heal > 0 and heal <= room and (not pick or hpm > pickHPM) then
+                        pick, pickE, pickHPM = id, e, hpm
+                    end
+                end
+            end
+            if pick then return pick, i, 4 end
+        end
     end
 
     -- 5. Filler, or wait.
@@ -230,7 +262,7 @@ end
 -- One line per rule, for the replay window's "why" (docs/SPEC-v0.8.md 4.3).
 SP.RULE_NAMES = {
     "Swiftmend on a big hit", "direct heal, a HoT would be late",
-    "keep Lifebloom rolling on the anchor", "Rejuvenation on anyone hurt", "filler",
+    "keep Lifebloom rolling on the anchor", "the HoT that fits the deficit", "filler",
 }
 
 function Plan:BindCount()
@@ -245,12 +277,46 @@ end
 -- Nothing is blended into a scalar. A plan that lets somebody die is not
 -- redeemed by saving mana, and no weight can be chosen that says otherwise.
 --------------------------------------------------------------------------------
+-- The cheapest healing this plan can buy, in health per mana. Used to price a
+-- deficit the plan leaves behind: what it WOULD cost to put that health back,
+-- at the best rate the plan itself has available. A lower bound on the debt,
+-- which is the conservative direction for a term that penalises.
+function SP.BestHPM(plan)
+    if not (plan and plan.kit) then return nil end
+    local kit = plan.kit.caster or {}
+    local best
+    for _, fam in ipairs(SP.BINDABLE) do
+        local e = plan.binds[fam] and kit[plan.binds[fam]]
+        if e and (e.cost or 0) > 0 then
+            local heal = (e.direct or 0) + (e.tick or 0) * (e.ticks or 0) + (e.bloom or 0)
+            local hpm = heal / e.cost
+            if heal > 0 and (not best or hpm > best) then best = hpm end
+        end
+    end
+    return best
+end
+
+-- What the plan still owes: the health it left missing, priced in mana.
+function SP.ManaOwed(result, plan)
+    local d = result and result.endDeficit or 0
+    if d <= 0 then return 0 end
+    local hpm = SP.BestHPM(plan)
+    if not hpm or hpm <= 0 then return 0 end
+    return d / hpm
+end
+
 function SP.Score(result, plan, heldOn)
     local oh = 0
     local total = (result.healed or 0) + (result.overhealed or 0)
     if total > 0 then oh = result.overhealed / total end
+    -- v0.10.3: mana spent PLUS the mana the plan still owes for the health it
+    -- left missing. Without this the cheapest plan that clears the danger line
+    -- wins, which on a light fight means barely healing at all -- 674 mana and
+    -- a healer sitting at 45% scored better than 3.1k and 93%. Nothing is
+    -- earned above `db.simFullHp`, so no plan is pushed into overheal.
+    local mana = (result.manaSpent or 0) + SP.ManaOwed(result, plan)
     return { result.deaths and result.deaths.n or 0, result.floorSeconds or 0,
-             result.manaSpent or 0, -(heldOn or 0), plan and plan:BindCount() or 0, oh }
+             mana, -(heldOn or 0), plan and plan:BindCount() or 0, oh }
 end
 
 function SP.Better(a, b)
@@ -479,25 +545,46 @@ function SP.Card(rec, best, bestResult, replayResult, baselineResults, cls, vali
     if best.rollStacks > 0 and best.binds.Lifebloom then
         add("  3. Keep Lifebloom x%d rolling on the tank", best.rollStacks)
     end
-    if best.binds.Rejuvenation then
-        add("  4. Anyone under %d%% without Rejuvenation: %s",
-            best.hotBelow * 100 + 0.5, RankLabel(best.binds.Rejuvenation))
+    do
+        local names = {}
+        for _, fam in ipairs(SP.HOT_RULE) do
+            if best.binds[fam] then names[#names + 1] = RankLabel(best.binds[fam]) end
+        end
+        if #names > 0 then
+            add("  4. Anyone under %d%%: the HoT whose whole heal fits the deficit (%s)",
+                best.hotBelow * 100 + 0.5, table.concat(names, " or "))
+        end
     end
     add("  5. Otherwise %s - %d%% of the fight%s",
         best.filler and "Lifebloom on the tank" or "wait",
         (bestResult.waitFraction or 0) * 100 + 0.5,
         bestResult.maxWaitRun and string.format(", longest gap %.0fs", bestResult.maxWaitRun) or "")
 
-    local function row(name, res, extra)
-        add("  %-12s %7s   lowest %3d%%%s", name, Fmt(res.manaSpent),
-            (res.lowest and res.lowest.hp or 1) * 100 + 0.5, extra or "")
+    local function row(name, res, extra, plan)
+        local owed = plan and SP.ManaOwed(res, plan) or 0
+        add("  %-12s %7s   lowest %3d%%%s%s", name, Fmt(res.manaSpent),
+            (res.lowest and res.lowest.hp or 1) * 100 + 0.5,
+            owed >= 25 and string.format("   + %s still owed", Fmt(owed)) or "", extra or "")
     end
     row("you", replayResult, string.format("   overheal %d%%",
         (replayResult.healed + replayResult.overhealed) > 0
             and replayResult.overhealed / (replayResult.healed + replayResult.overhealed) * 100 or 0))
     for _, b in ipairs(baselineResults or {}) do row(b.name, b.result) end
     row("best", bestResult, best.heldOn and string.format("   held on %d of %d",
-        best.heldOn, best.heldOf or 0) or "")
+        best.heldOn, best.heldOf or 0) or "", best)
+
+    -- what "in danger" meant in this fight: one hit from death, measured
+    if rec then
+        local worst, who = nil, nil
+        for _, tg in ipairs((SM.ScenarioFromRecording(rec, kit) or {}).targets or {}) do
+            if tg.tracked and tg.danger and (not worst or tg.danger > worst) then worst, who = tg.danger, tg.name end
+        end
+        if worst then
+            add("  danger line: %d%% of health on %s - the biggest hit they took. Seconds below it are",
+                worst * 100 + 0.5, who or "?")
+            add("  what a plan is scored on first, ahead of mana.")
+        end
+    end
 
     -- what the casts were, plan-relative
     local order = { "overheal", "early", "rank", "spell", "stack", "late", "unclassified" }
@@ -648,7 +735,8 @@ function SP.Coach(rec, opts)
         local snap = { manaSpent = r.manaSpent, healed = r.healed, overhealed = r.overhealed,
                        lowestMana = r.lowestMana, lowest = { hp = r.lowest.hp },
                        floorSeconds = r.floorSeconds, deaths = { n = r.deaths.n },
-                       waitFraction = r.waitFraction, maxWaitRun = r.maxWaitRun }
+                       waitFraction = r.waitFraction, maxWaitRun = r.maxWaitRun,
+                       endDeficit = r.endDeficit }
         results[#results + 1] = { name = c.name, result = snap }
         local score = SP.Score(snap, c.plan, 0)
         if SP.Better(score, bestScore) then best, bestScore, bestResult = c.plan, score, snap end
@@ -686,7 +774,8 @@ local function Snap(r)
     return { manaSpent = r.manaSpent, healed = r.healed, overhealed = r.overhealed,
              lowestMana = r.lowestMana, lowest = { hp = r.lowest.hp, tgt = r.lowest.tgt, t = r.lowest.t },
              floorSeconds = r.floorSeconds, deaths = { n = r.deaths.n },
-             waitFraction = r.waitFraction, maxWaitRun = r.maxWaitRun }
+             waitFraction = r.waitFraction, maxWaitRun = r.maxWaitRun,
+             endDeficit = r.endDeficit }
 end
 
 function SP.Replay(rec, opts)
@@ -806,7 +895,7 @@ function SP.Search(scenario, opts, onProgress, onDone)
                        lowestMana = r.lowestMana, lowest = { hp = r.lowest.hp },
                        floorSeconds = r.floorSeconds, deaths = { n = r.deaths.n },
                        waitFraction = r.waitFraction, maxWaitRun = r.maxWaitRun,
-                       aborted = r.aborted }
+                       aborted = r.aborted, endDeficit = r.endDeficit }
         local score = snap.aborted and nil or SP.Score(snap, plan, 0)
         local out = { plan = plan, result = snap, score = score, params = params }
         seen[key] = out

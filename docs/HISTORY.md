@@ -1824,3 +1824,42 @@ button and the ElvUI datatexts keep theirs", and both of those files carry a com
 are deliberately not gated by it: a clock is something you park and stop looking at, a minimap
 button and a datatext are things you go to on purpose.
 
+
+## 2026-09-07 — v0.10.0: the deficit is a debt, and the HoT that fits
+
+The author, on a third screenshot of the same thing: "Still coach casts Rejuvenation and keeps
+half HP. In my vision the better approach would be to cast Lifebloom when it is about a 1.1k
+deficit, so when it blooms the full 1356 heal lands with no overheal — HP as high as possible
+at minimal mana cost and no overheal." Three changes, all from `docs/SPEC-v0.10.md` §6b, shipped
+ahead of the fixed-points work because this is what they kept seeing.
+
+**The deficit is a debt.** Health missing at the end of a fight is not a saving, it is mana that
+has not been spent yet. `SM:Run` reports `endDeficit` (measured to `db.simFullHp`, for the
+living, with HoTs still rolling counted as healing already paid for), and `SP.Score`'s mana term
+becomes `manaSpent + manaOwed`, the deficit priced at the best heal-per-mana the plan has bound.
+Nothing is earned above the full line, so no plan is pushed into overheal to satisfy it. Without
+this term the cheapest plan that clears the danger line wins, which on a light fight means barely
+healing: 674 mana and a healer at 45% beat 3.1k and 93%.
+
+**The danger line is measured.** `floorSeconds` counted seconds under a flat 30%, which says the
+same thing about a quest mob hitting for 7% of your health and a boss hitting for a third of the
+tank's. It is now the biggest hit that target actually took in that fight, times
+`db.simDangerHits` (1 = one more hit kills). The maximum, not a percentile: that hit happened,
+and a percentile discards exactly the tail the line is about. `db.simFloor` stays as the fallback
+for synthetic scenarios, which have no recorded damage. The card prints the line it used.
+
+**Rule 4 casts the HoT that fits.** It was hard-coded to Rejuvenation. It now takes the bound
+HoT with the best heal per mana **whose whole value will land** — the deficit now, plus the
+damage this target is taking over the HoT's own duration, which is the trailing-5s window the
+causality invariant already allows. That is the author's rule exactly, and on their gear it picks
+Lifebloom (6.17 health per mana with the bloom) over Rejuvenation (4.72). Re-coaching their
+74 s Hellfire fight now opens `32s Lifebloom, 33s Rejuvenation` where it used to cast
+Rejuvenation alone, and the card's rule line says so instead of naming Rejuvenation.
+
+On that fight the plan still ends at 49% and that is now *explained* rather than assumed: the
+biggest hit they took was 371 of 5053 health, so the danger line is 7% and 49% is six hits of
+headroom. The card says which line it used and on whom.
+
+`replaycheck` 33 → 43: the line is the biggest hit and only for targets that were hit; the run
+reports its end deficit; the deficit prices at the plan's best rate; the score's ordering flips
+when the debt is charged and does not when there is none; nothing above the full line is a debt.

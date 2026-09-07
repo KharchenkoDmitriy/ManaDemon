@@ -30,7 +30,13 @@ local DEFAULTS = {
     simFullHp = 0.85,     -- a target at or above this fraction of health counts as "full" for the
                           -- cast labels and the replay engine (docs/SPEC-v0.7.md §2.2)
     simFloor = 0.30,      -- below this fraction of health a tracked target is "in danger": the
-                          -- seconds spent there are what a plan is scored on first
+                          -- seconds spent there are what a plan is scored on first. Used for
+                          -- SYNTHETIC scenarios only since v0.10.3 -- a recording measures its
+                          -- own line (see simDangerHits)
+    simDangerHits = 1,    -- "in danger" is this many of the biggest hits the target actually took
+                          -- in that fight away from death. 1 = one more hit kills. A flat 30% says
+                          -- the same thing about a quest mob hitting for 7% and a boss hitting for
+                          -- a third of the tank, which is why it stopped being the line
     simReaction = 0.5,    -- seconds a simulated healer takes to start casting after idling.
                           -- Only after a wait: BF-1's inter-cast gaps (p10/p25 1.50/1.52s) show
                           -- chained casts go out at the GCD with no delay at all

@@ -317,6 +317,73 @@ do
 end
 
 --------------------------------------------------------------------------------
+-- 9c. v0.10.3: the deficit a plan leaves behind is priced, the danger line is
+-- measured, and the HoT rule takes the one that fits.
+--------------------------------------------------------------------------------
+do
+    -- the danger line comes from the fight's own biggest hit, not db.simFloor
+    local sc2 = SM.ScenarioFromRecording(rec, kit)
+    local tank, biggest = nil, 0
+    for i = 1, (rec.n or 0) do
+        if rec.ev.kind[i] == K.DMG and (rec.ev.amt[i] or 0) > biggest then
+            biggest, tank = rec.ev.amt[i], rec.ev.tgt[i]
+        end
+    end
+    local tg = sc2.targets[tank]
+    check("the danger line is the biggest hit taken",
+        tg and tg.danger and math.abs(tg.danger - biggest / tg.maxHP) < 1e-6,
+        tg and string.format("%.3f vs %.3f", tg.danger or -1, biggest / (tg.maxHP or 1)) or "no target")
+    check("a target nobody hit has no line of its own", (function()
+        for i, t2 in ipairs(sc2.targets) do
+            if i ~= tank and t2.danger == nil then return true end
+        end
+        return false
+    end)())
+
+    -- health left missing at the end is priced in mana, and nothing is earned
+    -- above db.simFullHp
+    local r2 = SM:Run(sc2, nil, { critMode = "ev" })
+    check("the run reports the deficit it ends with", r2.endDeficit ~= nil and r2.endDeficit >= 0,
+        tostring(r2.endDeficit))
+    local hpm = SP.BestHPM(plan)
+    check("the plan can price it", hpm and hpm > 0, tostring(hpm))
+    local owed = SP.ManaOwed({ endDeficit = 1000 }, plan)
+    check("owed mana is the deficit at the best rate the plan has",
+        math.abs(owed - 1000 / hpm) < 1e-6, string.format("%.1f", owed))
+    check("no deficit, nothing owed", SP.ManaOwed({ endDeficit = 0 }, plan) == 0)
+
+    -- the score charges for it
+    -- 674 mana and a 4000 deficit owes 4000/hpm on top, which is more than the
+    -- 1100 a plan spent to end whole: the cheaper-looking plan loses
+    local cheapButHurt = { deaths = { n = 0 }, floorSeconds = 0, manaSpent = 674, endDeficit = 4000,
+                           healed = 1, overhealed = 0 }
+    local dearerButWhole = { deaths = { n = 0 }, floorSeconds = 0, manaSpent = 1100, endDeficit = 0,
+                             healed = 1, overhealed = 0 }
+    check("a plan that leaves you hurt is charged for it",
+        SP.Better(SP.Score(dearerButWhole, plan, 0), SP.Score(cheapButHurt, plan, 0)),
+        string.format("674 + %.0f owed vs 1100 + 0", 4000 / hpm))
+    -- and without the debt the same pair orders the other way, which is the
+    -- behaviour this term exists to change
+    local blind = { deaths = { n = 0 }, floorSeconds = 0, manaSpent = 674, endDeficit = 0,
+                    healed = 1, overhealed = 0 }
+    check("without a deficit the cheap plan still wins, as it should",
+        SP.Better(SP.Score(blind, plan, 0), SP.Score(dearerButWhole, plan, 0)))
+    -- Nothing is earned above db.simFullHp, so no plan is pushed into overheal
+    -- to satisfy the term. A bare scenario, because the scripted pull lands a
+    -- 5000 hit at t = 0 and would be measuring the damage, not the rule.
+    local function quiet(frac)
+        return { dur = 1, pool = 7000, initial = { mana = 7000 }, kit = kit, floor = 0.30,
+                 targets = { { name = "T", maxHP = 10000, hp0 = 10000 * frac, tracked = true } } }
+    end
+    check("health above the full line is not a debt",
+        (SM:Run(quiet(0.90), nil, { critMode = "ev" }).endDeficit or -1) == 0)
+    check("health below it is, measured to the line and no further", (function()
+        local d = SM:Run(quiet(0.50), nil, { critMode = "ev" }).endDeficit or -1
+        return math.abs(d - (0.85 - 0.50) * 10000) < 1
+    end)(), tostring(SM:Run(quiet(0.50), nil, { critMode = "ev" }).endDeficit))
+end
+
+--------------------------------------------------------------------------------
 -- 9. no trace unless asked
 --------------------------------------------------------------------------------
 local plain = SM:Run(rp.scenario, nil, { critMode = "ev" })
