@@ -2216,3 +2216,39 @@ therefore no chooser at all.
 replayui 60 → 66: it is one control, the list holds a row per strategy, it says which is active,
 the list opens on click and closes on choose, and choosing still swaps the plan without moving
 the clock.
+
+## 2026-09-07 — v0.11.12: three of the four strategies were reading nothing
+
+The author: "it again cast a bloom at ~50% HP and then cast Rejuvenation right after. It looks
+like it treats HoTs like direct heals — hold long, then cast one, and as a HoT does not heal
+immediately, cast another. But healing with HoTs is a proactive play: at a 1.2k deficit with 350+
+incoming, it is already time for one Lifebloom with 0% overheal."
+
+Reproduced exactly, and it had two causes.
+
+**The damage a rule reads was only the trailing five seconds**, which falls to zero between
+swings on a mob that hits every few seconds. Nothing "fits" until the deficit alone is the size
+of the spell, which is precisely "hold long, then cast". `SM.SeenDamage` adds what the target has
+taken *since it was first hit* — applied events only, so the causality invariant holds — and rule
+4 now reads whichever of the two is busier. A healer does not forget the last thirty seconds.
+`hotBelow` also gained `1.00` to its search domain: whether a HoT is worth casting is the fit
+rule's question, not a health threshold's.
+
+**And the strategies were a lie.** `deficitArea` and `manaEnd` never made it into the search's
+snapshots, so three of the four objectives read `nil`, ranked every plan equal on their own axis,
+and collapsed onto the cheapest plan. Four rows on the card with one strategy behind them — which
+is why they always agreed, and why the author's proactive play was never on offer. With the
+fields carried through, the same fight now splits properly:
+
+```
+Safest = Highest health     6.1k mana   floor 93%   ends whole
+Least mana = Most mana left 3.8k mana   floor 44%   owes 4
+```
+
+The proactive plan the author is describing is what **Highest health** picks: Lifebloom kept
+rolling from the first second, never below 93%. The reactive one — wait, cast at 58%, add a
+Rejuvenation at 51% — is what **Least mana** picks, and it is not wrong for what it optimises.
+The chooser in the replay window is how you look at both.
+
+`replaycheck` 70 → 71, with the regression pinned: every field an objective reads must survive
+into the search's snapshots.

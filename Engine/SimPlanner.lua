@@ -36,7 +36,9 @@ SP.DOMAINS = {
     swiftmendBelow = { 0.30, 0.40 },
     directBelow    = { 0.35, 0.45, 0.55 },
     rollStacks     = { 0, 1, 3 },
-    hotBelow       = { 0.60, 0.80, 0.90 },
+    -- 1.00 = no health gate at all: whether a HoT is worth casting is the fit
+    -- rule's question (does the whole heal land), not a threshold's
+    hotBelow       = { 0.60, 0.80, 0.90, 1.00 },
     filler         = { false, true },   -- wait, or Lifebloom x1 on the tank
 }
 SP.PARAM_ORDER = { "swiftmendBelow", "directBelow", "rollStacks", "hotBelow", "filler" }
@@ -238,7 +240,15 @@ function Plan:Decide(S, t, mana, form)
         local i = Neediest(self, S, t, self.hotBelow)
         if i then
             local deficit = (S.maxHP[i] or 0) - (S.hp[i] or 0)
-            local rate = SM.RecentDamage(S, i, t, 5) / 5
+            -- What a healer expects to arrive: the busier of the last five
+            -- seconds and the whole fight so far. Reading only the trailing
+            -- window makes HoTs REACTIVE -- it falls to zero between swings, so
+            -- nothing fits until the deficit alone is the size of the spell,
+            -- which is why the plan sat until 58% and then cast two (the
+            -- author, 2026-09-07). Both numbers are from events already
+            -- applied; neither is a look at the future.
+            local seen = SM.SeenDamage(S, i, t)
+            local rate = math.max(SM.RecentDamage(S, i, t, 5) / 5, seen)
             -- Healing already on its way to this target: the remaining ticks of
             -- every HoT rolling on them, and Lifebloom's bloom. A HoT cast into
             -- healing that is already inbound is the overheal this rule exists
@@ -894,7 +904,8 @@ function SP.Coach(rec, opts)
                        lowestMana = r.lowestMana, lowest = { hp = r.lowest.hp },
                        floorSeconds = r.floorSeconds, deaths = { n = r.deaths.n },
                        waitFraction = r.waitFraction, maxWaitRun = r.maxWaitRun,
-                       endDeficit = r.endDeficit }
+                       endDeficit = r.endDeficit, deficitArea = r.deficitArea,
+                       manaEnd = r.manaEnd }
         results[#results + 1] = { name = c.name, result = snap }
         local score = SP.Score(snap, c.plan, 0)
         if SP.Better(score, bestScore) then best, bestScore, bestResult = c.plan, score, snap end
@@ -934,7 +945,7 @@ local function Snap(r)
              lowestMana = r.lowestMana, lowest = { hp = r.lowest.hp, tgt = r.lowest.tgt, t = r.lowest.t },
              floorSeconds = r.floorSeconds, deaths = { n = r.deaths.n },
              waitFraction = r.waitFraction, maxWaitRun = r.maxWaitRun,
-             endDeficit = r.endDeficit }
+             endDeficit = r.endDeficit, deficitArea = r.deficitArea, manaEnd = r.manaEnd }
 end
 
 function SP.Replay(rec, opts)
@@ -1054,7 +1065,11 @@ function SP.Search(scenario, opts, onProgress, onDone)
                        lowestMana = r.lowestMana, lowest = { hp = r.lowest.hp },
                        floorSeconds = r.floorSeconds, deaths = { n = r.deaths.n },
                        waitFraction = r.waitFraction, maxWaitRun = r.maxWaitRun,
-                       aborted = r.aborted, endDeficit = r.endDeficit }
+                       aborted = r.aborted, endDeficit = r.endDeficit,
+                       -- every field an objective reads must be here, or that
+                       -- objective silently ranks everything equal and collapses
+                       -- onto the default's winner (v0.11.12)
+                       deficitArea = r.deficitArea, manaEnd = r.manaEnd }
         local score = snap.aborted and nil or SP.Score(snap, plan, 0)
         local out = { plan = plan, result = snap, score = score, params = params }
         seen[key] = out

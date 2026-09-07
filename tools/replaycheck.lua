@@ -483,6 +483,17 @@ do
     while not got and frames < 20000 do S.Tick(0.016); frames = frames + 1 end
     check("a real search returns strategies too", got ~= nil and got.cheap ~= nil,
         string.format("%d evaluations in %d frames", evals or -1, frames))
+    -- Every field an objective reads must survive into the search's snapshots.
+    -- deficitArea and manaEnd did not, so three of the four tuples ranked
+    -- everything equal and collapsed onto the cheapest plan -- four rows on the
+    -- card, one strategy behind them (v0.11.12).
+    check("the search's snapshots carry every scored field", (function()
+        for _, w in pairs(got or {}) do
+            if w.result.deficitArea == nil or w.result.manaEnd == nil
+               or w.result.endDeficit == nil then return false end
+        end
+        return true
+    end)())
 end
 
 --------------------------------------------------------------------------------

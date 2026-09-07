@@ -244,7 +244,7 @@ function SM:Run(scenario, plan, opts)
             local ring = S.dmg[i]
             if not ring then ring = { t = {}, a = {}, head = 0 }; S.dmg[i] = ring end
             for j = 1, DMG_RING do ring.t[j], ring.a[j] = -1000, 0 end
-            ring.head = 0
+            ring.head, ring.total, ring.hits, ring.biggest, ring.firstAt = 0, 0, 0, 0, nil
         end
         for k in pairs(S.cd) do S.cd[k] = nil end
     end
@@ -353,6 +353,14 @@ function SM:Run(scenario, plan, opts)
             local head = ring.head % DMG_RING + 1
             ring.head = head
             ring.t[head], ring.a[head] = t, amount
+            -- What this target has taken SO FAR (v0.11.12). The trailing 5s is
+            -- a twitchy number on a mob that swings every few seconds, and a
+            -- healer does not forget the last thirty. Everything here comes from
+            -- events already applied, so the causality invariant holds.
+            ring.total = (ring.total or 0) + amount
+            ring.hits = (ring.hits or 0) + 1
+            if amount > (ring.biggest or 0) then ring.biggest = amount end
+            if not ring.firstAt then ring.firstAt = t end
         end
         local frac = S.hp[ti] / S.maxHP[ti]
         if S.tracked[ti] and frac < lowestHp then lowestTgt, lowestHp, lowestHpT = ti, frac, t end
@@ -855,6 +863,19 @@ end
 
 -- Damage this target took over the trailing `window` seconds, from events the
 -- engine has ALREADY applied. Nothing here can see the future.
+-- The damage this target has taken since it was first hit, as a rate. It is
+-- what a healer has actually watched happen, and it is the number that makes a
+-- HoT proactive: the trailing five seconds go to zero between swings, and a
+-- plan that only reads those waits until somebody is half dead before it can
+-- justify a Lifebloom. Causal by construction -- applied events only.
+function SM.SeenDamage(S, ti, t)
+    local ring = S.dmg and S.dmg[ti]
+    if not ring or not ring.firstAt or (ring.hits or 0) < 2 then return 0, 0 end
+    local span = t - ring.firstAt
+    if span < 1 then span = 1 end
+    return (ring.total or 0) / span, ring.biggest or 0
+end
+
 function SM.RecentDamage(S, ti, t, window)
     local ring = S.dmg and S.dmg[ti]
     if not ring then return 0 end
