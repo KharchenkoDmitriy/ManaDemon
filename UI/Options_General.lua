@@ -27,14 +27,15 @@ local function CreateWidgetPane()
     end, "Show rest time", "Grey 'rest 2:10' next to the clock:", "time to full if you stop casting right now.")
     restCB:SetPoint("TOPLEFT", lockCB, "BOTTOMLEFT", 0, -9)
 
-    tipCB = UI.CreateCheckButton(pane, "Tooltip on hover", function(checked)
+    tipCB = UI.CreateCheckButton(pane, "Tooltip on the clock", function(checked)
         MD.db.widgetTooltip = checked
         if MD.UpdateVisibility then MD:UpdateVisibility() end
-    end, "Tooltip on hover", "Hovering the clock shows the full mana breakdown,",
+    end, "Tooltip on the floating clock", "Hovering the clock shows the full mana breakdown,",
         "and left-click opens the dashboard. This needs mouse input on the",
         "widget, so it also swallows clicks in its own small rectangle.",
         "Turn it OFF if the clock sits in the middle of the screen: it then",
         "takes no mouse input at all, and stays draggable while unlocked.",
+        "The minimap button and the ElvUI datatexts keep their tooltips.",
         "Same as /md tooltip.")
     tipCB:SetPoint("TOPLEFT", restCB, "BOTTOMLEFT", 0, -9)
 

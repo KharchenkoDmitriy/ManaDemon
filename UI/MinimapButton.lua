@@ -58,6 +58,9 @@ local function CreateButton()
     btn:SetScript("OnDragStop", function(self)
         self:SetScript("OnUpdate", nil)
     end)
+    -- Not gated by db.widgetTooltip: that setting is the floating clock's, and
+    -- the clock is a thing you park somewhere and stop looking at. A minimap
+    -- button is a thing you go to on purpose, so its tooltip always shows.
     btn:SetScript("OnEnter", function(self)
         MD.Tip:Show(self, "ANCHOR_LEFT",
             MD.Tip:Clock({ "Left-click: dashboard", "Right-click: settings" }))

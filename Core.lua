@@ -16,7 +16,10 @@ local DEFAULTS = {
     halfLife = 15,        -- seconds; half-life of the spend-rate EWMA
     drinkReminder = true,
     showRest = true,      -- "rest 2:10" segment: time to full if you stop casting
-    widgetTooltip = true, -- hover tooltip on the widget (needs mouse input on it)
+    widgetTooltip = true, -- hover tooltip on the FLOATING WIDGET only (it needs mouse input on the
+                          -- frame, so off also stops it swallowing clicks). The minimap button and the
+                          -- ElvUI datatexts are not gated by it and must not be: they are surfaces you
+                          -- go to on purpose, and the clock is one you park somewhere and stop looking at
     showCooldown = true,  -- "inn 2:10" segment: the clock if you press your mana cooldown now
     oomConfidence = 0.7,  -- print OOM digits only while sigma/net <= this; above it show the bound.
                           -- Derived from one level-61 dungeon (docs/DESIGN-v0.6.md §3b): re-derive on raid logs.
@@ -393,7 +396,7 @@ MD.COMMANDS = {
     { "/md mute",         "toggle alert messages" },
     { "/md drink",        "toggle the drink reminder" },
     { "/md rest",         "toggle the 'rest' segment (time to full if you stop casting)" },
-    { "/md tooltip",      "toggle the clock's hover tooltip (off also stops it swallowing clicks)" },
+    { "/md tooltip",      "hover tooltip on the FLOATING clock only (off also stops it swallowing clicks)" },
     { "/md window N",     "spend estimator half-life in seconds (5-60, default 15)" },
     { "/md verify",       "check static spell data against the live client" },
     { "/md profile",      "copyable dump of every model input - use this for bug reports" },
@@ -459,9 +462,11 @@ SlashCmdList.MANADEMON = function(msg)
     elseif cmd == "tooltip" or cmd == "tip" then
         MD.db.widgetTooltip = (MD.db.widgetTooltip == false)
         if MD.UpdateVisibility then MD:UpdateVisibility() end
-        MD:Print(MD.db.widgetTooltip and "clock tooltip on - hovering shows the breakdown, left-click opens the dashboard."
-            or "clock tooltip off - the clock takes no mouse input at all now, so it neither pops a tooltip nor "
-               .. "swallows clicks in its rectangle. It is still draggable while unlocked.")
+        MD:Print(MD.db.widgetTooltip
+            and "floating clock: tooltip on - hovering shows the breakdown, left-click opens the dashboard."
+            or "floating clock: tooltip off - it takes no mouse input at all now, so it neither pops a tooltip "
+               .. "nor swallows clicks in its rectangle, and it is still draggable while unlocked. The minimap "
+               .. "button and the ElvUI datatexts keep theirs.")
     elseif cmd == "window" then
         local n = tonumber(arg)
         if n and n >= 5 and n <= 60 then

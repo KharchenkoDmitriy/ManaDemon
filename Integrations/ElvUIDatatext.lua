@@ -36,6 +36,8 @@ end
 
 -- All lines come from the shared builder (UI/Tooltip.lua) so the datatext,
 -- the minimap button and the widget can never say different things.
+-- Not gated by db.widgetTooltip either (see UI/MinimapButton.lua): hovering a
+-- datatext is deliberate.
 local function OnEnter()
     DT.tooltip:ClearLines()
     DT.tooltip:AddLine("ManaDemon")

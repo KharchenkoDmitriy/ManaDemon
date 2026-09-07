@@ -5,7 +5,10 @@
 -- text width. All show/hide decisions live in MD:UpdateVisibility() —
 -- nothing else may call Show/Hide on this frame. Hovering shows the shared
 -- tooltip (UI/Tooltip.lua); that requires mouse input on the frame, so
--- db.widgetTooltip turns both off together.
+-- db.widgetTooltip turns both off together -- and with them the frame's habit
+-- of swallowing clicks in its own rectangle, which is what a clock parked in
+-- the middle of the screen wants. The setting is THIS frame's alone: the
+-- minimap button and the ElvUI datatexts keep their tooltips.
 local _, MD = ...
 
 local widget, text, underline

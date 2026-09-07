@@ -1814,3 +1814,13 @@ popping the tooltip. It stays draggable while unlocked either way.
 
 So: `/md tooltip` toggles it from chat, alongside `/md rest`, `/md drink` and `/md mute`, and
 both the chat line and the checkbox's help now say what "off" actually buys.
+
+### v0.9.10, same day: saying which tooltip
+"I want to keep the tooltip on datatext hover, or the addon minimap button, but hide it on that
+separate bar." That is what `db.widgetTooltip` has always done -- it is read in `UI/Widget.lua`
+and nowhere else -- but nothing said so, and "Tooltip on hover" reads like a global switch. The
+checkbox is now "Tooltip on the clock", the chat line names the surface and adds "the minimap
+button and the ElvUI datatexts keep theirs", and both of those files carry a comment saying they
+are deliberately not gated by it: a clock is something you park and stop looking at, a minimap
+button and a datatext are things you go to on purpose.
+
