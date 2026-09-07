@@ -152,7 +152,13 @@ FrameMT.__index = FrameMT
 local function noop() end
 -- Unknown METHODS are no-ops (WoW's are UpperCamelCase); unknown lowercase
 -- keys are plain nil so a frame can carry state fields like any table.
+-- The backdrop mixin is the one thing the fallback must NOT invent: it comes
+-- from "BackdropTemplate" since 2.5.x, and a frame created without the template
+-- errors in game the moment UI.StylizeFrame touches it. CreateFrame installs
+-- these three on templated frames only.
+local NO_FALLBACK = { SetBackdrop = true, SetBackdropColor = true, SetBackdropBorderColor = true }
 setmetatable(FrameMT, { __index = function(_, k)
+    if NO_FALLBACK[k] then return nil end
     if type(k) == "string" and k:match("^%u") then return noop end
     return nil
 end })
@@ -234,7 +240,6 @@ function FrameMT:SetMinMaxValues(a, b) self.minV, self.maxV = a, b end
 function FrameMT:SetChecked(v) self.checked = v and true or false end
 function FrameMT:GetChecked() return self.checked == true end
 function FrameMT:SetColorTexture(r, g, b, a) self.color = { r, g, b, a } end
-function FrameMT:SetBackdropBorderColor(r, g, b, a) self.border = { r, g, b, a } end
 function FrameMT:SetStatusBarColor(r, g, b) self.barColor = { r, g, b } end
 function FrameMT:SetTextColor(r, g, b) self.textColor = { r, g, b } end
 -- enabled state is stored (not a no-op) so a harness can read back which
@@ -263,6 +268,16 @@ function CreateFrame(kind, name, parent, tmpl)
     -- that should start hidden
     local f = setmetatable({ events = {}, scripts = {}, kind = kind, frameName = name,
                              parentFrame = parent, shown = true }, FrameMT)
+    -- The backdrop mixin is NOT on every frame since 2.5.x: it comes from
+    -- "BackdropTemplate", and calling SetBackdrop without it is a live error.
+    -- The stub used to hand it to everything through the no-op fallback, so the
+    -- harness could not see the one frame in UI/SimWindow.lua that was missing
+    -- the template until the author opened the tab in game (v0.11.10).
+    if type(tmpl) == "string" and tmpl:find("BackdropTemplate") then
+        f.SetBackdrop = function(self, bd) self.backdrop = bd end
+        f.SetBackdropColor = function(self, r, g, b, a) self.bg = { r, g, b, a } end
+        f.SetBackdropBorderColor = function(self, r, g, b, a) self.border = { r, g, b, a } end
+    end
     frames[#frames + 1] = f
     -- a named frame is a global in the client, and addon code looks itself up
     -- that way (tinsert(UISpecialFrames, "ManaDemonDashboard"), _G[name])

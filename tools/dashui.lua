@@ -151,6 +151,14 @@ check("Simulate is a group of the one window", MD.db.uiPath[1] == "simulate",
 check("it did not open a third window", _G.ManaDemonSimWindow == nil)
 check("the simulator's own controls came with it", ButtonNamed("Run") ~= nil
     or ButtonNamed("From recordings") ~= nil)
+-- the panel builds all the way through: a frame it styles without
+-- "BackdropTemplate" would have thrown here rather than in the author's game
+check("the simulator's result box exists", (function()
+    for _, f in ipairs(S.allFrames) do
+        if f.backdrop and f.bg and f.bg[4] == 0.5 then return true end
+    end
+    return false
+end)())
 
 -- /md sim selects the group
 Click(ButtonNamed("Spells"))

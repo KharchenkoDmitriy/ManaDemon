@@ -57,6 +57,9 @@ local function Snapshot(r)
 end
 
 local function Render(lines)
+    -- the search runs across frames and can finish after the panel is gone (or
+    -- before it was ever built, if construction failed)
+    if not resultFS then return end
     resultFS:SetText(table.concat(lines, "\n"))
 end
 
@@ -221,7 +224,10 @@ local function Build()
     headerFS:SetWidth(WIDTH - 28)
     headerFS:SetJustifyH("LEFT")
 
-    local box = CreateFrame("Frame", nil, frame)
+    -- "BackdropTemplate" or SetBackdrop does not exist on this client: the
+    -- backdrop mixin stopped being on every frame in 2.5.x, and UI.StylizeFrame
+    -- calls it (v0.11.10)
+    local box = CreateFrame("Frame", nil, frame, "BackdropTemplate")
     box:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -262)
     box:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 10)
     UI.StylizeFrame(box, { 0.1, 0.1, 0.1, 0.5 })

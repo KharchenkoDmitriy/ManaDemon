@@ -2170,3 +2170,27 @@ without a burst of damage at 40 s must produce **identical casts before 40 s**, 
 after. It diverges at exactly the burst.
 
 replaycheck 66 → 70.
+
+## 2026-09-07 — v0.11.10: a frame without its backdrop template
+
+Two Lua errors from the author, the second caused by the first. `UI/SimWindow.lua` created its
+result box with `CreateFrame("Frame", nil, frame)` and then styled it — but the backdrop mixin
+stopped being on every frame in 2.5.x, so `SetBackdrop` is nil without `"BackdropTemplate"` and
+`UI.StylizeFrame` threw. That aborted `Build()` half way, `resultFS` was never created, and the
+search's callback then failed six times over on a nil upvalue.
+
+The line is as old as the simulator. It only became reachable now because v0.11.3 made Simulate a
+tab the author would actually click, rather than a window they had never opened. One offender in
+the whole codebase; every other styled frame already carried the template.
+
+Two fixes and a guard: the template is there, `Render` returns early when the panel does not
+exist (a search finishes across frames and can outlive its window), and the stub **stops
+inventing the mixin**. `CreateFrame` installs `SetBackdrop`, `SetBackdropColor` and
+`SetBackdropBorderColor` only on frames created with `"BackdropTemplate"`, and those three names
+are excluded from the no-op fallback that used to answer for every UpperCamelCase call. Putting
+the bug back now reproduces the author's exact error in `tools/dashui.lua`:
+`Style.lua:109: attempt to call method 'SetBackdrop' (a nil value)`.
+
+That is the eighth gap the stub has grown in two days, and the pattern is consistent: every one
+of them was the harness being *more permissive* than the client, and every one hid a real bug
+rather than causing a false one.
