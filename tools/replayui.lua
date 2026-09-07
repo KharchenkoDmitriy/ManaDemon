@@ -216,5 +216,43 @@ MD:OpenReplay(1)
 check("refuses to open in combat", not MD.Replay._state().frame:IsShown())
 _G.UnitAffectingCombat = function() return false end
 
+--------------------------------------------------------------------------------
+-- v0.9.7: the Swiftmend indicator belongs to a healer who HAS Swiftmend. The
+-- recording says what existed at that pull; a druid with one point in Gift of
+-- Nature has no Swiftmend, and telling them it is ready is telling them to
+-- press a key they do not have.
+--------------------------------------------------------------------------------
+do
+    local function dotShown()
+        local W = MD.Replay._state()
+        for _, ti in ipairs(W.rows) do
+            local f = W.left.frames[ti]
+            if f and f.dot and f.dot:IsShown() then return true end
+        end
+        return false
+    end
+    MD.Replay._seek(0)
+    MD.Replay._seek(12.0)      -- a Rejuvenation is rolling on the tank here
+    check("the Swiftmend dot is drawn when the spell is known", dotShown())
+
+    local saved = rec.initial.known
+    rec.initial.known = { Rejuvenation = MD.SpellData.maxRank.Rejuvenation }   -- no Swiftmend
+    MD:OpenReplay(1)
+    MD.Replay._seek(12.0)
+    check("no Swiftmend dot for a build without Swiftmend", not dotShown())
+
+    -- and no plan may bind a spell the recording says the healer did not have
+    local binds = SP.MaxRankBinds(rec.initial.known)
+    check("MaxRankBinds respects what the healer had",
+        binds.Swiftmend == nil and binds.Rejuvenation ~= nil,
+        tostring(binds.Swiftmend))
+    local fromRec = SP.BindsFromRecording(rec, kit)
+    check("BindsFromRecording does not invent Swiftmend either", fromRec.Swiftmend == nil,
+        tostring(fromRec.Swiftmend))
+
+    rec.initial.known = saved
+    MD:OpenReplay(1)
+end
+
 print(string.format("\n%d ok, %d failed", ok, #fails))
 if #fails > 0 then for _, m in ipairs(fails) do print("  FAIL " .. m) end; os.exit(1) end

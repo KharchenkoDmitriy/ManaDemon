@@ -212,6 +212,17 @@ function FR:Start(t0)
         -- still replays against what was true then.
         energize = RM and RM:Unreported() or 0,
         energizeParts = RM and { dreamstate = RM:Dreamstate(), measured = RM:MeasuredMp5() } or nil,
+        -- v0.9.7: which healing spells the player actually HAD at this pull, as
+        -- family -> highest known rank id. A recording is replayed and coached
+        -- long after it happened, sometimes on a different talent build and
+        -- always offline against a harness that pretends every spell is known.
+        -- Without this the replay drew a Swiftmend indicator for a druid who has
+        -- never trained Swiftmend, and the offline coach bound it. Six numbers.
+        known = (function()
+            local k = {}
+            for family, id in pairs(MD.SpellData.maxRank or {}) do k[family] = id end
+            return k
+        end)(),
     }
     stream.initial.auras, stream.initial.buffs = ScanAuras(stream)
 

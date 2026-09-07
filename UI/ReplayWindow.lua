@@ -86,6 +86,13 @@ local runIdx, pullIdx, curRun   -- which pull of which run is open, if any
 local topH = HEADER_H           -- header, plus the run strip when there is one
 local left, right          -- the two columns: { state, frames = {}, strip = {}, title }
 local rp                   -- the SP.Replay result being shown
+
+-- Does the healer of the recording being played have Swiftmend at all?
+local function HasSwiftmend()
+    local known = rp and rp.rec and rp.rec.initial and rp.rec.initial.known
+    if known then return known.Swiftmend ~= nil end
+    return (MD.SpellData.maxRank or {}).Swiftmend ~= nil
+end
 local rows = {}            -- roster indices in display order
 local playing, speed = false, 1
 local classColorCache = {}
@@ -637,7 +644,11 @@ local function PaintFrame(f, st, ti, isLeft, now)
             ic:Hide()
         end
     end
-    if eatable and not dead then
+    -- ...but only for a healer who HAS Swiftmend. The recording says which
+    -- spells existed at that pull (v0.9.7); older recordings fall back to what
+    -- the player knows now. Drawing a "Swiftmend is ready" indicator for a druid
+    -- who never trained it is an instruction to press a key they do not have.
+    if eatable and not dead and HasSwiftmend() then
         SetIcon(f.dot, SWIFTMEND, "Swiftmend")
         local cdUntil = st:CooldownUntil(SWIFTMEND)
         if cdUntil then

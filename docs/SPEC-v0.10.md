@@ -205,6 +205,91 @@ name a number you recognise. Report any spell that comes back `unknown` with its
 
 ---
 
+---
+
+## 6b. v0.10.3 — the deficit you still owe, and the danger line you measure
+
+Raised by the author on 2026-09-07, from a forced replay whose suggested column spent 674 mana
+and ended at 45% health where they had spent 3.9k and ended at 79%:
+
+> "I don't want to force it to overheal, but I want it to find the optimal way to keep HP as
+> high as possible while not overhealing. If the incoming biggest hit is small we can keep HP
+> lower — but the same applies to: if we have enough mana for the future and we will anyway need
+> to heal this HP loss, better to do it before than after."
+
+### 6b.1 Why the plan under-heals today
+
+The score gives health above `db.simFloor` (a flat 30%) **exactly zero value**, so the cheapest
+plan that stays above it wins. On that fight the search found rules 1, 2, 4, 5 with Lifebloom
+bound and never cast, and rule 5 reading "otherwise wait — 95% of the fight". It was not
+choosing Rejuvenation over Lifebloom on the merits; it was choosing to heal as little as it
+could get away with. The three baselines all spend 3.1k and hold 93%.
+
+### 6b.2 The deficit is a debt, not a saving
+
+The author's rule stated as an invariant: **health missing at the end of a fight is mana you
+have not spent yet.** So charge for it.
+
+```
+manaOwed = cost of healing the remaining deficit with the most efficient bound spell
+score's mana term = manaSpent + manaOwed
+```
+
+- A plan that leaves a target at 45% is charged what fixing it will cost, so it stops looking
+  cheap. A plan that heals it during the fight pays the same mana and gets the safety for free.
+- Nothing is earned above `db.simFullHp`: there is no deficit there, so no plan is pushed into
+  overheal. This is "as high as possible while not overhealing" with a unit, not a weight.
+- The efficient spell is used for the estimate because it is the cheapest way the debt *could*
+  be settled — a lower bound, which is the conservative direction for a term that penalises.
+- HoT ticks still pending at the end are healing already paid for and reduce the deficit before
+  it is priced.
+
+### 6b.3 The danger line is measured, not assumed
+
+`db.simFloor = 0.30` becomes a fallback. The line that matters is **one hit from death**:
+
+```
+danger[i] = (largest single hit target i took in this fight) / maxHP[i]   -- p90 if > 8 hits
+dangerSeconds = seconds a live tracked target spent below danger[i] * db.simDangerHits
+```
+
+`db.simDangerHits` ships at 1. On the author's fight the biggest hit was 371 against 5053 health
+(7%), so 45% is six hits from death and the plan was not being reckless *there*. In a dungeon
+where the tank eats 2.5k of 8k, one hit kills below 31%, and the same rule punishes the same
+plan hard. Same score, fight-aware, nothing hard-coded. `floorSeconds` keeps its name and its
+place in the tuple; only how the line is computed changes, and the card prints the line it used.
+
+### 6b.4 The HoT rule may bind Lifebloom
+
+Rule 4 hard-codes Rejuvenation, so no plan expressible today can say "put a Lifebloom on whoever
+is hurt and let it bloom" — which on the author's gear is the most efficient heal in the book:
+
+| spell | heal per mana |
+|---|---|
+| Lifebloom, left to bloom | 6.17 |
+| Regrowth R9 | 5.17 |
+| Rejuvenation R12 | 4.72 |
+| Lifebloom, rolled and refreshed | 2.55 |
+
+The bloom is 797 of Lifebloom's 1357: let it bloom and it is the best thing available, refresh it
+and it is the worst. Rule 4 takes a bound family (`hotBind`, default Rejuvenation) exactly as
+rule 2 chooses between Regrowth and Healing Touch, and the search may set it. Rule 3 (rolling on
+the anchor) is unchanged and remains a different play with a different cost.
+
+### 6b.5 In a run
+
+The single-fight terms above are the approximation. The run has the real currency: ending a pull
+low costs **eating time** before the next one, measured the way v0.9.1 measures the drink rate
+(the same buff family, the same first-to-last-tick estimator). `SM.ChainRun` gains `eatTime`
+beside `drinkTime`, and the run score ranks it with the other time terms rather than with mana.
+
+### 6b.6 Harness
+
+`simcheck`: a plan that ends with a target at 50% and mana in the bank must score worse than one
+that spends that mana to top them up, and neither may be beaten by one that heals past
+`simFullHp`. `replaycheck`: the measured danger line on the BF-1 fixture is the fixture's own
+biggest hit, not 30%.
+
 ## 7. Rejected and reserved
 
 ### Rejected (do not re-propose)
@@ -221,6 +306,9 @@ name a number you recognise. Report any spell that comes back `unknown` with its
 
 ### Reserved
 
+- **A plain weight on health.** A weight with no unit means "heal more", and the plan satisfies
+  it by overhealing. Every health term in 6b has a unit: mana it will cost, seconds below the
+  line, seconds of eating.
 - **Kill-speed modelling** (how much shorter the fight was because you cast Starfire). It needs
   target health, which the recorder does not keep for mobs.
 - **CC as a damage-prevention term**, i.e. crediting a root with the damage that did not happen.
@@ -234,3 +322,6 @@ name a number you recognise. Report any spell that comes back `unknown` with its
 | utility casts (Mark of the Wild) fixed too | yes, same rule, same reason |
 | show fixed points in the suggested column | yes, in their own colour |
 | `unknown` casts count towards coverage | no |
+| the mana term includes the deficit left behind | yes (6b.2) |
+| the danger line is the fight's biggest hit | yes, `db.simDangerHits` = 1 (6b.3) |
+| rule 4 may bind Lifebloom | yes, `hotBind` (6b.4) |

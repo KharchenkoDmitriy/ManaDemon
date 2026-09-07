@@ -57,20 +57,27 @@ function SP.BindsFromRecording(rec, kit)
             end
         end
     end
+    local known = rec and rec.initial and rec.initial.known
     local binds = {}
     for _, family in ipairs(SP.BINDABLE) do
         local best, bestN
         for id, n in pairs(counts[family] or {}) do
             if not bestN or n > bestN then best, bestN = id, n end
         end
-        binds[family] = best or SD.maxRank[family]
+        -- what the healer HAD at that pull, when the recording says so: a plan
+        -- that suggests a spell the player never trained is not a plan
+        binds[family] = best or (known and known[family]) or (not known and SD.maxRank[family]) or nil
     end
     return binds
 end
 
-function SP.MaxRankBinds()
+-- `known` (a recording's initial.known) restricts the binds to the spells that
+-- existed for the player at the time; without it, whatever they know now.
+function SP.MaxRankBinds(known)
     local SD, binds = MD.SpellData, {}
-    for _, family in ipairs(SP.BINDABLE) do binds[family] = SD.maxRank[family] end
+    for _, family in ipairs(SP.BINDABLE) do
+        binds[family] = known and known[family] or (not known and SD.maxRank[family]) or nil
+    end
     return binds
 end
 
@@ -273,7 +280,7 @@ end
 -- Baselines, always run (5.4). "You" is the replay itself.
 --------------------------------------------------------------------------------
 function SP.Baselines(rec, kit)
-    local maxBinds = SP.MaxRankBinds()
+    local maxBinds = SP.MaxRankBinds(rec and rec.initial and rec.initial.known)
     return {
         { name = "max rank", plan = SP.NewPlan(maxBinds,
             { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 3, hotBelow = 0.80,
@@ -957,7 +964,7 @@ function SP.CoachAsync(rec, opts, onDone)
 
     local scenario = SM.ScenarioFromRecording(rec, kit)
     local binds = SP.BindsFromRecording(rec, kit)
-    if MD.db and MD.db.simAllowRebinds then binds = SP.MaxRankBinds() end
+    if MD.db and MD.db.simAllowRebinds then binds = SP.MaxRankBinds(rec.initial and rec.initial.known) end
 
     MD:Print("coach: searching (this runs across frames; /md coach cancel stops it)...")
     return SP.Search(scenario, { kit = kit, binds = binds, rec = rec },
@@ -1137,7 +1144,9 @@ function SP.SearchRun(run, opts, onProgress, onDone)
     opts = opts or {}
     local kit = opts.kit or MD.RankMath:SpellKit()
     local pulls = run.pulls or {}
-    local binds = opts.binds or SP.MaxRankBinds()
+    -- a run's plan may only use what the healer had on its first recorded pull
+    local known = pulls[1] and pulls[1].initial and pulls[1].initial.known
+    local binds = opts.binds or SP.MaxRankBinds(known)
     local maxEvals = opts.maxEvals or math.max(24, math.min(300, math.floor(2400 / math.max(1, #pulls))))
     local evals, seen = 0, {}
     local best, bestScore, bestChain = nil, nil, nil

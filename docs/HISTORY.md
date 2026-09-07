@@ -1740,3 +1740,39 @@ Author questions with defaults in §8: a fixed cast preempts an in-flight plan c
 it, which costs no mana) rather than being delayed; utility casts are fixed on the same rule;
 fixed points are drawn in the suggested column in their own colour; `unknown` casts do not count
 towards coverage.
+
+## 2026-09-07 — v0.9.7: a Swiftmend the healer does not have
+
+From the author's screenshots of a forced replay: "the icon showed in the replay even though I
+don't have it." True — their build has one point in Gift of Nature, so Swiftmend was never
+trained, and the replay window drew its indicator anyway. The dot was gated only on "a
+Rejuvenation or Regrowth is up", which is half the question.
+
+Recordings now say **which healing spells the player had at that pull**: `initial.known`, family
+to highest known rank id, six numbers. A recording is replayed and coached long after it
+happened, sometimes on a different talent build, and always offline against a harness that
+pretends every spell is known — which is why `tools/import.lua` had been binding `Swiftmend R1`
+into coached plans for a druid who cannot cast it. `SP.MaxRankBinds(known)` and
+`SP.BindsFromRecording` now take the recording's word for it, the run search uses its first
+pull's, and the replay window draws the dot only for a healer who has the spell (older
+recordings fall back to what the player knows now).
+
+The cooldown case the author also asked about was already right and stays: the icon appears only
+when there is a HoT to eat, sweeps while Swiftmend is on cooldown with the seconds in its
+tooltip, and is bright when it is ready.
+
+`reccheck` 38 → 39, `replayui` 50 → 54.
+
+### What the screenshots also showed, and where it went
+The same forced replay spent 674 mana and ended at 45% where the author spent 3.9k and ended at
+79%. The plan was not preferring Rejuvenation to Lifebloom on the merits: the search had turned
+rule 3 off, bound Lifebloom and never cast it, and rule 5 read "otherwise wait — 95% of the
+fight". Health above the flat 30% floor is worth nothing in the score, so the cheapest plan that
+stays above it wins. Measured on this character's gear, Lifebloom left to bloom is the most
+efficient heal in the book at 6.17 per mana (Regrowth R9 5.17, Rejuvenation R12 4.72) and the
+worst at 2.55 if it is rolled and refreshed, because the bloom is 797 of its 1357 — and rule 4
+can only bind Rejuvenation, so no plan expressible today can say "Lifebloom on whoever is hurt".
+The author's framing of the fix is the one that made it into `docs/SPEC-v0.10.md` §6b: health
+missing at the end is *mana not yet spent*, so charge for it; the danger line should be the
+fight's own biggest hit rather than a constant; and eating time is the run's version of the same
+debt. No weight anywhere — every term has a unit.

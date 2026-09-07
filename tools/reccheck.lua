@@ -153,5 +153,14 @@ if rec then
     end
 end
 
+-- v0.9.7: the stream says which healing spells the player had at the pull
+do
+    local k = rec.initial and rec.initial.known
+    check("the recording carries the spells the healer had",
+        k ~= nil and k.Rejuvenation == MD.SpellData.maxRank.Rejuvenation
+        and k.Lifebloom == MD.SpellData.maxRank.Lifebloom,
+        k and ("Rejuvenation " .. tostring(k.Rejuvenation)) or "no known table")
+end
+
 print(string.format("\n%d ok, %d failed", ok, #fails))
 if #fails > 0 then for _, m in ipairs(fails) do print("  FAIL " .. m) end; os.exit(1) end
