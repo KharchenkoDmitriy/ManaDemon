@@ -196,6 +196,18 @@ the left, level 2 horizontal on top, deeper levels in a box that repeats the rul
   level-3 box is built and tested but still has no user — nothing needed it yet, which is the
   right reason not to use it.)*
 
+## Phase 1.13 — what the healer can see (v0.12)
+
+Spec: **`docs/SPEC-v0.12.md`**. The plan may know what the author's own unit frames tell them and
+nothing else; their Cell layout is the specification, read on 2026-09-07. Exactly two of their
+enabled indicators are foresight: **aggro** and **an enemy cast with a named target**.
+
+- [ ] **v0.12.0** record threat and enemy casts (`K.THREAT`, `K.ECAST`), `db.recordThreat`.
+- [ ] **v0.12.1** `Plan:Decide` reads them: a cast in the air counts towards rule 4's room, and
+  `Anchor` prefers a target that has threat.
+- [ ] **v0.12.2** the replay draws the Targeted Spells icon and the aggro border, in the author's
+  own positions, on both columns.
+
 ## Phase 2 — other classes (after 1 is green)
 
 Generic parts already work for any mana class: the OOM clock, widget, datatexts,

@@ -25,7 +25,10 @@ with a drink model and a time-first score) is specified in `docs/SPEC-v0.9.md`**
 are in `docs/DECISIONS.md` §v0.9. **v0.10 (the casts that are not heals: CC and damage as fixed
 points the plan must work around, the spend-coverage gate counting what the engine reproduces,
 and what a damage cast costs in five-second-rule regen) is specified in `docs/SPEC-v0.10.md`**;
-the calls are in `docs/DECISIONS.md` §v0.10. **v0.11 (one window: the dashboard, the simulator and
+the calls are in `docs/DECISIONS.md` §v0.10. **v0.12 (the two things a healer can see coming —
+aggro and an enemy cast with a named target — recorded and read by the plan, with the author's own
+Cell indicator settings as the specification of what counts as visible) is specified in
+`docs/SPEC-v0.12.md`**. **v0.11 (one window: the dashboard, the simulator and
 the settings merged into four groups — level 1 vertical on the left, level 2 horizontal on top,
 deeper levels in a box that repeats the rule — on the settings palette) is specified in
 `docs/SPEC-v0.11.md`**.
