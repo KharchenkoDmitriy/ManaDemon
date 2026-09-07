@@ -393,6 +393,7 @@ MD.COMMANDS = {
     { "/md mute",         "toggle alert messages" },
     { "/md drink",        "toggle the drink reminder" },
     { "/md rest",         "toggle the 'rest' segment (time to full if you stop casting)" },
+    { "/md tooltip",      "toggle the clock's hover tooltip (off also stops it swallowing clicks)" },
     { "/md window N",     "spend estimator half-life in seconds (5-60, default 15)" },
     { "/md verify",       "check static spell data against the live client" },
     { "/md profile",      "copyable dump of every model input - use this for bug reports" },
@@ -455,6 +456,12 @@ SlashCmdList.MANADEMON = function(msg)
     elseif cmd == "rest" then
         MD.db.showRest = not MD.db.showRest
         MD:Print("rest segment " .. (MD.db.showRest and "on." or "off."))
+    elseif cmd == "tooltip" or cmd == "tip" then
+        MD.db.widgetTooltip = (MD.db.widgetTooltip == false)
+        if MD.UpdateVisibility then MD:UpdateVisibility() end
+        MD:Print(MD.db.widgetTooltip and "clock tooltip on - hovering shows the breakdown, left-click opens the dashboard."
+            or "clock tooltip off - the clock takes no mouse input at all now, so it neither pops a tooltip nor "
+               .. "swallows clicks in its rectangle. It is still draggable while unlocked.")
     elseif cmd == "window" then
         local n = tonumber(arg)
         if n and n >= 5 and n <= 60 then

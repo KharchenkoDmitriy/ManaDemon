@@ -32,7 +32,10 @@ local function CreateWidgetPane()
         if MD.UpdateVisibility then MD:UpdateVisibility() end
     end, "Tooltip on hover", "Hovering the clock shows the full mana breakdown,",
         "and left-click opens the dashboard. This needs mouse input on the",
-        "widget, so it also swallows clicks in its own small rectangle.")
+        "widget, so it also swallows clicks in its own small rectangle.",
+        "Turn it OFF if the clock sits in the middle of the screen: it then",
+        "takes no mouse input at all, and stays draggable while unlocked.",
+        "Same as /md tooltip.")
     tipCB:SetPoint("TOPLEFT", restCB, "BOTTOMLEFT", 0, -9)
 
     cdCB = UI.CreateCheckButton(pane, "Show mana cooldown", function(checked)

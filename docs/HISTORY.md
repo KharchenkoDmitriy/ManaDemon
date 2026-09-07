@@ -1802,3 +1802,15 @@ the second time the "never a bare `|`" rule in CLAUDE.md has been broken by math
 the first time a test caught it.
 
 `reviewui` 38 → 43.
+
+## 2026-09-07 — v0.9.9: /md tooltip
+
+"Remove the tooltip from the FULL/OOM bar — I place it in the middle of the screen and sometimes
+move the mouse over it unintentionally." The setting already existed (`db.widgetTooltip`, a
+checkbox in the options), but it was one window and three clicks away, and its help text did not
+say the thing that matters for a mid-screen clock: turning it off makes the widget take **no**
+mouse input at all, so it stops swallowing clicks inside its own 190x22 rectangle as well as
+popping the tooltip. It stays draggable while unlocked either way.
+
+So: `/md tooltip` toggles it from chat, alongside `/md rest`, `/md drink` and `/md mute`, and
+both the chat line and the checkbox's help now say what "off" actually buys.
