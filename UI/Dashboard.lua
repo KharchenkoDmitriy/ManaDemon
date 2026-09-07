@@ -80,7 +80,6 @@ local function Refresh()
         calloutFS:SetText("|cffffcc00The fights this character recorded, and what the engine can reproduce about each.|r")
         hintFS:SetText("|cff888888A greyed row is a fight the model could not replay - the reason is in the validate " ..
             "column. Coach only runs on fights that passed, because advice from a fight the engine gets wrong is worse than none.|r")
-        reviewView:SetSource(currentFamily == "Runs" and "run" or "fights")
         reviewView:Render()
         return
     end
@@ -262,6 +261,12 @@ local function CreateDashboard()
             return rankTable and rankTable.frame or nil
         end,
         function(group, view)
+            -- the source is set when the VIEW changes, never on a refresh: the
+            -- 2s ticker calls Refresh, and setting it there put the run back
+            -- one second after the author clicked Fights (v0.11.6)
+            if group == "reports" and reviewView and view ~= currentFamily then
+                reviewView:SetSource(view == "Runs" and "run" or "fights")
+            end
             currentGroup, currentFamily = group, view
             userPicked = true
             MD:Fire("UI_VIEW_SELECTED", group, view)

@@ -2098,3 +2098,22 @@ the shown flag: no rank-table hint, regen line, recap or what-if strip over the 
 settings, arriving from either group, and all of it back when Spells is selected.
 
 dashui 39 → 49.
+
+## 2026-09-07 — v0.11.6: a selector that would not stay clicked
+
+The author, on the Runs view: "when I open Reports > Runs > Fights it switches automatically in
+a second to the Hellfire subtab."
+
+One second is the dashboard's render ticker. `Refresh()` was calling the Review pane's
+`SetSource`, so every two seconds it put the run back on top of whatever the author had clicked.
+The source belongs to a *view change*, not to a refresh: it is set once when the navigation
+selects Runs or Review, and the pane's own selector owns it from then on.
+
+The same screenshot showed a second bug that had nothing to do with it. A run with no pulls
+printed its empty-state row with the header's columns still in it — `# when zone dur tgts casts
+spent low mana validate` underneath `This run kept no pulls`. The row pool hands back a used row
+and the empty state only sets one cell, so the previous render's text stayed in the rest. Rows
+are cleared on acquisition now, scripts and highlight included.
+
+dashui 49 → 53: clicking Fights inside the Runs view sticks across three ticker refreshes, and a
+reused row carries no text from its last render.

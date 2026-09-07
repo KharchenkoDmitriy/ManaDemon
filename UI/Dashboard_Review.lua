@@ -272,6 +272,18 @@ function MD.DashboardParts.CreateReview(parent, width)
             row.highlight:SetColorTexture(1, 1, 1, 0.06)
             row.highlight:Hide()
         end
+        -- a pooled row still carries the last render's text in every cell it is
+        -- not given this time. The empty-state row sets only `when`, and the
+        -- header's other columns showed through underneath it (v0.11.6).
+        for _, col in ipairs(COLS) do
+            row.cells[col[1]]:SetText("")
+            row.cells[col[1]]:SetWidth(col[3])
+        end
+        row.highlight:Hide()
+        row:EnableMouse(true)
+        row:SetScript("OnClick", nil)
+        row:SetScript("OnEnter", nil)
+        row:SetScript("OnLeave", nil)
         row:Show()
         usedRows[#usedRows + 1] = row
         return row

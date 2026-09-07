@@ -42,6 +42,21 @@ local function ButtonNamed(text)
     return nil
 end
 local function Click(b) local fn = b and b:GetScript("OnClick"); if fn then fn(b) end end
+-- what the eye sees: shown, and every parent shown too
+local function ShownText(pat)
+    for _, f in ipairs(S.allFrames) do
+        local t = f.GetText and f:GetText() or ""
+        if type(t) == "string" and t:find(pat) and f:IsVisible() then return t end
+    end
+    return nil
+end
+local function ShownButton(text)
+    for _, f in ipairs(S.allFrames) do
+        if f.kind == "Button" and f.text == text and f:IsVisible() then return true end
+    end
+    return false
+end
+
 local function Painted(pat)
     for _, f in ipairs(S.allFrames) do
         local t = f.GetText and f:GetText() or ""
@@ -168,26 +183,33 @@ check("it opens on the run, not on the fights", Painted("run Ramparts") ~= nil,
 Click(ButtonNamed("Review"))
 check("Review goes back to the single fights", MD.db.uiPath[2] == "Review", MD.db.uiPath[2])
 
+-- On the Runs view the pane's own Fights/run selector must stick: the 2s
+-- ticker calls Refresh, and setting the source there put the run back a second
+-- after the author clicked Fights (v0.11.6).
+Click(ButtonNamed("Runs"))
+check("Runs opens on the run", Painted("run Ramparts") ~= nil)
+Click(ButtonNamed("Fights"))
+check("clicking Fights inside Runs shows the fights", ShownText("Hellfire") ~= nil
+    or ShownText("No recorded fights") ~= nil, ShownText("run Ramparts") or "nothing")
+for _ = 1, 6 do S.Tick(0.5) end       -- three ticker refreshes
+check("and a refresh does not put the run back", ShownText("run Ramparts") == nil,
+    ShownText("run Ramparts"))
+
+-- a pooled row must not show the previous render's cells
+check("no stale text in a reused row", (function()
+    local seen = 0
+    for _, f in ipairs(S.allFrames) do
+        local t = f.GetText and f:GetText() or ""
+        if type(t) == "string" and t:find("low mana") and f:IsVisible() then seen = seen + 1 end
+    end
+    return seen <= 1
+end)())
+
 --------------------------------------------------------------------------------
 -- One group's furniture must not be drawn over another's panel (v0.11.5). The
 -- author's screenshots of Simulate had the Spells what-if strip, the regen
 -- line, the rank table and the recap painted on top of it.
 --------------------------------------------------------------------------------
--- what the eye sees: shown, and every parent shown too
-local function ShownText(pat)
-    for _, f in ipairs(S.allFrames) do
-        local t = f.GetText and f:GetText() or ""
-        if type(t) == "string" and t:find(pat) and f:IsVisible() then return t end
-    end
-    return nil
-end
-local function ShownButton(text)
-    for _, f in ipairs(S.allFrames) do
-        if f.kind == "Button" and f.text == text and f:IsVisible() then return true end
-    end
-    return false
-end
-
 Click(ButtonNamed("Simulate"))
 check("no rank-table hint over the simulator", ShownText("HPM heal per mana") == nil,
     ShownText("HPM heal per mana"))
