@@ -1706,3 +1706,37 @@ The disabled Coach button's tooltip now names both steps instead of only the rea
 `reviewui` 31 → 38: the scripted fight really does fail its gates, no right column without force,
 force draws it, the title says so, a forced coach stays forced, and shift-clicking Play does the
 same from the tab. The stub grew `IsShiftKeyDown` (a harness sets `S.shift`).
+
+## 2026-09-07 — v0.10 specified: the casts that are not heals
+
+The author, on the three solo recordings the gates reject: assisting the damage dealers and
+casting a lot of CC are healer decisions, and a 90% "mana spent on heals" gate calls them a
+defect. Right — and the gate was measuring the wrong thing anyway. The mana curve reproduces
+without it (recording 2 is at 1.0% on the mana gate with a third of its spend unpriced), because
+the recorder stores each cast's real cost. What the threshold stood in for is the plan side:
+`RunPlan` drops the recorded script, so the simulated healer never casts the Moonfires and starts
+with their mana in hand against an unchanged damage timeline — 2043 mana of free money in
+recording 2.
+
+`docs/SPEC-v0.10.md`, in three versions. **v0.10.0** the addon knows what it cast: a seed table
+of non-healing druid spells, `MD:ClassifyCast`, a `cdb.spellbook` the addon learns from
+`GetSpellInfo` rather than from a website, and per-stream spell names so a recording is readable
+offline. **v0.10.1** fixed points: every non-healing cast happens in the suggested column at the
+same moment, at the same cost, taking the same global cooldown and restarting the same
+five-second rule, and `spend coverage` becomes "mana the engine reproduces" rather than "mana the
+healing kit prices" (the author's three recordings go 0% / 69% / 67% to 100%). **v0.10.2** what
+the damage casts cost: their mana plus the spirit regen lost to the five-second rule they
+restarted, measured as the difference between two runs and always printed with its
+counterfactual — the fight would not have been the same fight without them.
+
+**The five unknown ids are identified**, and the identification is corroborated rather than
+looked up: 26987 Moonfire rank 11 (430 base, recorded 391 = 430 x 0.91 with Moonglow 3), 25298
+Starfire (340 -> 309, the same -9%), 24977 Insect Swarm (155, which Moonglow does not touch),
+9853 Entangling Roots (125) and 17329 Nature's Grasp (free, as recorded). Four independent costs
+and one talent multiplier all consistent. Cyclone (33786) is in the table unverified until a
+recording carries it. Every row stays `-- VERIFY` until a recording proves it.
+
+Author questions with defaults in §8: a fixed cast preempts an in-flight plan cast (cancelling
+it, which costs no mana) rather than being delayed; utility casts are fixed on the same rule;
+fixed points are drawn in the suggested column in their own colour; `unknown` casts do not count
+towards coverage.

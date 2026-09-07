@@ -670,3 +670,37 @@ carries the plan. The calls:
       already accounts for everything" is a result. `Engine/RegenModel.lua` additionally refuses
       any stored value larger than what the client reports, and says so once, so a database
       written before this fix cannot keep lying.
+
+## v0.10 (2026-09-07): the casts that are not heals — spec, no debate
+
+The author, looking at three solo recordings the engine refused to coach from: "I'm not sure 90%
+mana spent on heals is right. The fight may not be heavy on incoming damage and I can assist the
+damage dealers. I may also cast a lot of CC (Cyclone), which reduces incoming damage by a lot.
+We should not add CC and damage abilities to coach suggestions — too situational. But we could
+check when casting damage abilities breaks the 5s rule and leaves too little mana for healing
+later; and treat CC casts as necessary at that moment, so they are in the record and in the
+coach variant at the same place." `docs/SPEC-v0.10.md` carries the plan. The calls:
+
+1. **The 90% spend-coverage gate was measuring the wrong thing.** The mana curve reproduces
+   without it — the recorder stores each cast's real cost, and recording 2 sits at 1.0% on the
+   mana gate with a third of its spend unpriced. What the gate stood in for is the *plan* side:
+   `RunPlan` drops the recorded script, so the simulated healer never casts the Moonfires and
+   starts with their mana in hand against an unchanged damage timeline. 2043 mana of free money
+   in recording 2. A threshold cannot fix that; fixed points can.
+2. **Every non-healing cast is a fixed point** — same moment, same cost, same global cooldown,
+   same five-second-rule restart, in both columns. The plan decides around them.
+3. **Damage casts too, not only CC.** A plan allowed to skip a Wrath pockets the mana while the
+   fight still ends at the same second, because the recording's length already contains the
+   effect of that damage. Same as the root: the damage you took is the damage you took *because*
+   you rooted it.
+4. **CC and damage stay out of the plan's rules.** The trigger for a Cyclone is not party health
+   and trailing damage. What the coach may say about a damage cast is its price — mana plus the
+   spirit regen lost to the five-second rule it restarted — measured as the difference between
+   two runs, and always with the counterfactual stated: the fight would not have been the same
+   fight without them.
+5. **Spell identity is seeded from the TBC database and checked against the recordings.** Four of
+   the five unknown ids in the author's logs reproduce their recorded cost exactly, three of them
+   only after Moonglow's -9% — a stronger check than the lookup itself. Every row stays
+   `-- VERIFY` until a recording proves it, and the addon learns the rest from `GetSpellInfo`
+   into `cdb.spellbook` rather than from a website.
+

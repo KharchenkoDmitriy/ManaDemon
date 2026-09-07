@@ -22,7 +22,10 @@ window: two columns of unit frames, actual vs suggested, on one clock) is specif
 `docs/SPEC-v0.8.md`**; its three calls are in `docs/DECISIONS.md` §v0.8. **v0.9 (run recording
 with manual checkpoints, the measured mp5 and profile into the model, the run in the engine
 with a drink model and a time-first score) is specified in `docs/SPEC-v0.9.md`**; the calls
-are in `docs/DECISIONS.md` §v0.9.
+are in `docs/DECISIONS.md` §v0.9. **v0.10 (the casts that are not heals: CC and damage as fixed
+points the plan must work around, the spend-coverage gate counting what the engine reproduces,
+and what a damage cast costs in five-second-rule regen) is specified in `docs/SPEC-v0.10.md`**;
+the calls are in `docs/DECISIONS.md` §v0.10.
 
 **Session continuity:** past work sessions are logged in **`docs/HISTORY.md`** (what was done, project state, next steps). Read it at the start of a session to recover context, and append a dated entry when a session ends with meaningful progress — this is the project's memory across conversations. **`docs/PLAN.md`** is the agreed roadmap (Phase 1 druid verification + improvements, Phase 2 other classes) — tick items there as they land. **`docs/TESTING.md`** tells the author what to test in-game and how to report it.
 

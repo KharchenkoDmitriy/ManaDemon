@@ -159,6 +159,17 @@ Spec: **`docs/SPEC-v0.9.md`**; the calls in `docs/DECISIONS.md` §v0.9.
   *(2026-09-06; `/md replay run N`, click a block to jump, the next pull follows on its own
   unless `db.replayNextPull` is off. In-game: TESTING §31.)*
 
+## Phase 1.11 — the casts that are not heals (v0.10)
+
+Spec: **`docs/SPEC-v0.10.md`**; the calls in `docs/DECISIONS.md` §v0.10.
+
+- [ ] **v0.10.0** `Data/DruidSpells.lua` (seeded from the TBC database, checked against recorded
+  costs), `MD:ClassifyCast`, the learned `cdb.spellbook`, per-stream spell names.
+- [ ] **v0.10.1** fixed points: non-healing casts happen in the suggested column at the same time
+  and cost; `spend coverage` counts what the engine reproduces, not what the healing kit prices.
+- [ ] **v0.10.2** what the damage casts cost: their mana plus the regen lost to the five-second
+  rule they restarted, measured as the difference between two runs.
+
 ## Phase 2 — other classes (after 1 is green)
 
 Generic parts already work for any mana class: the OOM clock, widget, datatexts,
