@@ -9,6 +9,15 @@
 -- depend on any event with t' > t. A cast, once started, is locked until it
 -- lands. This is what makes the card advice rather than hindsight.
 --
+-- The author, 2026-09-07: "be aware that a human cannot see the future like the
+-- simulation does. A human can only guess by aggro, AoE or a target spell
+-- indication, plus the tank is usually the one taking damage." That is exactly
+-- the budget above: the trailing 5 s is the guess, and "the tank takes damage"
+-- is `Anchor`, which picks the TANK role and falls back to whoever has taken
+-- the most. tools/replaycheck.lua PINS this rather than trusting the comment: a
+-- burst of damage arriving at 40 s must not change a single cast the plan makes
+-- before it.
+--
 -- A plan is deliberately small: at most five bound spells and five rules in a
 -- fixed order. "Cast rank 7 here and rank 9 there" is not a strategy a person
 -- can execute at 2am in a heroic, and a suggestion nobody can follow is worse
@@ -230,6 +239,20 @@ function Plan:Decide(S, t, mana, form)
         if i then
             local deficit = (S.maxHP[i] or 0) - (S.hp[i] or 0)
             local rate = SM.RecentDamage(S, i, t, 5) / 5
+            -- Healing already on its way to this target: the remaining ticks of
+            -- every HoT rolling on them, and Lifebloom's bloom. A HoT cast into
+            -- healing that is already inbound is the overheal this rule exists
+            -- to avoid, so it comes off the room before anything is chosen.
+            local pending = 0
+            local row = S.hots[i]
+            if row then
+                for fi2, st2 in pairs(row) do
+                    if st2.active then
+                        pending = pending + (st2.ticksLeft or 0) * (st2.tick or 0) * (st2.stacks or 1)
+                        if fi2 == HOT_INDEX.Lifebloom then pending = pending + (st2.bloom or 0) end
+                    end
+                end
+            end
             local pick, pickE, pickHPM = nil, nil, nil
             local bestPossibleHPM = 0        -- the best rate this plan can ever buy
             for _, fam in ipairs(SP.HOT_RULE) do
@@ -243,21 +266,28 @@ function Plan:Decide(S, t, mana, form)
                     if heal > 0 and hpm > bestPossibleHPM then bestPossibleHPM = hpm end
                     if not (st and st.active) then
                         local horizon = e.duration or ((e.ticks or 0) * (e.tickPeriod or 3))
-                        local room = deficit + rate * horizon
+                        local room = deficit + rate * horizon - pending
                         if heal > 0 and heal <= room and (not pick or hpm > pickHPM) then
                             pick, pickE, pickHPM = id, e, hpm
                         end
                     end
                 end
             end
-            -- The best HoT is already on them, and what is left is a worse rate.
-            -- Casting it costs mana the efficient one would have healed for
-            -- less; unless the target is urgent, WAIT for the good one to come
-            -- off. On this author's gear that is the difference between a
-            -- Rejuvenation at 4.72 per mana and a Lifebloom at 6.17 (v0.11.8).
+            -- The best HoT is already rolling and what is left is a worse rate.
+            -- Whether to buy it is a question about THROUGHPUT, not about health
+            -- (the author, 2026-09-07): "I do apply Rejuvenation if I expect more
+            -- incoming damage than Lifebloom can heal, not just on an HP
+            -- threshold, because a HoT will not heal them directly; when I want
+            -- to pop the HP right now I use Regrowth or Healing Touch."
+            --
+            -- So: add the second HoT only when the healing already in flight
+            -- will not keep up with the damage arriving over its own duration.
+            -- Otherwise wait for the efficient one -- 6.17 health per mana
+            -- against 4.72 on this author's gear. Wanting health NOW is rule 2's
+            -- question, and rule 2 is above this one for that reason.
             if pick and pickHPM < bestPossibleHPM - 1e-9 then
-                local frac = (S.hp[i] or 0) / (S.maxHP[i] or 1)
-                if frac >= self.directBelow then pick = nil end
+                local horizon = pickE.duration or ((pickE.ticks or 0) * (pickE.tickPeriod or 3))
+                if pending >= rate * horizon then pick = nil end
             end
             if pick then return pick, i, 4 end
         end

@@ -2138,3 +2138,35 @@ Lifeblooms and nothing else**, 880 mana of healing, ending with no deficit at al
 
 replaycheck 62 → 66, replayui 54 → 60. One harness note: a hand-built plan state needs its damage
 ring filled, because `RecentDamage` reads it by index and an empty one compares nil with a number.
+
+## 2026-09-07 — v0.11.9: throughput, not health, and the invariant under test
+
+The author on v0.11.8's gate: "in some cases I do apply Rejuvenation if I expect more incoming
+damage than Lifebloom can heal, not just on an HP threshold, because a HoT will not heal them
+directly. When I want to pop the HP right now I use Regrowth or Healing Touch."
+
+That is a better rule than the one I shipped, and it moves the question. Whether to add a second,
+less efficient HoT is about **throughput**: does the healing already on its way cover the damage
+arriving over that HoT's own duration? Health *now* is a different question with a different
+answer, and rule 2 — the direct heal — already owns it, which is why it sits above rule 4.
+
+So rule 4 now computes `pending`, the healing in flight on that target (every rolling HoT's
+remaining ticks, plus Lifebloom's bloom), and subtracts it from the room before choosing anything
+— casting into healing that is already inbound is the overheal this rule exists to avoid. When
+the efficient HoT is rolling and only a worse one is free, it is bought **only** if
+`pending < rate x duration`. The health threshold is gone.
+
+`replaycheck` now separates the three cases: a quiet fight waits for the efficient HoT, heavy
+damage buys the worse one even at full health, and a badly hurt target in a quiet fight is
+answered with a **direct heal** rather than a second HoT — the author's own rule, and the engine
+already agreed.
+
+**And the invariant is pinned.** The author: "be aware that a human cannot see the future like
+the simulation does — a human can only guess by aggro, AoE or a target spell indication, plus the
+tank is usually the one taking damage." That is exactly the plan's budget: the trailing 5 s *is*
+the guess, and "the tank takes damage" is `Anchor`. Until now that was a comment at the top of
+`Engine/SimPlanner.lua` and nothing checked it. There is a test now: the same fight run with and
+without a burst of damage at 40 s must produce **identical casts before 40 s**, and different ones
+after. It diverges at exactly the burst.
+
+replaycheck 66 → 70.

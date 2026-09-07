@@ -502,27 +502,106 @@ do
 
     local plan2 = SP.NewPlan(SP.MaxRankBinds(),
         { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 0, hotBelow = 0.90, filler = false }, kit2)
-    -- a target hurt but not urgent, with the efficient HoT already rolling
-    local S2 = { nT = 1, tracked = { true }, dead = { false }, hp = { 6000 }, maxHP = { 10000 },
-                 role = { "TANK" }, hots = { { } }, cd = {}, dmg = { { t = {}, a = {} } } }
-    -- the damage ring is read by index, so it has to be filled: an empty one
-    -- compares nil with a number
-    for j = 1, 64 do S2.dmg[1].t[j], S2.dmg[1].a[j] = -1000, 0 end
-    S2.hots[1][SM.HOT_INDEX.Lifebloom] = { active = true, expires = 99, stacks = 1 }
-    local id = plan2:Decide(S2, 5, 9999, "caster")
-    check("it does not buy the worse rate when the target can wait", id ~= rj,
-        id and tostring(id) or "waited")
+    -- a target hurt, with the efficient HoT rolling and its healing still to
+    -- land. The damage ring is read by index, so it has to be filled: an empty
+    -- one compares nil with a number.
+    local function state(hp, dmgPerSec)
+        local S2 = { nT = 1, tracked = { true }, dead = { false }, hp = { hp }, maxHP = { 10000 },
+                     role = { "TANK" }, hots = { {} }, cd = {}, dmg = { { t = {}, a = {} } } }
+        for j = 1, 64 do S2.dmg[1].t[j], S2.dmg[1].a[j] = -1000, 0 end
+        -- five seconds of damage at that rate, inside the trailing window
+        for j = 1, 5 do S2.dmg[1].t[j], S2.dmg[1].a[j] = 5 - j, dmgPerSec end
+        return S2
+    end
+    local function rolling(S2, ticksLeft)
+        S2.hots[1][SM.HOT_INDEX.Lifebloom] = { active = true, expires = 99, stacks = 1,
+            ticksLeft = ticksLeft, tick = e1.tick or 0, bloom = e1.bloom or 0 }
+    end
 
-    -- the same target, now urgent: the worse HoT is better than nothing
-    S2.hp[1] = 3000
-    local id2 = plan2:Decide(S2, 5, 9999, "caster")
-    check("but it does when the target is urgent", id2 ~= nil, tostring(id2))
+    -- nothing much is coming in: the rolling Lifebloom keeps up, so waiting for
+    -- it beats buying a worse rate
+    local quiet = state(6000, 0)
+    rolling(quiet, 7)
+    check("it waits for the efficient HoT when what is in flight keeps up",
+        plan2:Decide(quiet, 5, 9999, "caster") ~= rj,
+        tostring(plan2:Decide(quiet, 5, 9999, "caster")))
+
+    -- more damage than the Lifebloom can cover over its own duration: throughput
+    -- decides, and the second HoT goes out even at the worse rate
+    local heavy = state(6000, 900)
+    rolling(heavy, 7)
+    check("it adds the worse HoT when the damage outruns what is in flight",
+        plan2:Decide(heavy, 5, 9999, "caster") == rj,
+        tostring(plan2:Decide(heavy, 5, 9999, "caster")))
+
+    -- and that is a question about damage, not about health: the same heavy
+    -- damage on a nearly full target still gets it, a quiet fight on a badly
+    -- hurt one still does not
+    -- ...and low health is a different question with a different answer: at 30%
+    -- rule 2 fires first and casts a DIRECT heal, which is the author's own
+    -- rule ("when I want to pop the HP right now I use Regrowth or Healing
+    -- Touch"). It is never answered with a second HoT.
+    local hurtQuiet = state(3000, 0)
+    rolling(hurtQuiet, 7)
+    local id4 = plan2:Decide(hurtQuiet, 5, 9999, "caster")
+    check("low health is answered with a direct heal, not a second HoT",
+        id4 ~= rj and id4 == (plan2.binds.Regrowth or plan2.binds.HealingTouch),
+        tostring(id4))
 
     -- with nothing rolling, it takes the efficient one
-    S2.hp[1] = 6000
-    S2.hots[1][SM.HOT_INDEX.Lifebloom].active = false
-    local id3 = plan2:Decide(S2, 5, 9999, "caster")
-    check("with nothing rolling it takes the efficient one", id3 == lb, tostring(id3))
+    local fresh = state(6000, 100)
+    check("with nothing rolling it takes the efficient one",
+        plan2:Decide(fresh, 5, 9999, "caster") == lb,
+        tostring(plan2:Decide(fresh, 5, 9999, "caster")))
+end
+
+--------------------------------------------------------------------------------
+-- 9g. THE CAUSALITY INVARIANT, pinned rather than asserted in a comment. A
+-- human cannot see the future: they guess from aggro, an AoE cast bar, a spell
+-- on a target, and the fact that the tank is the one taking hits. The plan is
+-- allowed the same and no more -- the present, plus each target's TRAILING
+-- damage. If a burst arriving at t=40 changes anything the plan does before
+-- t=40, the engine is cheating and every card built on it is a lie.
+--------------------------------------------------------------------------------
+do
+    local function scenarioWithBurst(burst)
+        local ev = { t = {}, kind = {}, tgt = {}, amt = {}, x = {} }
+        local n = 0
+        local function add(at, amt)
+            n = n + 1
+            ev.t[n], ev.kind[n], ev.tgt[n], ev.amt[n], ev.x[n] = at, K.DMG, 1, amt, 0
+        end
+        -- a trickle both runs share, so the plan has something to do early
+        for at = 2, 38, 4 do add(at, 300) end
+        if burst then for at = 40, 48 do add(at, 1200) end end
+        return { dur = 60, pool = 9000, initial = { mana = 9000, apiBase = 10, apiCasting = 4 },
+                 kit = kit, floor = 0.30, ev = ev,
+                 targets = { { name = "T", role = "TANK", maxHP = 10000, hp0 = 10000, tracked = true } } }
+    end
+
+    local function castsOf(sc)
+        local out = {}
+        SP.RunPlan(sc, SP.NewPlan(SP.MaxRankBinds(),
+            { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 0, hotBelow = 0.90,
+              filler = false }, kit),
+            { critMode = "ev", onCast = function(_, at, id)
+                out[#out + 1] = string.format("%.2f:%d", at, id) end })
+        return out
+    end
+
+    local quiet, loud = castsOf(scenarioWithBurst(false)), castsOf(scenarioWithBurst(true))
+    local diverged, upTo = nil, 0
+    for j = 1, math.min(#quiet, #loud) do
+        local at = tonumber(quiet[j]:match("^([%d%.]+)"))
+        if quiet[j] ~= loud[j] then diverged = diverged or at end
+        if not diverged then upTo = at end
+    end
+    check("the plan casts something in the first half", upTo > 5, string.format("%.1fs", upTo))
+    check("a burst at 40s changes nothing the plan does before it",
+        diverged == nil or diverged >= 39.9,
+        diverged and string.format("diverged at %.1fs", diverged) or "identical until the burst")
+    check("and it does change what happens after", #loud ~= #quiet or diverged ~= nil,
+        string.format("%d casts quiet, %d loud", #quiet, #loud))
 end
 
 --------------------------------------------------------------------------------
