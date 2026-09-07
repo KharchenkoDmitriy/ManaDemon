@@ -772,7 +772,7 @@ local function PaintFrame(f, st, ti, isLeft, now)
     end
 end
 
-local function PaintStrip(s, st, pool, now)
+local function PaintStrip(s, st, pool, now, col)
     local mana = st:Mana() or 0
     s.mana:SetValue(pool > 0 and mana / pool or 0)
     s.manaFS:SetText(string.format("%d", mana + 0.5))
@@ -809,15 +809,34 @@ local function PaintStrip(s, st, pool, now)
 
     -- the rule behind what the bar shows, for the hover (right column: the
     -- plan's reasons; left: none are on record)
+    -- v0.12.3: the rule, and the numbers that made it fire. A rule name says
+    -- what kind of decision it was; the sentence says why THIS one, here, now.
+    local SP2 = MD.SimPlanner
+    local reason = st.LastReason and st:LastReason() or nil
     local why = (c and c.why) or (st.lastCast and st.lastCast.why) or 0
-    if why and why > 0 and MD.SimPlanner.RULE_NAMES[why] then
-        s.why = { { l = string.format("rule %d: %s", why, MD.SimPlanner.RULE_NAMES[why]), r = "" } }
+    local sentence = reason and SP2.ReasonText(reason, rp and rp.rec and rp.rec.names) or nil
+    if why and why > 0 and SP2.RULE_NAMES[why] then
+        s.why = { { l = string.format("rule %d: %s", why, SP2.RULE_NAMES[why]), r = "" } }
+        if sentence then s.why[#s.why + 1] = { l = "|cff888888" .. sentence .. "|r", r = "" } end
     elseif w then
-        s.why = { { l = "waiting: no rule fired", r = "" },
-                  { l = "|cff888888nobody under a threshold, or nothing affordable|r", r = "" } }
+        s.why = { { l = "waiting", r = "" },
+                  { l = "|cff888888" .. (sentence or "nobody under a threshold, or nothing affordable")
+                        .. "|r", r = "" } }
     else
         s.why = nil
     end
+    -- the left column's label is the classifier's; its sentence is the same idea
+    -- from the other side -- why THAT cast, in the recording's numbers
+    if col and col.isLeft and rp and rp.casts and st.lastCast and st.lastCast.n then
+        local rec2 = rp.casts[st.lastCast.n]
+        local text = rec2 and MD.SimPlanner.CastWhy(rec2, rp.rec and rp.rec.names)
+        if text then
+            s.why = s.why or {}
+            s.why[1] = { l = string.format("%s: %s", rec2.label, text), r = "" }
+            for i = 2, #s.why do s.why[i] = nil end
+        end
+    end
+    s.reasonText = sentence
 
     -- spent, floor, deaths -- and (v0.11.14) how much of the healing landed and
     -- how much mana came back, which is what comparing two strategies needs:
@@ -839,8 +858,8 @@ local function Paint()
         PaintFrame(left.frames[ti], left.state, ti, true, now)
         if right and right.state then PaintFrame(right.frames[ti], right.state, ti, false, now) end
     end
-    PaintStrip(left.strip, left.state, pool, now)
-    if right and right.state then PaintStrip(right.strip, right.state, pool, now) end
+    PaintStrip(left.strip, left.state, pool, now, left)
+    if right and right.state then PaintStrip(right.strip, right.state, pool, now, right) end
     timeFS:SetText(Clock(left.state.t) .. " / " .. Clock(left.state.dur))
     if not scrubber.dragging then
         scrubber.settingValue = true

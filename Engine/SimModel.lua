@@ -304,6 +304,10 @@ function SM:Run(scenario, plan, opts)
         -- it nT + 4, which the same loop already shrinks dt to fit.
         trace = { dt = gridDt, n = gridN, dur = dur, nT = nT, mana = {}, form = {}, hp = {},
                   healed = {}, overhealed = {}, mana0 = mana,
+                  -- v0.12.3: the numbers the rule read, one snapshot per traced
+                  -- decision. The plan reuses its record, so it is copied here;
+                  -- a trace is only built for the replay, never in the search.
+                  reasons = {},
                   ev = { t = {}, kind = {}, tgt = {}, a = {}, b = {}, why = {} }, nEv = 0 }
         for i = 1, nT do if S.tracked[i] then trace.hp[i] = {} end end
         if gridDt ~= (opts.trace.dt or 0.25) then
@@ -311,6 +315,7 @@ function SM:Run(scenario, plan, opts)
         end
     end
     local pendingWhy = 0        -- the rule behind the cast being committed (plan runs)
+    local pendingReason = nil   -- and the numbers it read (v0.12.3)
     local waitEv = nil          -- index of the open WAIT event, patched when it ends
     local function Trace(kind, tgt, a, b, why)
         if not trace then return end
@@ -318,6 +323,11 @@ function SM:Run(scenario, plan, opts)
         trace.nEv = n
         local e = trace.ev
         e.t[n], e.kind[n], e.tgt[n], e.a[n], e.b[n], e.why[n] = t, kind, tgt or 0, a or 0, b or 0, why or 0
+        if pendingReason then
+            local copy = {}
+            for k, v in pairs(pendingReason) do copy[k] = v end
+            trace.reasons[n] = copy
+        end
         return n
     end
     local function TakeGrid()
@@ -496,7 +506,7 @@ function SM:Run(scenario, plan, opts)
         if trace then
             EndWait()
             Trace(TK.CAST, ti, spellID, cost, pendingWhy)
-            pendingWhy = 0
+            pendingWhy, pendingReason = 0, nil
         end
         LandCast(spellID, ti)
     end
@@ -734,7 +744,8 @@ function SM:Run(scenario, plan, opts)
                 inFlight = false
                 if trace then Trace(TK.CANCEL, 0, 0, 0) end
             end
-            pendingWhy = SM.WHY_FIXED
+            -- no reason: the plan did not choose this one, it worked around it
+            pendingWhy, pendingReason = SM.WHY_FIXED, nil
             Succeed(c[2], c[4] or -1, c[3])
             -- the global cooldown it takes, and NO new decision event: exactly
             -- one decision chain may be alive, and the pending one will hit the
@@ -787,6 +798,7 @@ function SM:Run(scenario, plan, opts)
                     break
                 end
                 local spellID, ti, rule = plan:Decide(S, t, mana, form)
+                pendingReason = trace and plan.reason or nil
                 if spellID and lastWasWait and reaction > 0 then
                     -- Coming out of idle: pay the reaction delay, then ask
                     -- again. Asking again rather than committing now keeps the
@@ -817,6 +829,7 @@ function SM:Run(scenario, plan, opts)
                     -- that could change the answer, and never later than 0.5s
                     lastWasWait = true
                     if trace and not waitEv then waitEv = Trace(TK.WAIT, 0, 0, 0) end
+                    pendingReason = nil
                     local nextT = h.n > 0 and h.t[1] or (t + 0.5)
                     if nextT > t + 0.5 then nextT = t + 0.5 end
                     if nextT <= t then nextT = t + 0.5 end

@@ -185,8 +185,23 @@ end
 -- is a real answer: the less you drink, the faster the dungeon goes.
 -- Returns spellID, target, rule -- the rule (1..5) is the reason, recorded by
 -- the trace; every other caller ignores it.
+-- v0.12.3: WHY. A rule name is not a reason -- "the HoT that fits the deficit"
+-- does not say that the deficit was 1.2k, that 350 a second was arriving, and
+-- that all 1357 of a Lifebloom would therefore land. Every decision fills this
+-- one reused record with the numbers the rule actually read, and nothing else:
+-- a reason may never cite a fact Decide was not given (docs/SPEC-v0.12.md §6.4).
+local function Because(self, rule, fields)
+    local r = self.reason
+    if not r then r = {}; self.reason = r end
+    for k in pairs(r) do r[k] = nil end
+    r.rule = rule
+    if fields then for k, v in pairs(fields) do r[k] = v end end
+    return r
+end
+
 function Plan:Decide(S, t, mana, form)
     local kit = self.kit[form] or self.kit.caster
+    self.held = nil     -- set when a rule declines on purpose, read by the wait
     local function affordable(id)
         local e = id and kit[id]
         return e and mana >= (e.cost or 0) and e or nil
@@ -202,7 +217,11 @@ function Plan:Decide(S, t, mana, form)
             local row = S.hots[i]
             local has = row and ((row[HOT_INDEX.Regrowth] and row[HOT_INDEX.Regrowth].active)
                               or (row[HOT_INDEX.Rejuvenation] and row[HOT_INDEX.Rejuvenation].active))
-            if has then return sm, i, 1 end
+            if has then
+                Because(self, 1, { hp = S.hp[i] / S.maxHP[i], below = self.swiftmendBelow,
+                                   target = i })
+                return sm, i, 1
+            end
         end
     end
 
@@ -214,7 +233,12 @@ function Plan:Decide(S, t, mana, form)
         local dE = affordable(direct)
         if dE then
             local i = Neediest(self, S, t, self.directBelow)
-            if i then return direct, i, 2 end
+            if i then
+                Because(self, 2, { hp = S.hp[i] / S.maxHP[i], below = self.directBelow,
+                                   deficit = (S.maxHP[i] or 0) - (S.hp[i] or 0),
+                                   heal = (dE.direct or 0), target = i })
+                return direct, i, 2
+            end
         end
     end
 
@@ -226,9 +250,16 @@ function Plan:Decide(S, t, mana, form)
         if i then
             local st = S.hots[i] and S.hots[i][HOT_INDEX.Lifebloom]
             local stacks = (st and st.active) and st.stacks or 0
-            if stacks < self.rollStacks then return lb, i, 3 end
+            if stacks < self.rollStacks then
+                Because(self, 3, { stacks = stacks, want = self.rollStacks, target = i })
+                return lb, i, 3
+            end
             -- at the target stack, refresh only as it is about to fall off
-            if st and st.active and (st.expires - t) <= 1.5 then return lb, i, 3 end
+            if st and st.active and (st.expires - t) <= 1.5 then
+                Because(self, 3, { stacks = stacks, want = self.rollStacks, target = i,
+                                   expiresIn = st.expires - t })
+                return lb, i, 3
+            end
         end
     end
 
@@ -281,6 +312,7 @@ function Plan:Decide(S, t, mana, form)
             local pick, pickE, pickHPM = nil, nil, nil
             local bestPossibleHPM = 0        -- the best rate this plan can ever buy
             local bestFreeIn = 0             -- ...and how long until it can be cast again
+            local anyFree, tightHeal, tightRoom = false, nil, nil   -- why nothing fit
             for _, fam in ipairs(SP.HOT_RULE) do
                 local id = self.binds[fam]
                 local e = affordable(id)
@@ -300,6 +332,13 @@ function Plan:Decide(S, t, mana, form)
                             soon = inbound.amount or 0
                         end
                         local room = deficit + rate * horizon + soon - pending
+                        if heal > 0 then
+                            anyFree = true
+                            -- the closest miss, for the wait's reason
+                            if not tightHeal or heal - room < tightHeal - tightRoom then
+                                tightHeal, tightRoom = heal, room
+                            end
+                        end
                         if heal > 0 and heal <= room and (not pick or hpm > pickHPM) then
                             pick, pickE, pickHPM = id, e, hpm
                         end
@@ -325,17 +364,200 @@ function Plan:Decide(S, t, mana, form)
             -- over the WORSE spell's duration is what put a Rejuvenation on top
             -- of a fresh Lifebloom (the author, 2026-09-07).
             if pick and pickHPM < bestPossibleHPM - 1e-9 then
-                if pending >= rate * bestFreeIn then pick = nil end
+                if pending >= rate * bestFreeIn then
+                    pick = nil
+                    -- not "nothing fits": waiting on purpose for the good one
+                    self.held = { target = i, deficit = deficit, rate = rate, pending = pending,
+                                  freeIn = bestFreeIn, hpm = pickHPM, bestHpm = bestPossibleHPM }
+                end
             end
-            if pick then return pick, i, 4 end
+            if not pick and not self.held then
+                -- Say which of the two it is. "Nothing fits" is only true when a
+                -- HoT is free and the room is too small; when both are already
+                -- rolling the plan is waiting on a timer, and saying otherwise
+                -- sends the reader looking for damage that is not the point.
+                self.held = { target = i, deficit = deficit, rate = rate, pending = pending,
+                              rolling = (not anyFree) or nil, freeIn = (not anyFree) and bestFreeIn or nil,
+                              heal = tightHeal, room = tightRoom }
+            end
+            if pick then
+                local horizon = pickE.duration or ((pickE.ticks or 0) * (pickE.tickPeriod or 3))
+                local soon = 0
+                if inbound and inbound.at and inbound.at <= t + horizon then
+                    soon = inbound.amount or 0
+                end
+                Because(self, 4, { target = i, deficit = deficit, rate = rate, pending = pending,
+                                   incoming = soon > 0 and soon or nil,
+                                   incomingSpell = soon > 0 and inbound.spellID or nil,
+                                   room = deficit + rate * horizon + soon - pending,
+                                   heal = (pickE.direct or 0) + (pickE.tick or 0) * (pickE.ticks or 0)
+                                          + (pickE.bloom or 0),
+                                   hpm = pickHPM, bestHpm = bestPossibleHPM,
+                                   threat = S.threat and S.threat[i] or nil })
+                return pick, i, 4
+            end
         end
     end
 
-    -- 5. Filler, or wait.
+    -- 5. Filler, or wait. A wait is a decision too, and it gets a reason: what
+    -- was missing, in the same numbers.
+
     if self.filler and lbE then
         local i = Anchor(self, S, t)
         local st = i and S.hots[i] and S.hots[i][HOT_INDEX.Lifebloom]
-        if i and not (st and st.active) then return lb, i, 5 end
+        if i and not (st and st.active) then
+            Because(self, 5, { target = i })
+            return lb, i, 5
+        end
+    end
+    if self.held then
+        Because(self, 0, self.held)
+    else
+        local i = Neediest(self, S, t, 1.0)
+        if i then
+            -- SeenDamage returns (rate, biggest); inline it into math.max and the
+            -- biggest single hit wins the comparison and gets printed as a rate.
+            local seen = SM.SeenDamage(S, i, t)
+            Because(self, 0, { target = i, deficit = (S.maxHP[i] or 0) - (S.hp[i] or 0),
+                               hp = (S.maxHP[i] or 0) > 0 and S.hp[i] / S.maxHP[i] or nil,
+                               below = self.hotBelow,
+                               rate = math.max(SM.RecentDamage(S, i, t, 5) / 5, seen) })
+        else
+            Because(self, 0, {})
+        end
+    end
+    return nil
+end
+
+--------------------------------------------------------------------------------
+-- The sentence (docs/SPEC-v0.12.md §6). The numbers the rule read, in the units
+-- the author reads them in, and nothing that was not on the record.
+--------------------------------------------------------------------------------
+local function K1(v)
+    if not v then return "?" end
+    if v >= 1000 then return string.format("%.1fk", v / 1000) end
+    return string.format("%d", v + 0.5)
+end
+
+-- The same treatment for a cast the AUTHOR made: what the label means, in the
+-- numbers the recording carries. `overheal` is one word; "the target was at 92%
+-- and 1194 of 1592 was thrown away" is the reason.
+function SP.CastWhy(c, names)
+    if not c then return nil end
+    local SD2 = MD.SpellData
+    local sd = SD2.spells[c.spellID]
+    local fam = sd and sd.family or (names and names[c.spellID]) or "that cast"
+    local L = c.label
+    if L == "overheal" then
+        if c.hp and c.heal and c.deficit then
+            return string.format("target was at %d%% (%s missing) and %s heals %s: %s wasted",
+                c.hp * 100 + 0.5, K1(c.deficit), fam, K1(c.heal), K1(math.max(0, c.heal - c.deficit)))
+        end
+        return "the target was already full"
+    elseif L == "early" then
+        if c.ticksLeft and c.tickHeal then
+            return string.format("%s still had %d ticks on them (%s): the refresh threw that away",
+                fam, c.ticksLeft, K1(c.ticksLeft * c.tickHeal))
+        end
+        return string.format("%s was still ticking on them: the refresh threw the rest of it away", fam)
+    elseif L == "rank" then
+        local want = SD2.spells[c.wanted]
+        if want and c.deficit then
+            return string.format("%s healed %s into a %s deficit: R%d would have covered it",
+                fam, K1(c.heal or 0), K1(c.deficit), want.rank)
+        end
+        return want and string.format("right spell, bigger rank than the deficit needed: R%d would have covered it",
+            want.rank) or "a smaller rank would have covered it"
+    elseif L == "stack" then
+        if c.stacks then
+            return string.format("the stack was already at %d, and refreshing forfeits the bloom for %d mana",
+                c.stacks, c.cost or 0)
+        end
+        return "the stack was already at the plan's target, and refreshing forfeits the bloom"
+    elseif L == "spell" then
+        local want = SD2.spells[c.wanted]
+        if want and c.deficit then
+            return string.format("%s missing: the plan wanted %s on them at that moment",
+                K1(c.deficit), want.family)
+        end
+        return want and string.format("the plan wanted %s on them at that moment", want.family)
+            or "the plan wanted a different spell there"
+    elseif L == "late" then
+        return string.format("the plan wanted this target %.0fs earlier%s",
+            c.lateBy or 3, c.deficit and string.format(", at %s missing", K1(c.deficit)) or "")
+    elseif L == "utility" then
+        return string.format("outside the healing model: %d mana the plan does not get to choose",
+            c.cost or 0)
+    elseif L == "shift" then
+        return string.format("a shapeshift: its %d mana is counted, never suggested", c.cost or 0)
+    elseif L == "fine" then
+        if c.heal and c.deficit then
+            return string.format("what the plan would have done: %s into a %s deficit",
+                K1(c.heal), K1(c.deficit))
+        end
+        return string.format("what the plan would have done, for %d mana", c.cost or 0)
+    end
+    if c.deficit then
+        return string.format("%s at %s missing for %d mana, and the plan had no rule for it",
+            fam, K1(c.deficit), c.cost or 0)
+    end
+    return nil
+end
+
+function SP.ReasonText(r, names)
+    if not r then return nil end
+    if r.rule == 1 then
+        return string.format("at %d%%, under the %d%% Swiftmend line, with a HoT to eat",
+            (r.hp or 0) * 100 + 0.5, (r.below or 0) * 100 + 0.5)
+    elseif r.rule == 2 then
+        return string.format("at %d%%, under the %d%% line: %s missing and a HoT would be late",
+            (r.hp or 0) * 100 + 0.5, (r.below or 0) * 100 + 0.5, K1(r.deficit))
+    elseif r.rule == 3 then
+        if r.expiresIn then
+            return string.format("keeping Lifebloom rolling: %.1fs left on the stack", r.expiresIn)
+        end
+        return string.format("building the Lifebloom stack: %d of %d", r.stacks or 0, r.want or 0)
+    elseif r.rule == 4 then
+        local parts = { string.format("%s missing", K1(r.deficit)) }
+        if (r.rate or 0) > 0 then parts[#parts + 1] = string.format("%d/s coming in", (r.rate or 0) + 0.5) end
+        if r.incoming then
+            local nm = names and names[r.incomingSpell]
+            parts[#parts + 1] = string.format("%s inbound%s", K1(r.incoming),
+                nm and (" (" .. nm .. ")") or "")
+        end
+        if (r.pending or 0) > 0 then parts[#parts + 1] = string.format("%s already on the way", K1(r.pending)) end
+        local tail = string.format("all %s lands, none wasted", K1(r.heal))
+        if r.hpm and r.bestHpm and r.hpm < r.bestHpm - 1e-9 then
+            tail = tail .. string.format("; %.1f per mana, the best free is %.1f", r.hpm, r.bestHpm)
+        elseif r.hpm then
+            tail = tail .. string.format("; %.1f healing per mana, the best this plan buys", r.hpm)
+        end
+        return table.concat(parts, ", ") .. " -> " .. tail
+    elseif r.rule == 5 then
+        return "filler: nothing needed it, and a Lifebloom on the tank is cheap"
+    elseif r.rule == 0 then
+        if not r.target then return "waiting: nobody is hurt" end
+        if r.freeIn and r.hpm then
+            return string.format("waiting %.1fs for the efficient HoT: %s already on the way covers " ..
+                "%d/s until it is free, and the alternative buys %.1f per mana against %.1f",
+                r.freeIn, K1(r.pending), (r.rate or 0) + 0.5, r.hpm or 0, r.bestHpm or 0)
+        end
+        if r.rolling then
+            return string.format("waiting: every bound HoT is already rolling there, " ..
+                "the efficient one frees in %.1fs", r.freeIn or 0)
+        end
+        if r.heal then
+            -- whole numbers here on purpose: rounded to "1.6k" both sides, a
+            -- near miss reads as a contradiction
+            return string.format("waiting: %s missing at %d/s leaves room for %d, and the smallest HoT heals %d",
+                K1(r.deficit), (r.rate or 0) + 0.5, math.max(0, r.room or 0) + 0.5, (r.heal or 0) + 0.5)
+        end
+        if r.hp and r.below and r.hp > r.below + 1e-9 then
+            return string.format("waiting: nobody under the %d%% line - the neediest is at %d%% (%s missing)",
+                r.below * 100 + 0.5, r.hp * 100 + 0.5, K1(r.deficit))
+        end
+        return string.format("waiting: %s missing%s, too little for any HoT to land whole",
+            K1(r.deficit), (r.rate or 0) > 0 and string.format(" at %d/s", (r.rate or 0) + 0.5) or "")
     end
     return nil
 end
@@ -551,6 +773,7 @@ function SP.Classify(rec, scenario, plan, kit)
             local sd = SD.spells[spellID]
             local cost = costs[ci] or 0
             local label
+            local stacks, ticksLeft, tickHeal, lateBy   -- the numbers behind the label
             local wantID, wantTgt = plan:Decide(S, t, mana, form)
             local wantSd = wantID and SD.spells[wantID]
             local hp = (ti and ti >= 1 and ti <= S.nT and S.maxHP[ti] > 0)
@@ -568,13 +791,17 @@ function SP.Classify(rec, scenario, plan, kit)
                 local st = ti and ti >= 1 and S.hots[ti] and S.hots[ti][HOT_INDEX.Lifebloom]
                 if st and st.active and st.stacks >= plan.rollStacks and plan.rollStacks > 0 then
                     label = "stack"
+                    stacks = st.stacks
                 end
             end
 
             if not label and (sd.family == "Rejuvenation" or sd.family == "Regrowth") then
                 local fi = HOT_INDEX[sd.family]
                 local st = ti and ti >= 1 and S.hots[ti] and S.hots[ti][fi]
-                if st and st.active and st.ticksLeft >= 2 then label = "early" end
+                if st and st.active and st.ticksLeft >= 2 then
+                    label = "early"
+                    ticksLeft, tickHeal = st.ticksLeft, st.tick
+                end
             end
             if not label and hp >= 0 and hp >= fullHp and wantID == nil then
                 label = "overheal"
@@ -585,11 +812,32 @@ function SP.Classify(rec, scenario, plan, kit)
             if not label then
                 -- did the plan want this target earlier and get ignored?
                 for _, pc in ipairs(planCasts) do
-                    if pc[3] == ti and pc[1] <= t - 3 then label = "late"; break end
+                    if pc[3] == ti and pc[1] <= t - 3 then
+                        label = "late"
+                        lateBy = t - pc[1]
+                        break
+                    end
                 end
             end
             label = label or "unclassified"
-            perCast[ci] = { t = t, spellID = spellID, tgt = ti, label = label }
+            -- v0.12.3: the label is one word so the strip stays readable; this
+            -- is the sentence behind it, in the recording's own numbers.
+            local e = kit[form] and kit[form][spellID] or kit.caster[spellID]
+            local heal = e and ((e.direct or 0) + (e.tick or 0) * (e.ticks or 0) + (e.bloom or 0)) or 0
+            local deficit = (hp >= 0 and ti and S.maxHP[ti]) and (S.maxHP[ti] - S.hp[ti]) or nil
+            perCast[ci] = { t = t, spellID = spellID, tgt = ti, label = label,
+                            hp = hp >= 0 and hp or nil, deficit = deficit, heal = heal > 0 and heal or nil,
+                            cost = cost, wanted = wantID, wantedTgt = wantTgt,
+                            stacks = stacks, ticksLeft = ticksLeft, tickHeal = tickHeal,
+                            lateBy = lateBy }
+            -- what the plan was thinking at the same moment, in its own numbers.
+            -- The plan reuses one record, so it is copied here (16 casts, not a
+            -- hot path) -- this is the side-by-side the card prints.
+            if plan.reason then
+                local copy = {}
+                for k2, v2 in pairs(plan.reason) do copy[k2] = v2 end
+                perCast[ci].planReason = copy
+            end
 
             labels[label] = labels[label] + cost
             counts[label] = counts[label] + 1
@@ -815,6 +1063,37 @@ function SP.Card(rec, best, bestResult, replayResult, baselineResults, cls, vali
     if math.abs(sum - (rec.spent or 0)) > math.max(50, (rec.spent or 0) * 0.02) then
         add("  (warning: labelled %s of %s spent - the breakdown is incomplete)",
             Fmt(sum), Fmt(rec.spent or 0))
+    end
+
+    -- v0.12.3: the first place the two columns disagree, with both sides saying
+    -- why in their own numbers. This is the comparison the author was making by
+    -- hand off two screenshots.
+    do
+        local SKIP = { fine = true, utility = true, shift = true }
+        local first
+        for _, c in ipairs(cls.casts or {}) do
+            if not SKIP[c.label] then first = c; break end
+        end
+        if first then
+            local names = rec and rec.names
+            local SD2 = MD.SpellData
+            local function SpellName(id)
+                local sd = id and SD2.spells[id]
+                if sd then return string.format("%s R%d", sd.family, sd.rank) end
+                return (names and names[id]) or (id and GetSpellInfo(id)) or "?"
+            end
+            local who = first.tgt and rec and rec.roster and rec.roster[first.tgt]
+            local onWhom = who and (" -> " .. (who.name or "?")) or ""
+            add("  why, at %.0fs - the first cast the plan would not have made:", first.t or 0)
+            add("    you    %s%s", SpellName(first.spellID), onWhom)
+            local yours = SP.CastWhy(first, names)
+            if yours then add("           |cff888888%s: %s|r", first.label, yours) end
+            local wantWho = first.wantedTgt and rec and rec.roster and rec.roster[first.wantedTgt]
+            add("    plan   %s%s", first.wanted and SpellName(first.wanted) or "wait",
+                wantWho and (" -> " .. (wantWho.name or "?")) or "")
+            local theirs = first.planReason and SP.ReasonText(first.planReason, names)
+            if theirs then add("           |cff888888%s|r", theirs) end
+        end
     end
 
     local caveats = { "EV crit", "other healers as recorded", "threat and kill speed not modelled" }

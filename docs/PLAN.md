@@ -210,9 +210,13 @@ enabled indicators are foresight: **aggro** and **an enemy cast with a named tar
   may move the heal before the hit, a swing at 40 s may not.)*
 - [x] **v0.12.2** the replay draws the Targeted Spells icon and the aggro bar, in the author's own
   positions, on both columns. *(2026-09-07.)*
-- [ ] **v0.12.3** why it cast that, there, then: a reason record from `Plan:Decide` with the
+- [x] **v0.12.3** why it cast that, there, then: a reason record from `Plan:Decide` with the
   numbers that made the rule fire, the same treatment for the classifier's labels on the recorded
-  casts, rendered in the replay, on the card and in the import tool.
+  casts, rendered in the replay, on the card and in the import tool. *(2026-09-07; the reason is
+  the rule's own inputs read back, and `replaycheck` asserts field by field that it cites nothing
+  `Decide` was not given. It found a real bug on the way: `math.max(a, SM.SeenDamage(...))` takes
+  BOTH of SeenDamage's returns, so the wait sentence was printing the biggest single hit as a
+  rate.)*
 
 ## Phase 2 — other classes (after 1 is green)
 

@@ -702,6 +702,152 @@ do
 end
 
 --------------------------------------------------------------------------------
+-- 9i. v0.12.3: A REASON MAY NOT CITE WHAT THE PLAN WAS NOT GIVEN. The sentences
+-- under the suggested column are the rule's own inputs read back, so every
+-- number in one has to be recomputable from the state `Decide` was handed at
+-- that moment -- field by field, not in spirit. If a reason can name a fact the
+-- plan did not have, the explanation is a story and 9g is not worth much.
+--------------------------------------------------------------------------------
+do
+    -- every field a reason record is allowed to carry, and where it comes from
+    local KNOWN = {
+        rule = "constant", target = "S", hp = "S", below = "plan", deficit = "S",
+        heal = "kit", rate = "S", pending = "S", incoming = "S", incomingSpell = "S",
+        room = "derived", hpm = "kit", bestHpm = "kit", threat = "S", stacks = "S",
+        want = "plan", expiresIn = "S", freeIn = "S", rolling = "S",
+    }
+    local function build(withCast)
+        local ev = { t = {}, kind = {}, tgt = {}, amt = {}, x = {} }
+        local n = 0
+        for at = 2, 56, 2 do
+            n = n + 1
+            ev.t[n], ev.kind[n], ev.tgt[n], ev.amt[n], ev.x[n] = at, K.DMG, (at % 4 == 0) and 2 or 1, (at % 4 == 0) and 380 or 150, 0
+        end
+        n = n + 1
+        ev.t[n], ev.kind[n], ev.tgt[n], ev.amt[n], ev.x[n] = 10, K.THREAT, 1, 1, 0
+        local sc = { dur = 60, pool = 9000, initial = { mana = 9000, apiBase = 10, apiCasting = 4 },
+                     kit = kit, floor = 0.30, ev = ev,
+                     targets = { { name = "T", role = "TANK", maxHP = 9000, hp0 = 9000, tracked = true },
+                                 { name = "M", role = "DAMAGER", maxHP = 6000, hp0 = 6000, tracked = true } } }
+        if withCast then
+            sc.incoming = { { t = 20, at = 23, amount = 1400, spellID = 12471, target = 1 },
+                            { t = 44, at = 47, amount = 1200, spellID = 12471, target = 2 } }
+        end
+        return sc
+    end
+
+    local plan = SP.NewPlan(SP.MaxRankBinds(),
+        { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 0, hotBelow = 0.90,
+          filler = false }, kit)
+    local realDecide = plan.Decide
+    local seen, fields, bad = 0, {}, nil
+    local function fail(t, r, msg)
+        bad = bad or string.format("t=%.2f rule %s: %s", t, tostring(r.rule), msg)
+    end
+    plan.Decide = function(self, S, t, mana, form)
+        local a, b, c = realDecide(self, S, t, mana, form)
+        local r = self.reason
+        if not r then return a, b, c end
+        seen = seen + 1
+        for k in pairs(r) do
+            fields[k] = (fields[k] or 0) + 1
+            if not KNOWN[k] then fail(t, r, "field the plan was never given: " .. tostring(k)) end
+        end
+        local i = r.target
+        if i then
+            if not (S.tracked and S.tracked[i] and S.hp[i]) then
+                fail(t, r, "target is not a tracked unit of this scenario")
+            else
+                local function off(x, y, tol)
+                    return math.abs((x or 0) - (y or 0)) > (tol or 0.5)
+                end
+                if r.hp and off(r.hp, S.hp[i] / S.maxHP[i], 0.002) then
+                    fail(t, r, "hp is not that target's health at t")
+                end
+                if r.deficit and off(r.deficit, S.maxHP[i] - S.hp[i], 1) then
+                    fail(t, r, "deficit is not maxHP - hp at t")
+                end
+                if r.rate then
+                    local seen = SM.SeenDamage(S, i, t)   -- one value: it returns two
+                    local want = math.max(SM.RecentDamage(S, i, t, 5) / 5, seen)
+                    if off(r.rate, want, 0.5) then
+                        fail(t, r, string.format("rate %.1f is neither the trailing 5s nor the fight so far (%.1f)",
+                            r.rate, want))
+                    end
+                end
+                if r.pending then
+                    local want, row = 0, S.hots[i]
+                    if row then
+                        for _, st in pairs(row) do
+                            if st.active then
+                                want = want + (st.ticksLeft or 0) * (st.tick or 0) * (st.stacks or 1)
+                                       + (st.bloom or 0)
+                            end
+                        end
+                    end
+                    if off(r.pending, want, 1) then fail(t, r, "pending is not what is rolling on them now") end
+                end
+                if r.threat and r.threat ~= (S.threat and S.threat[i]) then
+                    fail(t, r, "threat is not what was sampled for them")
+                end
+                if r.incoming then
+                    local inb = S.incoming and S.incoming[i]
+                    if not inb then
+                        fail(t, r, "an inbound cast nobody is casting")
+                    elseif off(r.incoming, inb.amount or 0, 1) then
+                        fail(t, r, "inbound size is not what that spell hit for in this fight")
+                    elseif inb.at and inb.at < t - 1e-9 then
+                        fail(t, r, "the cast it cites landed before this decision")
+                    elseif r.incomingSpell and r.incomingSpell ~= inb.spellID then
+                        fail(t, r, "inbound spell is not the one in the air")
+                    end
+                end
+                if r.expiresIn then
+                    local best, row = nil, S.hots[i]
+                    if row then
+                        for _, st in pairs(row) do
+                            if st.active then
+                                local left = (st.expires or t) - t
+                                if not best or math.abs(left - r.expiresIn) < math.abs(best - r.expiresIn) then
+                                    best = left
+                                end
+                            end
+                        end
+                    end
+                    if not best or off(r.expiresIn, best, 0.05) then
+                        fail(t, r, "expiresIn is not the remaining life of a HoT on them")
+                    end
+                end
+            end
+        end
+        return a, b, c
+    end
+    SP.RunPlan(build(true), plan, { critMode = "ev" })
+    SP.RunPlan(build(false), plan, { critMode = "ev" })
+
+    check("every decision carries a reason", seen > 20, tostring(seen))
+    check("a reason cites nothing the plan was not given", bad == nil, bad or "field by field")
+    -- and the check is worth something only if the interesting fields showed up
+    check("the run exercised the fields that come from the state",
+        (fields.deficit or 0) > 0 and (fields.rate or 0) > 0 and (fields.pending or 0) > 0
+        and (fields.incoming or 0) > 0,
+        string.format("deficit %d, rate %d, pending %d, inbound %d, threat %d",
+            fields.deficit or 0, fields.rate or 0, fields.pending or 0,
+            fields.incoming or 0, fields.threat or 0))
+    check("every reason renders a sentence", (function()
+        for rule = 0, 5 do
+            local r = { rule = rule, target = 1, hp = 0.5, below = 0.6, deficit = 900, heal = 1400,
+                        rate = 120, pending = 300, room = 1200, hpm = 6.2, bestHpm = 6.2,
+                        stacks = 1, want = 3 }
+            local txt = SP.ReasonText(r, {})
+            if type(txt) ~= "string" or #txt < 10 then return false end
+            if txt:find("|", 1, true) then return false end
+        end
+        return true
+    end)(), "rules 0-5")
+end
+
+--------------------------------------------------------------------------------
 -- 9. no trace unless asked
 --------------------------------------------------------------------------------
 local plain = SM:Run(rp.scenario, nil, { critMode = "ev" })

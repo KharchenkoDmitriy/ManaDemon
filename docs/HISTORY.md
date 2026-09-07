@@ -2390,3 +2390,57 @@ That is the honest rendering of a bar that came to nothing.
 `replayui` 72 → 79: the icon appears while the cast is in the air on both columns, names the
 spell and its landing time on hover, is gone once it has landed, and a cast with no landing is
 still indexed.
+
+## 2026-09-07 — v0.12.3: why it cast that, there, then
+
+`docs/SPEC-v0.12.md` §6, the last piece of the version. Every decision the plan makes now carries
+the numbers that made it: `Plan:Decide` fills a reused `reason` record (`Because(self, rule,
+fields)`) on all five rules and on the wait, `SM:Run` copies it into the trace beside the event it
+caused, `Engine/ReplayTrace.lua` answers `State:LastReason()`, and `SP.ReasonText` renders the
+sentence.
+
+```
+14.50  Lifebloom R1   873 missing, 97/s coming in -> all 1.4k lands, none wasted;
+                      6.2 healing per mana, the best this plan buys
+ 7.00  wait 8s        waiting: 262 missing at 51/s leaves room for 876, and the
+                      smallest HoT heals 1620
+```
+
+A wait says which wait it is, which took three passes to get honest. "Too little for any HoT to
+land whole" was being printed for three different situations: nothing fits, every bound HoT is
+already rolling there, and *waiting on purpose* for the efficient one (rule 4's v0.11.13 branch,
+which declines a cast and had no way to say so). Each now has its own sentence, and the near-miss
+one prints whole numbers — rounded to "1.6k" on both sides, a 47-mana miss reads as a
+contradiction.
+
+The recorded casts get the same treatment from the other side (§6.2): `SP.CastWhy` turns the
+classifier's one-word label into the recording's own numbers, and `Classify` now stores what the
+sentence needs — stacks, ticks left, how late, the deficit and the cost. Every label carries a
+number now, including the ones that did not (`stack`, `late`, `fine`, `utility`, `shift`).
+
+The card gained the side-by-side of §6.3 — the first cast the plan would not have made, with both
+explanations under it:
+
+```
+why, at 7s - the first cast the plan would not have made:
+  you    Lifebloom R1 -> Penek
+         overheal: target was at 95% (262 missing) and Lifebloom heals 1.4k: 1.1k wasted
+  plan   wait
+         waiting: nobody under the 60% line - the neediest is at 95% (262 missing)
+```
+
+**§6.4 is the rule and it is now a test, not a comment.** `replaycheck` wraps `Plan:Decide` over
+two scenarios, and for every reason record asserts field by field that each number is
+recomputable from the state `Decide` was handed at that instant: `hp` is that target's health now,
+`deficit` is `maxHP - hp`, `rate` is the trailing 5 s or the fight so far, `pending` is what is
+actually rolling on them, an inbound cast is one that has not landed yet, and any field not on the
+allow-list fails. It caught a real bug immediately: `math.max(recent / 5, SM.SeenDamage(S, i, t))`
+passes **both** of SeenDamage's returns to `math.max`, so the biggest single hit won and the wait
+sentence reported 371/s where the rate was 137/s. That is the multi-return trap CLAUDE.md
+documents, fourth occurrence, and this time in code whose whole job is to tell the truth about
+numbers.
+
+`replayui` asserts the other half: every cast that lands in either column has a sentence, and
+every sentence has a number in it.
+
+replaycheck 76 → 80, replayui 79 → 80. All ten suites green.

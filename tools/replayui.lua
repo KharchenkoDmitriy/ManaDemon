@@ -73,6 +73,24 @@ end
 local sawRegrowth, sawDamage = false, false
 -- v0.8.2: indicators and labels seen at some point during the play-through
 local sawEarly, sawLBStack, sawRejuvDigit, sawDot, sawWhy, sawBand = false, false, false, false, false, false
+-- v0.12.3: every cast that lands in either column must be able to say why, in
+-- numbers. A sentence with no number in it is a justification, not a reason.
+local whySeen, whyMissing = { left = {}, right = {} }, {}
+local whyCount = { left = 0, right = 0 }
+local function NoteWhy(side, col)
+    local st, strip = col.state, col.strip
+    local lc = st.lastCast
+    if not lc then return end
+    local key = tostring(lc.n or lc.t or "?")
+    if whySeen[side][key] then return end
+    whySeen[side][key] = true
+    whyCount[side] = whyCount[side] + 1
+    local why = strip.why
+    local line = why and why[#why] and why[#why].l or nil
+    if not line or not line:find("%d") then
+        whyMissing[#whyMissing + 1] = string.format("%s cast %s: %s", side, key, tostring(line))
+    end
+end
 local sawDefIcon, sawDebuff2 = false, false
 local sawCastProgress, castProgressDetail = false, ""
 local sawTargetIcon = false
@@ -97,6 +115,8 @@ while MD.Replay._state().playing and frames < 2000 do
         if lf.dot:IsShown() then sawDot = true end
     end
     if W.right.strip.why then sawWhy = true end
+    NoteWhy("left", W.left)
+    if W.right.state then NoteWhy("right", W.right) end
     local cb = W.left.strip.cast
     local v, txt = cb:GetValue(), W.left.strip.castFS:GetText()
     if txt:find("Regrowth") and v > 0.05 and v < 0.95 then
@@ -127,6 +147,9 @@ check("Rejuvenation icon sweeps its duration", sawRejuvDigit)
 check("Swiftmend icon shown", sawDot)
 check("Swiftmend icon carries its texture", W.left.frames[tankRow].dot.spellID == 18562 or (mageRow and W.left.frames[mageRow].dot.spellID == 18562))
 check("right cast bar carries a why", sawWhy)
+check("every cast in either column says why, with a number in it",
+    #whyMissing == 0 and whyCount.left > 0 and whyCount.right > 0,
+    whyMissing[1] or string.format("%d left, %d right", whyCount.left, whyCount.right))
 check("wait band drawn while the plan holds", sawBand)
 local enter = W.right.strip.cast:GetScript("OnEnter")
 local okTip = pcall(enter, W.right.strip.cast)

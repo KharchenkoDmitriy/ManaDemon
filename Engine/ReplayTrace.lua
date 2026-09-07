@@ -87,6 +87,7 @@ function State:Apply(i, fire)
         self.spent = self.spent + (b or 0)
         self.casts = self.casts + 1
         self.lastCast = { spellID = a, target = tgt, t = t, why = e.why[i], n = self.casts }
+        self.lastReasonI = i
         local cd = MD.SimModel.SPELL_CD and MD.SimModel.SPELL_CD[a]
         if cd then self.cdUntil[a] = t + cd end
     elseif kind == TK.CANCEL then
@@ -109,6 +110,7 @@ function State:Apply(i, fire)
         self.form = (a == 1) and "tree" or "caster"
     elseif kind == TK.WAIT then
         self.waitStart, self.waitLen = t, a or 0
+        self.lastReasonI = i        -- a wait is a decision and carries its own reason
     end
     if fire and self.onEvent then self.onEvent(kind, tgt, a, b, t, e.why[i]) end
 end
@@ -123,6 +125,7 @@ local function Reset(self)
     self.form, self.casting, self.lastCast = nil, nil, nil
     self.waitStart, self.waitLen = nil, 0
     self.spent, self.deaths, self.casts = 0, 0, 0
+    self.lastReasonI = nil
     self.lowest, self.lowestTgt = 1, nil
     for k in pairs(self.cdUntil) do self.cdUntil[k] = nil end
     for i = 1, #self.auras do
@@ -330,6 +333,15 @@ function State:Damage(ti, window)
 end
 
 -- The running score line: what the strip prints under the mana bar.
+-- v0.12.3: the numbers behind the decision that is showing -- the cast that
+-- last landed, or the wait that is running.
+function State:LastReason()
+    local tr = self.trace
+    if not (tr and tr.reasons) then return nil end
+    if self.lastReasonI then return tr.reasons[self.lastReasonI] end
+    return nil
+end
+
 function State:Score()
     return self.spent, self.lowest, self.deaths, self.casts
 end

@@ -259,13 +259,25 @@ elseif cmd == "validate" then
 
 elseif cmd == "replay" then
     local rec = list[n]; if not rec then Say("no %s %s", what, Label(n)); os.exit(1) end
-    local rp = SP.Replay(rec, { force = opts.force })
+    -- The reasons (v0.12.3) need a plan to reason WITH: without one there is no
+    -- suggested column and no classifier labels. Offline, fall back to the
+    -- default plan on the ranks this fight actually cast, and say so.
+    local kitR = MD.RankMath:SpellKit()
+    local planR = SP.plans[rec.id]
+    if not planR then
+        planR = SP.NewPlan(SP.BindsFromRecording(rec, kitR),
+            { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 0, hotBelow = 1.00,
+              filler = false }, kitR)
+    end
+    local rp = SP.Replay(rec, { force = true, plan = planR })
     local L, TK = rp.left.trace, SM.TK
     Say("%s %s: %s, %.1fs, %d own casts, %d trace events, grid %d x %.2fs%s", what, Label(n), rec.zone or "?",
         rec.dur or 0, rec.ownCasts or 0, L.nEv, L.n, L.dt,
         rp.right and "  (+ the coached plan on the right)" or "")
     for _, line in ipairs(MD:ValidationReport(rec, Label(n))) do Say("  %s", Strip(line)) end
     Say("")
+    Say("%s", SP.plans[rec.id] and "labels against the coached plan"
+        or "labels against the default plan on this fight's own ranks (coach it for a better one)")
     Say("%7s  %-22s %-14s %5s  %s", "t", "cast", "target", "cost", "label")
     local ci = 0
     for i = 1, L.nEv do
@@ -274,8 +286,12 @@ elseif cmd == "replay" then
             local sd = MD.SpellData.spells[L.ev.a[i]]
             local name = sd and (sd.family .. " R" .. sd.rank) or ("spell " .. L.ev.a[i])
             local tgt = rec.roster[L.ev.tgt[i]] and rec.roster[L.ev.tgt[i]].name or "-"
-            local label = rp.casts and rp.casts[ci] and rp.casts[ci].label or ""
+            local rec2 = rp.casts and rp.casts[ci]
+            local label = rec2 and rec2.label or ""
             Say("%7.2f  %-22s %-14s %5d  %s", L.ev.t[i], name, tgt, L.ev.b[i], label)
+            -- v0.12.3: why that one was inefficient, in the recording's numbers
+            local why = rec2 and SP.CastWhy(rec2, rec.names)
+            if why then Say("%7s  %s", "", Strip(why)) end
         end
     end
     Say("")
@@ -287,6 +303,26 @@ elseif cmd == "replay" then
             Say("  %-14s lowest %3d%% at %.1fs", rec.roster[ti] and rec.roster[ti].name or ("#" .. ti), lo * 100 + 0.5, (loK - 1) * L.dt)
         end
     end
+    if rp.right then
+        -- what the plan did, and why it did it there (v0.12.3)
+        local R2 = rp.right.trace
+        Say("")
+        Say("%7s  %-22s %s", "t", "the plan", "why")
+        for i = 1, R2.nEv do
+            local kind = R2.ev.kind[i]
+            local reason = R2.reasons and R2.reasons[i]
+            local why = reason and SP.ReasonText(reason, rec.names)
+            if kind == TK.CAST and why then
+                local sd = MD.SpellData.spells[R2.ev.a[i]]
+                Say("%7.2f  %-22s %s", R2.ev.t[i],
+                    sd and (sd.family .. " R" .. sd.rank) or ("spell " .. R2.ev.a[i]), Strip(why))
+            elseif kind == TK.WAIT and why and (R2.ev.a[i] or 0) >= 2 then
+                Say("%7.2f  %-22s %s", R2.ev.t[i], string.format("wait %.0fs", R2.ev.a[i]), Strip(why))
+            end
+        end
+        Say("")
+    end
+
     if rp.right then
         local R = rp.right.trace
         local casts, waits = 0, 0
