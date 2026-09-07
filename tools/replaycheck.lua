@@ -627,6 +627,81 @@ do
 end
 
 --------------------------------------------------------------------------------
+-- 9h. v0.12.1: THE LINE. A cast bar that is up at 38s and lands at 40s MAY
+-- change what the plan does from 38s -- it is on screen, and the author's Cell
+-- shows it. A swing at 40s with no bar may NOT change anything before it. Those
+-- two assertions are the whole ethic of the version.
+--------------------------------------------------------------------------------
+do
+    local function base(withCast, withBurst)
+        local ev = { t = {}, kind = {}, tgt = {}, amt = {}, x = {} }
+        local n = 0
+        local function add(at, kind, amt, x)
+            n = n + 1
+            ev.t[n], ev.kind[n], ev.tgt[n], ev.amt[n], ev.x[n] = at, kind, 1, amt, x or 0
+        end
+        -- a light trickle, so that by 38s the deficit alone (900) is too small
+        -- for a Lifebloom (1357) to land whole: without the bar the plan waits
+        for at = 2, 36, 4 do add(at, K.DMG, 100) end
+        if withBurst then add(40, K.DMG, 1500) end
+        local sc = { dur = 60, pool = 9000, initial = { mana = 9000, apiBase = 10, apiCasting = 4 },
+                     kit = kit, floor = 0.30, ev = ev,
+                     targets = { { name = "T", role = "TANK", maxHP = 10000, hp0 = 10000,
+                                   tracked = true } } }
+        if withCast then
+            -- the bar goes up at 38 and lands at 40 for what it really hit for
+            sc.incoming = { { t = 38, at = 40, amount = 1500, spellID = 12471, target = 1 } }
+        end
+        return sc
+    end
+    local function castsOf(sc)
+        local out = {}
+        SP.RunPlan(sc, SP.NewPlan(SP.MaxRankBinds(),
+            { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 0, hotBelow = 1.00,
+              filler = false }, kit),
+            { critMode = "ev", onCast = function(_, at, id)
+                out[#out + 1] = string.format("%.2f:%d", at, id) end })
+        return out
+    end
+    local function firstDiff(a, b)
+        for j = 1, math.max(#a, #b) do
+            if a[j] ~= b[j] then
+                local s2 = a[j] or b[j]
+                return tonumber(s2:match("^([%d%.]+)"))
+            end
+        end
+        return nil
+    end
+
+    local quiet = castsOf(base(false, false))
+    local burstOnly = castsOf(base(false, true))
+    local withBar = castsOf(base(true, true))
+
+    local d1 = firstDiff(quiet, burstOnly)
+    check("a burst with no cast bar changes nothing before it",
+        d1 == nil or d1 >= 39.9, d1 and string.format("diverged at %.1fs", d1) or "identical")
+
+
+    local d2 = firstDiff(burstOnly, withBar)
+    check("a cast bar up at 38s MAY change the plan from 38s",
+        d2 == nil or d2 >= 37.9,
+        d2 and string.format("diverged at %.1fs", d2) or "the bar changed nothing")
+    check("and it does: the heal goes out before the hit, not after", (function()
+        local a = tonumber((burstOnly[1] or "99"):match("^([%d%.]+)"))
+        local b = tonumber((withBar[1] or "99"):match("^([%d%.]+)"))
+        return a and b and a > 40 and b < 40
+    end)(), string.format("without %s, with %s", burstOnly[1] or "-", withBar[1] or "-"))
+
+    -- a cast the fight never sampled has no size, so it cannot inflate the room
+    local noSize = base(true, true)
+    noSize.incoming[1].amount = nil
+    local unsized = castsOf(noSize)
+    check("a cast with no recorded damage counts as nothing",
+        firstDiff(unsized, burstOnly) == nil or (firstDiff(unsized, burstOnly) or 0) >= 39.9,
+        tostring(firstDiff(unsized, burstOnly)))
+end
+
+--------------------------------------------------------------------------------
 -- 9. no trace unless asked
 --------------------------------------------------------------------------------
 local plain = SM:Run(rp.scenario, nil, { critMode = "ev" })

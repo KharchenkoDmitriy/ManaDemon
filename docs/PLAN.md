@@ -205,8 +205,9 @@ enabled indicators are foresight: **aggro** and **an enemy cast with a named tar
 - [x] **v0.12.0** record threat and enemy casts (`K.THREAT`, `K.ECAST`), `db.recordThreat`.
   *(2026-09-07; a cast is paired with the damage it did, because the log's SPELL_CAST_START
   carries no destination. A cast that never landed stays in the record with no landing time.)*
-- [ ] **v0.12.1** `Plan:Decide` reads them: a cast in the air counts towards rule 4's room, and
-  `Anchor` prefers a target that has threat.
+- [x] **v0.12.1** `Plan:Decide` reads them: a cast in the air counts towards rule 4's room, and
+  `Anchor` prefers a target that has threat. *(2026-09-07; the line is tested — a cast bar at 38 s
+  may move the heal before the hit, a swing at 40 s may not.)*
 - [ ] **v0.12.2** the replay draws the Targeted Spells icon and the aggro border, in the author's
   own positions, on both columns.
 - [ ] **v0.12.3** why it cast that, there, then: a reason record from `Plan:Decide` with the

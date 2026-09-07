@@ -154,6 +154,10 @@ local function NewSlot()
         heap = HeapNew(),
         nT = 0, hp = {}, maxHP = {}, dead = {}, tracked = {}, role = {},
         danger = {},      -- [target] = the health fraction one recorded hit would take them through
+        -- v0.12.1: the two things the healer's frames show them coming. Both are
+        -- present-tense: the aggro on the frame now, and the cast bar that is up.
+        threat = {},      -- [target] = UnitThreatSituation 0..3 as of t
+        incoming = {},    -- [target] = { at, amount, spellID } -- the soonest cast aimed there
         hots = {},        -- [target][hotIndex] = state table (reused)
         cd = {},          -- spellID -> time it is ready again
         dmg = {},         -- [target] = { t = {}, a = {}, head = 0 } circular, DMG_RING wide
@@ -246,6 +250,7 @@ function SM:Run(scenario, plan, opts)
             -- db.simDangerHits. A synthetic scenario has no recorded damage and
             -- keeps the flat floor.
             S.danger[i] = tg.danger or floor
+            S.threat[i], S.incoming[i] = 0, nil
             local row = S.hots[i]
             if row then for fi = 1, 3 do local st = row[fi]; if st then st.active = false end end end
             local ring = S.dmg[i]
@@ -496,10 +501,38 @@ function SM:Run(scenario, plan, opts)
         LandCast(spellID, ti)
     end
 
+    -- v0.12.1: threat changes and hostile casts, applied by cursor like every
+    -- other recorded timeline. A cast enters S.incoming when its BAR STARTS and
+    -- leaves when it lands (or when it should have): the plan sees exactly the
+    -- window the author saw the icon for.
+    local threatT = scenario.threat
+    local threatN, threatI = threatT and #threatT or 0, 1
+    local incomingT = scenario.incoming
+    local incomingN, incomingI = incomingT and #incomingT or 0, 1
     ----------------------------------------------------------------------------
     -- Time. Regen is integrated over the interval, splitting it at the moment
     -- the five-second rule lapses so a single long gap is still exact.
     ----------------------------------------------------------------------------
+    -- Everything the healer's frames show, brought up to date. Applied before
+    -- any decision at t, and only from entries whose time has come.
+    local function CatchUpFrames(nt)
+        while threatT and threatI <= threatN and threatT[threatI].t <= nt do
+            local e = threatT[threatI]
+            if e.target and e.target > 0 then S.threat[e.target] = e.status or 0 end
+            threatI = threatI + 1
+        end
+        while incomingT and incomingI <= incomingN and incomingT[incomingI].t <= nt do
+            local c = incomingT[incomingI]
+            if c.target and c.target > 0 then S.incoming[c.target] = c end
+            incomingI = incomingI + 1
+        end
+        -- a cast that has landed is off the frame: the icon goes when the bar does
+        for i = 1, nT do
+            local c = S.incoming[i]
+            if c and (not c.at or c.at <= nt) then S.incoming[i] = nil end
+        end
+    end
+
     local function AdvanceTo(nt)
         local dt = nt - t
         if dt <= 0 then t = nt > t and nt or t; return end
@@ -743,6 +776,7 @@ function SM:Run(scenario, plan, opts)
                     Succeed(a, b, aux)   -- aux carries the committed cast's cost
                 end
             elseif prio == E_DECIDE and deciding then
+                CatchUpFrames(t)
                 -- Still casting, or inside a fixed cast's global cooldown: ask
                 -- again when the healer is free. Only one decision chain may be
                 -- alive at a time, or the plan would commit two casts at once.

@@ -134,17 +134,25 @@ end
 
 -- The tank, or -- failing a role -- whoever has taken the most damage so far.
 -- Recomputed rather than cached: roles can be wrong and damage is causal.
+-- Who the healer is watching. The role first, because a tank is a tank; then
+-- v0.12.1: whoever the mobs are actually on, which is the aggro border on the
+-- author's frames and the thing that says the pack has left the tank; then, with
+-- nothing else to go on, whoever has taken the most.
 local function Anchor(self, S, t)
     if self.anchor and not S.dead[self.anchor] then return self.anchor end
-    local best, bestDmg
+    local best, bestDmg, threatened, threatLevel
     for i = 1, S.nT do
         if S.tracked[i] and not S.dead[i] then
             if S.role[i] == "TANK" then self.anchor = i; return i end
+            local th = (S.threat and S.threat[i]) or 0
+            if th > 0 and (not threatLevel or th > threatLevel) then
+                threatened, threatLevel = i, th
+            end
             local d = SM.RecentDamage(S, i, t, 60)
             if not bestDmg or d > bestDmg then best, bestDmg = i, d end
         end
     end
-    return best
+    return threatened or best
 end
 
 -- Lowest health fraction first, the anchor breaking ties: two people at 40% and
@@ -249,6 +257,13 @@ function Plan:Decide(S, t, mana, form)
             -- applied; neither is a look at the future.
             local seen = SM.SeenDamage(S, i, t)
             local rate = math.max(SM.RecentDamage(S, i, t, 5) / 5, seen)
+            -- v0.12.1: a hostile cast already in the air at this target, if it
+            -- will land inside the HoT's own life. This is Cell's Targeted
+            -- Spells icon and it is the author's rule -- "1.2k deficit, 350
+            -- coming in, cast now" -- with the 350 named rather than averaged.
+            -- Its size is what that spell actually did in THIS fight; a cast the
+            -- fight has no sample of counts as nothing and the rate carries it.
+            local inbound = S.incoming and S.incoming[i] or nil
             -- Healing already on its way to this target: the remaining ticks of
             -- every HoT rolling on them, and Lifebloom's bloom. A HoT cast into
             -- healing that is already inbound is the overheal this rule exists
@@ -280,7 +295,11 @@ function Plan:Decide(S, t, mana, form)
                     end
                     if not (st and st.active) then
                         local horizon = e.duration or ((e.ticks or 0) * (e.tickPeriod or 3))
-                        local room = deficit + rate * horizon - pending
+                        local soon = 0
+                        if inbound and inbound.at and inbound.at <= t + horizon then
+                            soon = inbound.amount or 0
+                        end
+                        local room = deficit + rate * horizon + soon - pending
                         if heal > 0 and heal <= room and (not pick or hpm > pickHPM) then
                             pick, pickE, pickHPM = id, e, hpm
                         end

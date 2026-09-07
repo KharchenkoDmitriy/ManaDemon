@@ -2336,3 +2336,38 @@ Bolt that lands and one that does not.
 One fixture lesson: the first cut inserted a two-second `advance` for the new cast, which moved
 every timestamp after it and broke four aura assertions in two other suites. The events ride
 inside an existing three-second step now, and the fixture's clock is where it was.
+
+## 2026-09-07 — v0.12.1: the plan reads the frames
+
+`docs/SPEC-v0.12.md` §4. Two entries join the causality budget, and both are present tense:
+
+- **`S.threat[i]`** — `Anchor` now prefers whoever the mobs are actually on, after the tank role
+  and before "whoever has taken the most". That is the aggro border saying the pack has left the
+  tank, which nothing in the plan could previously see.
+- **`S.incoming[i]`** — a hostile cast whose bar is up, with the moment it lands and what that
+  spell really hit for **in this fight**. Rule 4 counts it towards the room when it will land
+  inside the HoT's own life. A cast the fight has no sample of counts as nothing and the damage
+  rate carries it, so an unknown spell can never inflate a decision.
+
+A cast enters the state when its bar starts and leaves when it lands, so the plan sees exactly
+the window the author saw the icon for.
+
+**The line is now a test, not a claim.** Same fight, three ways: with nothing, with a 1500 hit at
+40 s, and with that hit plus the cast bar that announced it at 38 s.
+
+| scenario | first heal |
+|---|---|
+| burst at 40 s, no bar | 40.5 s, after the hit |
+| the same burst, bar up at 38 s | 38.5 s, before it |
+
+The burst alone changes nothing before it lands; the bar moves the heal in front of the damage.
+That pair is the whole ethic of the version, and it sits beside v0.11.9's older half — a swing
+with no bar may still change nothing.
+
+Two Lua traps on the way, both the same shape as ones this repo has hit before. `CatchUpFrames`
+closed over cursors declared *below* it, so it read globals and silently saw nothing — the same
+upvalue-ordering bug as `HasSwiftmend` in v0.9.7. And a one-occurrence `replace` edited the older
+causality test's plan instead of the new one, so the new test was gated at 90% health and could
+never fire at 91%.
+
+replaycheck 72 → 76.
