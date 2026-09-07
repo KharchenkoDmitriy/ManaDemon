@@ -535,6 +535,89 @@ function UI.CreateNavBox(parent, width, height, groups, onSelect)   -- one hook:
 end
 
 --------------------------------------------------------------------------------
+-- Dropdown: a button that says what is selected and drops a list under it.
+--
+-- The kit had button groups and nothing else, which is fine for two or three
+-- short labels and wrong for four long ones -- four strategy names beside the
+-- replay's column title ran off the window (v0.11.11). A dropdown costs one
+-- control's width whatever the labels say.
+--
+-- UI.CreateDropdown(parent, width, height, onSelect) -> dd
+--   dd:SetItems({ { id, text, tooltip }, ... })
+--   dd:SetValue(id)   -- no callback
+--   dd:Value()
+--   dd:Close()
+--------------------------------------------------------------------------------
+function UI.CreateDropdown(parent, width, height, onSelect)
+    height = height or 18
+    local dd = UI.CreateButton(parent, "", "accent-hover", { width, height }, false, false,
+        UI.FONT_SMALL, UI.FONT_SMALL)
+    dd.items, dd.rows, dd.value = {}, {}, nil
+
+    local arrow = dd:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
+    arrow:SetPoint("RIGHT", dd, "RIGHT", -4, 0)
+    arrow:SetText("v")
+    arrow:SetTextColor(0.7, 0.7, 0.7)
+
+    local list = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    list:SetPoint("TOPLEFT", dd, "BOTTOMLEFT", 0, -1)
+    list:SetWidth(width)
+    list:SetFrameStrata("DIALOG")
+    UI.StylizeFrame(list, UI.PALETTE and UI.PALETTE.header or { 0.115, 0.115, 0.115, 1 })
+    list:Hide()
+    dd.list = list
+
+    local function Label(id)
+        for _, it in ipairs(dd.items) do if it.id == id then return it.text end end
+        return ""
+    end
+
+    function dd:Close() list:Hide() end
+
+    function dd:SetValue(id)
+        dd.value = id
+        dd:SetText(Label(id))
+    end
+
+    function dd:Value() return dd.value end
+
+    function dd:SetItems(items)
+        dd.items = items or {}
+        for _, r in ipairs(dd.rows) do r:Hide() end
+        local prev
+        for i, it in ipairs(dd.items) do
+            local r = dd.rows[i]
+            if not r then
+                r = UI.CreateButton(list, "", "accent-hover", { width - 2, height }, true, false,
+                    UI.FONT_SMALL, UI.FONT_SMALL)
+                dd.rows[i] = r
+            end
+            r:SetText(it.text)
+            r:ClearAllPoints()
+            if prev then r:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, 1)
+            else r:SetPoint("TOPLEFT", list, "TOPLEFT", 1, -1) end
+            if it.tooltip then UI.SetTooltips(r, "ANCHOR_RIGHT", 0, 0, it.text, it.tooltip) end
+            r:SetScript("OnClick", function()
+                dd:SetValue(it.id)
+                list:Hide()
+                if onSelect then onSelect(it.id) end
+            end)
+            r:Show()
+            prev = r
+        end
+        list:SetHeight(math.max(height, #dd.items * (height - 1) + 3))
+        if dd.value == nil and dd.items[1] then dd:SetValue(dd.items[1].id) end
+    end
+
+    dd:SetScript("OnClick", function()
+        if list:IsShown() then list:Hide() else list:Show() end
+    end)
+    dd:SetScript("OnHide", function() list:Hide() end)
+
+    return dd
+end
+
+--------------------------------------------------------------------------------
 -- Check button
 --------------------------------------------------------------------------------
 -- UI.CreateCheckButton(parent, label, onClick(checked, cb), tooltip...)

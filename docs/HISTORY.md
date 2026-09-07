@@ -2194,3 +2194,25 @@ the bug back now reproduces the author's exact error in `tools/dashui.lua`:
 That is the eighth gap the stub has grown in two days, and the pattern is consistent: every one
 of them was the harness being *more permissive* than the client, and every one hid a real bug
 rather than causing a false one.
+
+## 2026-09-07 — v0.11.11: the strategy chooser is a dropdown
+
+"The strategy selector is out of the window. Also I suggest making it a dropdown, not buttons."
+The screenshot shows all four labels overlapping each other and running past the edge: `Safest`,
+`Highest health`, `Least mana` and `Most mana left` are long names, four buttons of them plus the
+column title is wider than a column, and they grew rightward from the title with nothing to stop
+them.
+
+The kit had button groups and nothing else, which is right for two or three short labels and
+wrong here. `UI.CreateDropdown(parent, width, height, onSelect)` is a button that says what is
+selected and drops a list under it — `SetItems`, `SetValue`, `Value`, `Close`, a per-item
+tooltip, and it closes itself when it is chosen from or when its parent hides. One control's
+width whatever the labels say.
+
+The replay window uses one, anchored to the window's **right edge** on the header line, so it
+cannot run off however long the names are. A single-column replay has no suggested column and
+therefore no chooser at all.
+
+replayui 60 → 66: it is one control, the list holds a row per strategy, it says which is active,
+the list opens on click and closes on choose, and choosing still swaps the plan without moving
+the clock.

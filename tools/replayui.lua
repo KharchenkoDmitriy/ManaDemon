@@ -277,25 +277,26 @@ do
     SP.plans[rec.id] = cheap
     MD:OpenReplay(1)
 
-    local function StratButton(text)
-        for _, f in ipairs(S.allFrames) do
-            if f.kind == "Button" and f.text == text and f:IsVisible() then return f end
-        end
-        return nil
-    end
-    check("the strategy row is drawn", StratButton("Least mana") ~= nil and StratButton("Safest") ~= nil)
-    check("every objective that has a winner gets a button", (function()
-        for _, obj in ipairs(SP.OBJECTIVES) do
-            if not StratButton(obj.name) then return false end
-        end
-        return true
-    end)())
+    local dd = MD.Replay._strategy()
+    check("the strategy chooser is drawn", dd ~= nil and dd:IsVisible())
+    check("it is ONE control, not one per strategy", dd ~= nil and dd:GetWidth() <= 130,
+        dd and tostring(dd:GetWidth()))
+    check("every objective that has a winner is in the list", dd ~= nil and #dd.items == 4,
+        dd and tostring(#dd.items))
+    check("it says which one is active", dd ~= nil and dd:GetText() == "Least mana",
+        dd and dd:GetText())
+    check("the list is closed until it is asked for", dd ~= nil and not dd.list:IsShown())
+    dd:GetScript("OnClick")(dd)
+    check("clicking it opens the list", dd.list:IsShown())
 
     -- play a little way in, then switch: the clock must not jump back
     MD.Replay._seek(8.0)
     local before = MD.Replay._state().left.state.t
-    local btn = StratButton("Safest")
+    local btn
+    for i, it in ipairs(dd.items) do if it.id == "safe" then btn = dd.rows[i] end end
+    check("the list has a row per strategy", btn ~= nil)
     btn:GetScript("OnClick")(btn)
+    check("choosing one closes the list", not dd.list:IsShown())
     check("switching strategy changes the plan the column draws",
         SP.plans[rec.id] == safe, tostring(SP.plans[rec.id] == safe))
     check("and keeps the clock where it was",
@@ -306,7 +307,7 @@ do
     -- a fight with no strategies shows no row at all
     SP.strategies[rec.id] = nil
     MD:OpenReplay(1)
-    check("no strategies, no row", StratButton("Least mana") == nil)
+    check("no strategies, no chooser", not MD.Replay._strategy():IsVisible())
 end
 
 print(string.format("\n%d ok, %d failed", ok, #fails))
