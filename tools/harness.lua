@@ -14,7 +14,7 @@ S.Load({
     "Engine/Targets.lua", "Engine/Overheal.lua", "Engine/ManaCooldowns.lua", "Engine/TTO.lua",
     "Engine/RankMath.lua", "Engine/Calibration.lua", "Engine/PullBudget.lua",
     "Engine/SimModel.lua", "Engine/FightRecorder.lua", "Engine/RunRecorder.lua", "Engine/SimPlanner.lua", "Engine/ReplayTrace.lua",
-    "Data/SimFixture_BF1.lua", "Data/SimPresets.lua", "Data/AuraList.lua",
+    "Data/SimFixture_BF1.lua", "Data/SimPresets.lua", "Data/AuraList.lua", "Data/DruidSpells.lua",
     -- UI/Summary.lua owns the combat-log handler and the fight lifecycle; it
     -- touches no widgets, so it loads here too.
     "UI/Summary.lua", "Verify.lua",
@@ -25,7 +25,18 @@ local SD = MD.SpellData
 for id, s in pairs(SD.spells) do
     if (s.level or 1) <= S.level then S.known[id] = true end
 end
-S.spellNames = setmetatable({}, { __index = function(_, k)
+-- The client names every spell; the stub only knows the healing table, so the
+-- non-healing ids the fixtures cast are named here. Without them MD:ClassifyCast
+-- has nothing to fall back on and calls a Mark of the Wild "unknown", which is
+-- a property of the harness rather than of the addon.
+S.spellNames = setmetatable({
+    [9885]  = "Mark of the Wild",
+    [2782]  = "Remove Curse",
+    [17116] = "Nature's Swiftness",
+    [33891] = "Tree of Life",
+    [26987] = "Moonfire", [25298] = "Starfire", [24977] = "Insect Swarm",
+    [9853]  = "Entangling Roots", [17329] = "Nature's Grasp", [24858] = "Moonkin Form",
+}, { __index = function(_, k)
     local s = SD.spells[k]
     return s and (s.family .. " r" .. tostring(s.rank)) or ("Spell" .. tostring(k))
 end })

@@ -162,5 +162,29 @@ do
         k and ("Rejuvenation " .. tostring(k.Rejuvenation)) or "no known table")
 end
 
+-- v0.10.1: the stream names every spell it recorded, and the classifier knows
+-- what kind of cast each one was
+do
+    local names = rec.names or {}
+    check("the recording names its casts", names[ids.rejuv] ~= nil and names[ids.MOTW] ~= nil,
+        tostring(names[ids.rejuv]) .. " / " .. tostring(names[ids.MOTW]))
+    local _, k1 = MD:ClassifyCast(ids.rejuv)
+    check("a heal is classified as a heal", k1 == "heal", tostring(k1))
+    local _, k2 = MD:ClassifyCast(9853)          -- Entangling Roots, from the seed table
+    check("a root is crowd control", k2 == "cc", tostring(k2))
+    local _, k3 = MD:ClassifyCast(26987)         -- Moonfire r11
+    check("a Moonfire is damage", k3 == "damage", tostring(k3))
+    check("what it learns is written down", MD.cdb.spellbook and MD.cdb.spellbook[26987]
+        and MD.cdb.spellbook[26987].kind == "damage")
+
+    local sum = MD.DruidSpells.Summarise(rec)
+    check("the summary splits the fight's mana by kind",
+        sum.heal.mana > 0 and sum.heal.casts >= 4, string.format("%d heal casts, %d mana",
+            sum.heal.casts, sum.heal.mana))
+    check("Mark of the Wild is utility, not a hole",
+        (sum.utility.casts or 0) >= 1 and sum.unknown.casts == 0,
+        string.format("utility %d, unknown %d", sum.utility.casts, sum.unknown.casts))
+end
+
 print(string.format("\n%d ok, %d failed", ok, #fails))
 if #fails > 0 then for _, m in ipairs(fails) do print("  FAIL " .. m) end; os.exit(1) end

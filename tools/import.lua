@@ -6,6 +6,7 @@
 --
 --   list                 every recording of the character, with its validate verdict
 --   runs                 every stored RUN with its stats (v0.9.2)
+--   spells N             what recording N spent its mana on, by kind (v0.10.1)
 --   validate N           the full gate report for recording N (1 = most recent)
 --   replay N             the trace: every own cast with its target and label, the
 --                        mana fit, each target's lowest health
@@ -227,6 +228,29 @@ elseif cmd == "runs" then
             #(run.pulls or {}), short, (run.stats and (run.stats.summarised or 0) > 0)
                 and string.format(", %d summarised only", run.stats.summarised) or "",
             i, i, #(run.pulls or {}), i)
+    end
+
+elseif cmd == "spells" then
+    -- what a recording spent its mana on, by kind (v0.10.1)
+    local rec = list[n]; if not rec then Say("no %s %s", what, Label(n)); os.exit(1) end
+    local sum = MD.DruidSpells.Summarise(rec)
+    Say("%s %s: %s, %.0fs, %d mana", what, Label(n), rec.zone or "?", rec.dur or 0, rec.spent or 0)
+    local order = { "heal", "damage", "cc", "utility", "shift", "unknown" }
+    local total = 0
+    for _, k in ipairs(order) do total = total + (sum[k] and sum[k].mana or 0) end
+    for _, k in ipairs(order) do
+        local b = sum[k]
+        if b and b.casts > 0 then
+            Say("  %-9s %2d cast(s) %6d mana  %3.0f%%", k, b.casts, b.mana,
+                total > 0 and b.mana / total * 100 or 0)
+        end
+    end
+    Say("")
+    local rows = {}
+    for label, v in pairs(sum.byName) do rows[#rows + 1] = { label, v } end
+    table.sort(rows, function(a, b) return a[2].mana > b[2].mana end)
+    for _, r in ipairs(rows) do
+        Say("    %-24s %-8s id %-6d x%-3d %6d mana", r[1], r[2].kind, r[2].id, r[2].casts, r[2].mana)
     end
 
 elseif cmd == "validate" then

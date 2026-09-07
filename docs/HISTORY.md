@@ -1863,3 +1863,35 @@ headroom. The card says which line it used and on whom.
 `replaycheck` 33 → 43: the line is the biggest hit and only for targets that were hit; the run
 reports its end deficit; the deficit prices at the plan's best rate; the score's ordering flips
 when the debt is charged and does not when there is none; nothing above the full line is a debt.
+
+## 2026-09-07 — v0.10.1: the addon knows what it cast
+
+`docs/SPEC-v0.10.md` §2. Until now the engine could name a heal and nothing else: a third of the
+author's mana went on ids no part of the addon had heard of, and offline the tools could not even
+print their names.
+
+**`Data/DruidSpells.lua`** holds the casts that are not heals, keyed by id, with a family and a
+kind — `damage`, `cc`, `utility` or `shift`. Nothing in it is a heal value or a formula, so a
+wrong row costs a label and a category and never a number; the cast's own cost comes from the
+recording either way. Seeded from the TBC database and corroborated against the author's
+recordings, which is the part that matters: four of the five ids reproduce their recorded cost
+exactly, three only after Moonglow's -9%.
+
+**The table does not have to be complete.** `MD:ClassifyCast` falls back to the spell's *name*
+from the client and writes what it resolves into `cdb.spellbook`, so the map grows from the game
+rather than from a website. The recorder stores a per-stream `names` map as it records, so a
+recording is readable offline, where no client exists to ask.
+
+Running it on the author's 74 s fight named everything except one id casting for 260 mana twice,
+which the database says is Moonkin Form — so shapeshifts became their own kind rather than being
+filed as utility. The fight reads: 61% damage, 23% healing, 13% shapeshift, 3% crowd control.
+Nothing unclassified.
+
+`/md verify` now groups the spells outside the healing model by kind and colours the
+unclassified ones, which is the author's list to correct. `tools/import.lua spells N` prints the
+same split offline, per spell.
+
+`reccheck` 39 → 46. One harness gap fixed on the way: the stub only knows the healing table, so
+`GetSpellInfo` could not name a Mark of the Wild and the classifier called it unknown — a
+property of the harness, not of the addon. The ids the fixtures cast are named in
+`tools/harness.lua` now.

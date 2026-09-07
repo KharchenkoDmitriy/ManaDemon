@@ -163,16 +163,19 @@ Spec: **`docs/SPEC-v0.9.md`**; the calls in `docs/DECISIONS.md` §v0.9.
 
 Spec: **`docs/SPEC-v0.10.md`**; the calls in `docs/DECISIONS.md` §v0.10.
 
-- [ ] **v0.10.0** `Data/DruidSpells.lua` (seeded from the TBC database, checked against recorded
-  costs), `MD:ClassifyCast`, the learned `cdb.spellbook`, per-stream spell names.
-- [ ] **v0.10.1** fixed points: non-healing casts happen in the suggested column at the same time
+- [x] **v0.10.1** `Data/DruidSpells.lua` (seeded from the TBC database, checked against recorded
+  costs), `MD:ClassifyCast`, the learned `cdb.spellbook`, per-stream spell names, `import spells N`.
+  *(2026-09-07; every cast in the author's fights is now named and classified.)*
+- [ ] **v0.10.2** fixed points: non-healing casts happen in the suggested column at the same time
   and cost; `spend coverage` counts what the engine reproduces, not what the healing kit prices.
 - [x] **v0.10.0** the deficit you still owe (health missing at the end priced as mana), the danger
   line measured from the fight's biggest hit instead of a flat 30%, and rule 4 casting the HoT
   whose whole heal fits the deficit. *(2026-09-07; shipped first because it is what the author
   kept seeing. Eating time in the run chain is still to do.)*
-- [ ] **v0.10.2** what the damage casts cost: their mana plus the regen lost to the five-second
+- [ ] **v0.10.3** what the damage casts cost: their mana plus the regen lost to the five-second
   rule they restarted, measured as the difference between two runs.
+- [ ] **v0.10.4** several strategies from one search (safest / highest health / least mana / most
+  regen), shown as rows and selectable for the replay's suggested column.
 
 ## Phase 2 — other classes (after 1 is green)
 

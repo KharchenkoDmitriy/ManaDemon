@@ -187,6 +187,8 @@ function FR:Start(t0)
         mana = { t = {}, v = {}, base = {}, cast = {} },
         precasts = {}, deaths = {}, n = 0, truncated = false,
         auraOn = {}, auraN = 0, auraTruncated = false,   -- v0.8.3, per-target aura bookkeeping
+        names = {},       -- v0.10.1: [spellID] = "Moonfire r11". A recording is read offline,
+                          -- where no client can name an id; a few dozen bytes buys that
         pinned = false,
     }
     stream.tracked = {}
@@ -422,6 +424,13 @@ function FR:Event(subevent, sourceGUID, destGUID, destName, p1, p2, p3, p4, p5, 
     if subevent == "SPELL_CAST_SUCCESS" then
         local cost = MD.SpellData:GetCost(p1)
         Push(s, t, K.OWNCAST, idx, cost or -1, p1 or 0)
+        if p1 and not s.names[p1] then
+            -- p2 is the combat log's own spell name; GetSpellInfo adds the rank
+            local sd = MD.SpellData.spells[p1]
+            s.names[p1] = sd and (sd.family .. " r" .. sd.rank)
+                or (type(p2) == "string" and p2) or (GetSpellInfo and GetSpellInfo(p1)) or nil
+            if MD.ClassifyCast then MD:ClassifyCast(p1) end
+        end
         -- the two cooldowns worth replaying; potions arrive as a mana jump the
         -- sample stream already shows
         if p1 == 17116 or p1 == 29166 then Push(s, t, K.CD, -1, 0, p1) end

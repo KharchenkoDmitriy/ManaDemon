@@ -68,16 +68,26 @@ function MD:RunVerify()
     MD:Print(string.format("checked %d cast times, %d costs — %d mismatch(es).",
         checkedCast, checkedCost, mismatches))
 
-    -- unknown spells the tracker couldn't price
+    -- Spells outside the healing model, by what they were for (v0.10.1). The
+    -- ones that come back "unknown" are the author's list to correct: a wrong
+    -- or missing row in Data/DruidSpells.lua costs a label, never a number.
     local unknown = {}
     for id in pairs(MD.Spend.unknown) do unknown[#unknown + 1] = id end
     if #unknown > 0 then
         table.sort(unknown)
-        local names = {}
+        local by = { damage = {}, cc = {}, utility = {}, shift = {}, unknown = {} }
         for _, id in ipairs(unknown) do
-            names[#names + 1] = (GetSpellInfo(id) or "?") .. " (" .. id .. ")"
+            local family, kind = MD:ClassifyCast(id)
+            local list = by[kind] or by.unknown
+            list[#list + 1] = (family or GetSpellInfo(id) or "?") .. " (" .. id .. ")"
         end
-        MD:Print("unpriced spells seen this session: " .. table.concat(names, ", "))
+        for _, kind in ipairs({ "damage", "cc", "utility", "shift", "unknown" }) do
+            if #by[kind] > 0 then
+                MD:Print(string.format("%s spells outside the healing model: %s",
+                    kind == "unknown" and "|cffff9966unclassified|r" or kind,
+                    table.concat(by[kind], ", ")))
+            end
+        end
     end
 
     MD:Print("— input snapshot —")
