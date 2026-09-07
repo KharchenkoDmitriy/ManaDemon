@@ -412,6 +412,80 @@ do
 end
 
 --------------------------------------------------------------------------------
+-- 9d. v0.10.3: what the casts a plan cannot choose cost the healer, measured as
+-- the difference between two runs rather than estimated per cast.
+--------------------------------------------------------------------------------
+do
+    local c = SM.CostOfCasts(rec, kit, { utility = true, shift = true, cc = true, damage = true })
+    check("the cost of the non-healing casts is measured", c ~= nil and c.casts > 0,
+        c and tostring(c.casts) or "nil")
+    -- the scripted pull's Mark of the Wild costs 445
+    check("their mana is their own recorded cost", c and math.abs(c.mana - 445) < 1,
+        c and string.format("%.0f", c.mana) or "-")
+    check("the regen they cost is never negative", c and c.regen >= 0, c and tostring(c.regen))
+    check("without them the fight ends richer by cost plus regen",
+        c and math.abs(c.total - (c.mana + c.regen)) < 1,
+        c and string.format("%.0f vs %.0f + %.0f", c.total, c.mana, c.regen) or "-")
+    check("asking about a kind the fight never cast returns nothing",
+        SM.CostOfCasts(rec, kit, { nosuchkind = true }) == nil)
+end
+
+--------------------------------------------------------------------------------
+-- 9e. v0.10.4: four strategies out of one pool of evaluations.
+--------------------------------------------------------------------------------
+do
+    -- a hand-built pool: three plans with clearly different shapes
+    local function snap(mana, floorS, area, endD, manaEnd)
+        return { deaths = { n = 0 }, floorSeconds = floorS, manaSpent = mana, deficitArea = area,
+                 endDeficit = endD, manaEnd = manaEnd, healed = 1, overhealed = 0,
+                 lowest = { hp = 0.5 } }
+    end
+    local pool = {
+        a = { plan = plan, result = snap(3000, 0.0, 2.0, 0, 4000), params = {} },  -- heals a lot
+        b = { plan = plan, result = snap(700, 0.0, 30.0, 0, 6000), params = {} },  -- barely heals
+        c = { plan = plan, result = snap(1500, 0.0, 9.0, 0, 5200), params = {} },
+        -- cheapest of all, but six seconds one hit from death: no objective may
+        -- take it, because every one of them ranks danger above its own axis
+        risky = { plan = plan, result = snap(100, 6.0, 40.0, 0, 6900), params = {} },
+        dead = { plan = plan, result = { deaths = { n = 1 }, floorSeconds = 0, manaSpent = 0,
+                 deficitArea = 0, endDeficit = 0, manaEnd = 9000, healed = 1, overhealed = 0,
+                 lowest = { hp = 0 } }, params = {} },
+    }
+    local w = SP.Winners(pool)
+    check("every objective has a winner", w.safe and w.health and w.cheap and w.regen)
+    check("no objective ever picks a plan that let somebody die", (function()
+        for _, obj in ipairs(SP.OBJECTIVES) do
+            if (w[obj.key].result.deaths.n or 0) > 0 then return false end
+        end
+        return true
+    end)())
+    check("safest takes the least time in danger", w.safe.result.floorSeconds == 0
+        and w.safe.result.deficitArea == 2.0, tostring(w.safe.result.floorSeconds))
+    check("no objective buys its axis with time in danger", (function()
+        for _, obj in ipairs(SP.OBJECTIVES) do
+            if (w[obj.key].result.floorSeconds or 0) > 0 then return false end
+        end
+        return true
+    end)())
+    check("highest health takes the smallest deficit", w.health.result.deficitArea == 2.0)
+    check("least mana takes the cheapest", w.cheap.result.manaSpent == 700,
+        tostring(w.cheap.result.manaSpent))
+    check("most mana left takes the fullest pool", w.regen.result.manaEnd == 6000,
+        tostring(w.regen.result.manaEnd))
+    check("they are not all the same plan", w.cheap.result ~= w.health.result)
+    check("an empty pool yields no winners", next(SP.Winners({})) == nil)
+
+    -- the search hands the pool out with the winner, without simulating again
+    local got, evals = nil, nil
+    local h = SP.Search(rp.scenario, { kit = kit, binds = SP.MaxRankBinds(), maxEvals = 12 }, nil,
+        function(_, _, n2, _, winners) got, evals = winners, n2 end)
+    local frames = 0
+    while not got and frames < 20000 do S.Tick(0.016); frames = frames + 1 end
+    check("a real search returns strategies too", got ~= nil and got.cheap ~= nil,
+        string.format("%d evaluations in %d frames", evals or -1, frames))
+end
+
+--------------------------------------------------------------------------------
 -- 9. no trace unless asked
 --------------------------------------------------------------------------------
 local plain = SM:Run(rp.scenario, nil, { critMode = "ev" })

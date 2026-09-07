@@ -320,6 +320,63 @@ function SP.Score(result, plan, heldOn)
              mana, -(heldOn or 0), plan and plan:BindCount() or 0, oh }
 end
 
+--------------------------------------------------------------------------------
+-- Strategies (docs/SPEC-v0.10.md §6c). One search evaluates up to 300 plans and
+-- keeps every one of them; reading that table four ways costs no simulation at
+-- all. Each objective is its own lexicographic tuple over the same result, and
+-- deaths lead all of them: no objective may trade a corpse for anything.
+--
+-- This is the honest alternative to inventing a weight. The tuple already
+-- refuses to blend health and mana; showing the corners of the trade-off and
+-- letting a human pick is that same refusal, made visible.
+--------------------------------------------------------------------------------
+local function OH(result)
+    local total = (result.healed or 0) + (result.overhealed or 0)
+    return total > 0 and result.overhealed / total or 0
+end
+
+SP.OBJECTIVES = {
+    { key = "safe", name = "Safest",
+      what = "least time one hit from death, then least health missing",
+      score = function(r, plan, held)
+          return { r.deaths and r.deaths.n or 0, r.floorSeconds or 0, r.deficitArea or 0,
+                   (r.manaSpent or 0) + SP.ManaOwed(r, plan), -(held or 0), OH(r) }
+      end },
+    { key = "health", name = "Highest health",
+      what = "least health missing over the fight, overheal excluded",
+      score = function(r, plan, held)
+          return { r.deaths and r.deaths.n or 0, r.deficitArea or 0, r.floorSeconds or 0,
+                   (r.manaSpent or 0) + SP.ManaOwed(r, plan), -(held or 0), OH(r) }
+      end },
+    { key = "cheap", name = "Least mana",
+      what = "least mana spent, plus what it still owes for health left missing",
+      score = function(r, plan, held) return SP.Score(r, plan, held) end },
+    { key = "regen", name = "Most mana left",
+      what = "most mana in the pool at the end - rewards spacing casts out of the 5SR",
+      score = function(r, plan, held)
+          return { r.deaths and r.deaths.n or 0, r.floorSeconds or 0, -(r.manaEnd or 0),
+                   r.deficitArea or 0, -(held or 0), OH(r) }
+      end },
+}
+
+-- pool: [key] = { plan, result }  ->  winners: [objective key] = { plan, result, score }
+function SP.Winners(pool)
+    local out = {}
+    for _, obj in ipairs(SP.OBJECTIVES) do
+        local best
+        for _, cand in pairs(pool) do
+            if cand.result and not cand.result.aborted then
+                local sc = obj.score(cand.result, cand.plan, 0)
+                if not best or SP.Better(sc, best.score) then
+                    best = { plan = cand.plan, result = cand.result, score = sc, params = cand.params }
+                end
+            end
+        end
+        if best then out[obj.key] = best end
+    end
+    return out
+end
+
 function SP.Better(a, b)
     if not b then return true end
     for i = 1, #a do
@@ -507,7 +564,7 @@ local function RankLabel(id)
         or tostring(id)
 end
 
-function SP.Card(rec, best, bestResult, replayResult, baselineResults, cls, validation)
+function SP.Card(rec, best, bestResult, replayResult, baselineResults, cls, validation, opts)
     local out = {}
     local function add(fmt, ...) out[#out + 1] = select("#", ...) > 0 and string.format(fmt, ...) or fmt end
 
@@ -573,6 +630,63 @@ function SP.Card(rec, best, bestResult, replayResult, baselineResults, cls, vali
     for _, b in ipairs(baselineResults or {}) do row(b.name, b.result) end
     row("best", bestResult, best.heldOn and string.format("   held on %d of %d",
         best.heldOn, best.heldOf or 0) or "", best)
+
+    -- Four ways of reading one search (v0.10.4). Identical winners are said
+    -- once: two objectives agreeing is more useful than the same row twice.
+    if opts and opts.winners then
+        add("  strategies (one search, four ways of reading it)")
+        local seen, order = {}, {}
+        for _, obj in ipairs(SP.OBJECTIVES) do
+            local w = opts.winners[obj.key]
+            if w then
+                local key = tostring(w.plan)
+                if seen[key] then
+                    seen[key].also[#seen[key].also + 1] = obj.name
+                else
+                    seen[key] = { w = w, names = { obj.name }, also = {} }
+                    order[#order + 1] = key
+                end
+            end
+        end
+        for _, key in ipairs(order) do
+            local e = seen[key]
+            local r, p = e.w.result, e.w.plan
+            local names = e.names[1]
+            if #e.also > 0 then names = names .. " = " .. table.concat(e.also, " = ") end
+            add("    %-34s %6s mana   floor %3d%%   %4.1fs in danger   %s",
+                names, Fmt((r.manaSpent or 0) + SP.ManaOwed(r, p)),
+                (r.lowest and r.lowest.hp or 1) * 100 + 0.5, r.floorSeconds or 0,
+                (r.endDeficit or 0) < 1 and "ends whole"
+                    or string.format("owes %s", Fmt(SP.ManaOwed(r, p))))
+        end
+        -- slashes, not pipes: a bare "|" is an escape sequence to the client
+        add("    |cff888888/md coach %s safe / health / cheap / regen plays that one in the replay|r",
+            tostring(opts.n or 1))
+    end
+
+    -- what the casts a plan cannot choose cost the healer (v0.10.3)
+    if rec then
+        local dmg = SM.CostOfCasts(rec, kit, { damage = true })
+        if dmg and dmg.casts > 0 then
+            add("  damage casts: %d for %s mana + %s lost to the five-second rule = %s",
+                dmg.casts, Fmt(dmg.mana), Fmt(dmg.regen), Fmt(dmg.total))
+            local tail = {}
+            if dmg.whileLow > 0 then
+                tail[#tail + 1] = string.format("%d of them under %d%% mana", dmg.whileLow, dmg.lowLine * 100)
+            end
+            if dmg.oomWith and not dmg.oomWithout then
+                tail[#tail + 1] = "and they are why you ran dry"
+            end
+            if #tail > 0 then add("  %s", table.concat(tail, ", ")) end
+            add("  (the fight would not have been the same fight without them - the mob lives longer.")
+            add("  This is what pressing them cost your mana, not whether to press them.)")
+        end
+        local cc = SM.CostOfCasts(rec, kit, { cc = true, utility = true, shift = true })
+        if cc and cc.casts > 0 then
+            add("  control, buffs and shifts: %d for %s mana + %s regen = %s, kept as they were in both columns",
+                cc.casts, Fmt(cc.mana), Fmt(cc.regen), Fmt(cc.total))
+        end
+    end
 
     -- what "in danger" meant in this fight: one hit from death, measured
     if rec then
@@ -745,7 +859,7 @@ function SP.Coach(rec, opts)
 
     local cls = SP.Classify(rec, scenario, best, kit)
     SP.Mark(rec, cls)
-    local card = SP.Card(rec, best, bestResult, you, results, cls, validation)
+    local card = SP.Card(rec, best, bestResult, you, results, cls, validation, opts)
     local progress = SP.Progress(rec.zone)
     if progress then card[#card + 1] = "  " .. progress end
     -- the last plan coached for this fight, so Play never searches (SPEC-v0.8 2.5)
@@ -761,6 +875,7 @@ function SP.Coach(rec, opts)
 end
 
 SP.plans = {}   -- [rec.id] = the plan Coach last produced for it
+SP.strategies = {}  -- [rec.id] = { [objective key] = { plan, result, score } }, from one search
 SP.forced = {}  -- [rec.id] = that plan came from a forced coach on a fight that does not replay
 
 --------------------------------------------------------------------------------
@@ -1015,7 +1130,8 @@ function SP.Search(scenario, opts, onProgress, onDone)
                         bestResult.manaSpent < floorMana * 0.99 and "  <- IMPOSSIBLE, engine is wrong" or "")
                 end
             end
-            if onDone then onDone(best, bestResult, evals, alternates) end
+            -- the same pool, read the other three ways: no extra simulation
+            if onDone then onDone(best, bestResult, evals, alternates, SP.Winners(seen)) end
         end
     end)
     return handle
@@ -1059,14 +1175,15 @@ function SP.CoachAsync(rec, opts, onDone)
     MD:Print("coach: searching (this runs across frames; /md coach cancel stops it)...")
     return SP.Search(scenario, { kit = kit, binds = binds, rec = rec },
         function(evals) MD:Debug("sim", "search %d evaluations", evals) end,
-        function(best, bestResult, evals)
+        function(best, bestResult, evals, alternates, winners)
             if not best then
                 onDone({ "coach: search cancelled." }, validation)
                 return
             end
             best.heldOn, best.heldOf = HeldOn(best, kit, rec.id)
+            SP.strategies[rec.id] = winners
             local lines = SP.Coach(rec, {
-                n = opts.n, force = true,
+                n = opts.n, force = true, winners = winners,
                 extra = { { name = "best (search)", plan = best } },
             })
             lines[#lines + 1] = string.format("  search: %d plans evaluated", evals)

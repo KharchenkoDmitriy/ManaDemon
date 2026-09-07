@@ -1930,3 +1930,39 @@ Two bugs found while wiring it, both by output rather than by a syntax check:
 
 `replaycheck` 44 → 47: the plan pays for the casts it did not choose, waiting never exceeds the
 fight, the longest wait fits inside it, and a preempted cast costs nothing.
+
+## 2026-09-07 — v0.10.3 and v0.10.4: what damage costs, and four ways to read one search
+
+**v0.10.3, the price of a damage cast** (`docs/SPEC-v0.10.md` §4). `SM.CostOfCasts(rec, kit,
+kinds)` runs the recorded script twice, once whole and once with those casts removed, and reports
+the difference: their own mana, the spirit regen lost to the five-second rules they restarted,
+and whether the fight reaches the OOM line in one run and not the other. Measured rather than
+estimated, because a per-cast "five seconds of regen" is wrong every time a heal follows within
+five seconds and would have restarted the rule anyway — only the two runs know that. On the
+author's 87 s fight: seven damage casts for 1.8k mana plus 123 of lost regen. The card prints the
+counterfactual with it every time: the fight would not have been the same fight without them, so
+this is what pressing them cost, never whether to press them.
+
+**v0.10.4, four strategies from one search** (§6c), the author's idea: "make a few different
+coach strategies which we simulate at the same time and then pick the one based on the result, or
+let the user select and look at different ones". It costs no simulation at all — `SP.Search`
+already evaluates up to 300 plans and keeps every one, so `SP.Winners` is a scan of that table.
+Four objectives, each its own lexicographic tuple, **deaths leading all of them** so no objective
+can trade a corpse for its own axis: safest (least time one hit from death), highest health
+(least health missing over the fight), least mana (the standing tuple), most mana left (rewards
+spacing casts out of the five-second rule rather than simply casting less). A new `deficitArea` —
+the time-integral of missing health — gives "most healing done" a number that overhealing cannot
+game, since topping up a target above the full line adds nothing to it.
+
+The card gains a block with one row per strategy and **identical winners collapsed**: on a
+one-target quest fight all four picked the same plan and it says so once, which is more useful
+than the same row four times. `/md coach 3 health` makes that one the plan the replay draws,
+without searching again.
+
+`replaycheck` 47 → 62. One expectation of mine was wrong on the way and the harness was right:
+the cheapest plan in a pool does *not* win "least mana" if it spent six seconds one hit from
+death, because every objective ranks danger above its own axis. That is the design working, so
+the test now asserts it directly.
+
+A third bare pipe found and fixed: the card's hint read `<safe|health|cheap|regen>`, which the
+client would have eaten from the first `|`.

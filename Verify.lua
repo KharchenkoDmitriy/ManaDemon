@@ -1316,11 +1316,32 @@ function MD:RunCoach(arg)
         return
     end
     -- "2" is a single fight, "2:7" the seventh pull of the second run
-    local n, rest = arg:match("^([%d:]*)%s*(%a*)$")
+    local n, rest = arg:match("^([%d:]*)%s*(%a*)$")   -- "3", "3 force", "3 health"
     if not n or n == "" then n = "1" end
     local rec, label = MD:GetRecording(n)
     if not rec then MD:Print("coach: no recording " .. tostring(n) .. ".") return end
     n = label
+
+    -- /md coach 3 health: pick one of the strategies the last search on this
+    -- fight produced, without searching again (v0.10.4)
+    local SP = MD.SimPlanner
+    for _, obj in ipairs(SP.OBJECTIVES or {}) do
+        if rest == obj.key then
+            local w = SP.strategies[rec.id] and SP.strategies[rec.id][obj.key]
+            if not w then
+                MD:Print(string.format("coach: no strategies for recording %s yet - run |cffffff00/md coach %s|r first.",
+                    tostring(n), tostring(n)))
+                return
+            end
+            SP.plans[rec.id] = w.plan
+            MD:Print(string.format("coach: |cff33ff66%s|r is now the plan the replay draws for recording %s - %s.",
+                obj.name, tostring(n), obj.what))
+            MD:Print(string.format("  %s mana, floor %d%%, %.1fs in danger.",
+                (w.result.manaSpent or 0) + SP.ManaOwed(w.result, w.plan) + 0.5,
+                (w.result.lowest and w.result.lowest.hp or 1) * 100 + 0.5, w.result.floorSeconds or 0))
+            return
+        end
+    end
     if MD.coachSearch then MD:Print("coach: already searching (/md coach cancel).") return end
 
     local function Show(lines)

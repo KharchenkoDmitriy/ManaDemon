@@ -173,10 +173,11 @@ Spec: **`docs/SPEC-v0.10.md`**; the calls in `docs/DECISIONS.md` §v0.10.
   line measured from the fight's biggest hit instead of a flat 30%, and rule 4 casting the HoT
   whose whole heal fits the deficit. *(2026-09-07; shipped first because it is what the author
   kept seeing. Eating time in the run chain is still to do.)*
-- [ ] **v0.10.3** what the damage casts cost: their mana plus the regen lost to the five-second
+- [x] **v0.10.3** what the damage casts cost: their mana plus the regen lost to the five-second
   rule they restarted, measured as the difference between two runs.
-- [ ] **v0.10.4** several strategies from one search (safest / highest health / least mana / most
-  regen), shown as rows and selectable for the replay's suggested column.
+- [x] **v0.10.4** several strategies from one search (safest / highest health / least mana / most
+  regen), shown as rows and selectable for the replay's suggested column. *(2026-09-07;
+  `/md coach N safe|health|cheap|regen`. The replay window's selector is still to do.)*
 
 ## Phase 2 — other classes (after 1 is green)
 

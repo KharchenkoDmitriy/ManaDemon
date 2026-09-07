@@ -212,6 +212,7 @@ function SM:Run(scenario, plan, opts)
     -- recording measured one. See docs/DECISIONS.md v0.7 "unreported energize".
     local energize = init.energize or 0
     local floor = scenario.floor or (MD.db and MD.db.simFloor) or 0.30
+    local fullAt = scenario.fullHp or (MD.db and MD.db.simFullHp) or 0.85
     local grace = scenario.grace or 6
     local dur = scenario.dur or 0
     local refreshKeepsTicks = opts.refreshKeepsTicks or false
@@ -265,6 +266,7 @@ function SM:Run(scenario, plan, opts)
     local healed, overhealed, floorSeconds = 0, 0, 0
     local tickCount, bloomCount = 0, 0
     local waitTime, busyUntil = 0, 0
+    local deficitArea = 0
     local waitRun, maxWaitRun, maxWaitAt = 0, 0, 0
     -- A healer who was idle does not start the next cast the instant the model
     -- says to. The delay applies ONLY coming out of a wait: the BF-1 log's
@@ -497,8 +499,14 @@ function SM:Run(scenario, plan, opts)
             local span = nt - from
             if span > 0 then
                 for i = 1, nT do
-                    if S.tracked[i] and not S.dead[i] and (S.hp[i] / S.maxHP[i]) < (S.danger[i] or floor) then
-                        floorSeconds = floorSeconds + span
+                    if S.tracked[i] and not S.dead[i] then
+                        local frac = S.hp[i] / S.maxHP[i]
+                        if frac < (S.danger[i] or floor) then floorSeconds = floorSeconds + span end
+                        -- v0.10.4: "how much health was missing, for how long",
+                        -- in fraction-seconds. "Most healing done" as a number
+                        -- overhealing cannot game: topping up a target who is
+                        -- already above the full line adds nothing to it.
+                        if frac < fullAt then deficitArea = deficitArea + span * (fullAt - frac) end
                     end
                 end
             end
@@ -807,7 +815,6 @@ function SM:Run(scenario, plan, opts)
     -- the living: a corpse is the deaths term's business. HoTs still rolling
     -- are healing already paid for, so their remaining ticks (and Lifebloom's
     -- bloom) come off the deficit before it is measured.
-    local fullAt = scenario.fullHp or (MD.db and MD.db.simFullHp) or 0.85
     local endDeficit = 0
     for i = 1, nT do
         if S.tracked[i] and not S.dead[i] and S.maxHP[i] > 0 then
@@ -828,6 +835,7 @@ function SM:Run(scenario, plan, opts)
         end
     end
     r.endDeficit = endDeficit
+    r.deficitArea = deficitArea
 
     r.waitFraction = dur > 0 and (waitTime / dur) or 0
     r.maxWaitRun, r.maxWaitAt = maxWaitRun, maxWaitAt
@@ -1209,6 +1217,72 @@ function SM:Validate(rec, kit)
 
     out.result = r
     out.manaMean, out.manaMax = mMean, mMax
+    return out
+end
+
+--------------------------------------------------------------------------------
+-- What the casts that are not heals cost the healer (docs/SPEC-v0.10.md §4).
+--
+-- Measured, not estimated: the recorded script is run twice, once whole and
+-- once with those casts taken out, and the difference is the answer. A per-cast
+-- estimate of "five seconds of spirit regen" would be wrong every time a heal
+-- followed within five seconds and would have restarted the rule anyway; only
+-- the two runs know that.
+--
+-- The counterfactual is stated wherever this is shown: the fight would NOT have
+-- been the same fight without them. The mob lives longer, the damage timeline
+-- changes, the root that stopped a hit is gone. This answers "what did pressing
+-- it cost my mana", never "should I have pressed it".
+--------------------------------------------------------------------------------
+function SM.CostOfCasts(rec, kit, kinds)
+    if not rec then return nil end
+    kit = kit or MD.RankMath:SpellKit()
+    kinds = kinds or { damage = true }
+    local sc = SM.ScenarioFromRecording(rec, kit)
+    if not sc then return nil end
+
+    local whole = SM:Run(sc, nil, { critMode = "ev" })
+    local withMana, withEnd, withLow = whole.manaSpent, whole.manaEnd, whole.lowestMana
+    local withOom = whole.oomAt
+
+    local kept, taken = {}, {}
+    for _, c in ipairs(sc.script or {}) do
+        local drop = false
+        if not MD.SpellData.spells[c[2]] and MD.ClassifyCast then
+            local _, kind = MD:ClassifyCast(c[2])
+            if kind and kinds[kind] then drop = true end
+        end
+        if drop then taken[#taken + 1] = c else kept[#kept + 1] = c end
+    end
+    if #taken == 0 then return nil end
+
+    local saved = sc.script
+    sc.script = kept
+    local without = SM:Run(sc, nil, { critMode = "ev" })
+    sc.script = saved
+
+    local out = { casts = #taken, mana = withMana - without.manaSpent,
+                  total = without.manaEnd - withEnd,
+                  lowestWith = withLow, lowestWithout = without.lowestMana,
+                  oomWith = withOom, oomWithout = without.oomAt,
+                  pool = rec.pool or 0 }
+    out.regen = out.total - out.mana        -- the rest is regen the 5SR restarts cost
+    if out.regen < 0 then out.regen = 0 end
+
+    -- how many of them were cast while the healer was already low, read off the
+    -- recording's own mana samples
+    local mn, pool = rec.mana or {}, rec.pool or 0
+    local low, lowLine = 0, (MD.db and MD.db.simFloor) or 0.30
+    if pool > 0 and mn.t then
+        for _, c in ipairs(taken) do
+            local v
+            for i = 1, #mn.t do
+                if mn.t[i] <= c[1] then v = mn.v[i] else break end
+            end
+            if v and v / pool < lowLine then low = low + 1 end
+        end
+    end
+    out.whileLow, out.lowLine = low, lowLine
     return out
 end
 
