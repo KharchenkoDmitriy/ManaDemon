@@ -208,8 +208,8 @@ enabled indicators are foresight: **aggro** and **an enemy cast with a named tar
 - [x] **v0.12.1** `Plan:Decide` reads them: a cast in the air counts towards rule 4's room, and
   `Anchor` prefers a target that has threat. *(2026-09-07; the line is tested — a cast bar at 38 s
   may move the heal before the hit, a swing at 40 s may not.)*
-- [ ] **v0.12.2** the replay draws the Targeted Spells icon and the aggro border, in the author's
-  own positions, on both columns.
+- [x] **v0.12.2** the replay draws the Targeted Spells icon and the aggro bar, in the author's own
+  positions, on both columns. *(2026-09-07.)*
 - [ ] **v0.12.3** why it cast that, there, then: a reason record from `Plan:Decide` with the
   numbers that made the rule fire, the same treatment for the classifier's labels on the recorded
   casts, rendered in the replay, on the card and in the import tool.

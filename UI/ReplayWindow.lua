@@ -41,6 +41,8 @@ local CELL = {
     debuffs = { "BOTTOMLEFT", 1, 4, 13, 1, 3 },         -- 13px, left-to-right, 3
     healthText = { "BOTTOMRIGHT", 0, 0 },               -- deficit_short
     swiftmend = { 9, -1, -(13 + 5) },                   -- ours: 9px at the right edge, under the HoT row
+    targetedSpells = { "TOPLEFT", -4, 4, 20 },          -- 20px, one icon, border 2, TOPLEFT -4,4
+    aggroBar = { 20, 4 },                               -- 20x4 above the button's top-left
     statusText = { "BOTTOM", 0, 0 },                    -- 11px with background: cast name, label, dead
     fonts = { name = 13, health = 12, status = 11, count = 11 },
     textScaleMax = 2,                                   -- status / deficit / counts stop growing here; the name does not
@@ -303,6 +305,13 @@ local function CreateUnitFrame(parent, x, y)
     f.defIcon:SetBackdropBorderColor(UI.accent[1], UI.accent[2], UI.accent[3], 1)
     f.debuffs = {}
     for i = 1, CELL.debuffs[6] do f.debuffs[i] = Icon(5) end
+    -- v0.12.2: the two indicators the author has that show what is COMING --
+    -- Cell's "Targeted Spells" (a hostile cast aimed here) and its "Aggro (bar)"
+    -- -- in their own positions. Drawn on both columns: both are watching the
+    -- same fight, and the suggested column is answering the same cast bar.
+    f.incoming = Icon(12)
+    f.aggro = f:CreateTexture(nil, "OVERLAY")
+    f.aggro:Hide()
     f.auraBuf = {}
 
     -- Size and place everything for a button of W x H pixels at scale s: the
@@ -321,6 +330,14 @@ local function CreateUnitFrame(parent, x, y)
         f.power:SetHeight(pw)
         f.tick:SetSize(math.max(2, 2 * sc), H - 2 - pw)
         f.name:SetWidth((W - 2) * CELL.nameWidth)
+        local ts = CELL.targetedSpells
+        f.incoming:SetSize(ts[4] * sc, ts[4] * sc)
+        f.incoming.size = ts[4] * sc      -- Sweep reads it to size the dim overlay
+        f.incoming:ClearAllPoints()
+        f.incoming:SetPoint("TOPLEFT", f, "TOPLEFT", ts[2] * sc, ts[3] * sc)
+        f.aggro:SetSize(CELL.aggroBar[1] * sc, math.max(1, CELL.aggroBar[2] * sc))
+        f.aggro:ClearAllPoints()
+        f.aggro:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 1)
         Font(f.name, CELL.fonts.name * sc)
         local ht = CELL.healthText
         f.pct:ClearAllPoints()
@@ -684,6 +701,35 @@ local function PaintFrame(f, st, ti, isLeft, now)
     end
     if not defShown then f.defIcon:Hide() end
     for i = nDeb + 1, #f.debuffs do f.debuffs[i]:Hide() end
+
+    -- v0.12.2: what is coming, from the recording rather than from the trace --
+    -- both columns are watching the same fight and answering the same cast bar.
+    do
+        local inbound = rp and rp.IncomingAt and rp.IncomingAt(ti, st.t)
+        if inbound and not dead then
+            SetIcon(f.incoming, inbound.spellID, rp.rec.names and rp.rec.names[inbound.spellID])
+            f.incoming:SetBackdropBorderColor(1, 0.2, 0.2, 1)
+            if inbound.at then Sweep(f.incoming, inbound.t, inbound.at, st.t) end
+            f.incoming.tip = f.incoming.tip or {}
+            f.incoming.tip[1] = { l = (rp.rec.names and rp.rec.names[inbound.spellID])
+                or ("spell " .. inbound.spellID), r = inbound.at
+                and string.format("|cffff9966lands in %.1fs|r", inbound.at - st.t) or "|cff888888no landing|r" }
+            f.incoming.tip[2] = { l = "|cff888888cast at this target - Cell's Targeted Spells|r",
+                r = inbound.amount and string.format("hit for %d", inbound.amount) or "" }
+            f.incoming:Show()
+        else
+            f.incoming:Hide()
+        end
+        local threat = rp and rp.ThreatAt and rp.ThreatAt(ti, st.t) or 0
+        if threat > 0 and not dead then
+            -- Cell's aggro bar: yellow while somebody else holds it, red on you
+            if threat >= 2 then f.aggro:SetColorTexture(1, 0.1, 0.1, 1)
+            else f.aggro:SetColorTexture(1, 0.8, 0.2, 1) end
+            f.aggro:Show()
+        else
+            f.aggro:Hide()
+        end
+    end
 
     if f.pulseUntil > now then
         local left = (f.pulseUntil - now) / PULSE_DMG

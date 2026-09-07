@@ -2371,3 +2371,22 @@ causality test's plan instead of the new one, so the new test was gated at 90% h
 never fire at 91%.
 
 replaycheck 72 → 76.
+
+## 2026-09-07 — v0.12.2: drawing what is coming
+
+`docs/SPEC-v0.12.md` §5. The replay now draws the two indicators the plan reads, in the author's
+own Cell positions: **Targeted Spells** as a 20 px icon at the frame's top-left, offset -4/+4,
+one at a time, with the cast's remaining time sweeping over it and the spell named on hover; and
+**Aggro (bar)** as a 20 × 4 bar above the top-left corner, yellow while somebody else holds it,
+red when it is on this target.
+
+Both appear on **both columns**, because both are watching the same fight: the suggested column
+is answering the same cast bar the author was. They come off `rp` rather than out of the trace,
+for the same reason — a cast bar is a fact about the fight, and the trace is per simulation.
+
+A cast that never landed still shows for the three seconds its bar plausibly ran, then goes.
+That is the honest rendering of a bar that came to nothing.
+
+`replayui` 72 → 79: the icon appears while the cast is in the air on both columns, names the
+spell and its landing time on hover, is gone once it has landed, and a cast with no landing is
+still indexed.

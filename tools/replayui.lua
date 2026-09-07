@@ -350,5 +350,43 @@ do
         or select(1, st:Overheal()) >= 0)
 end
 
+-- v0.12.2: the two indicators that show what is coming, on BOTH columns
+do
+    MD:OpenReplay(1)
+    local W3 = MD.Replay._state()
+    -- the scripted Shadow Bolt goes up at ~11.5s on the tank and lands 3s later
+    local tank
+    for i, e in ipairs(rec.roster) do if e.name == "Destroyka" then tank = i end end
+    check("the recording knows which target the cast was aimed at", tank ~= nil)
+
+    local RP = MD.Replay._state().rp
+    local cast = nil
+    for _, c in ipairs(RP.incoming and RP.incoming[tank] or {}) do cast = c end
+    check("the replay indexed the incoming cast by target", cast ~= nil,
+        cast and string.format("%.1fs -> %.1fs", cast.t, cast.at or -1) or "none")
+
+    MD.Replay._seek(cast.t + 0.5)
+    local L = W3.left.frames[tank]
+    local R = W3.right.frames[tank]
+    check("the cast bar shows on the left column while it is in the air", L.incoming:IsShown())
+    check("...and on the right, which is answering the same cast",
+        R == nil or R.incoming:IsShown())
+    check("it names the spell on hover", L.incoming.tip and L.incoming.tip[1] ~= nil
+        and tostring(L.incoming.tip[1].r):find("lands in") ~= nil,
+        L.incoming.tip and tostring(L.incoming.tip[1].r) or "no tip")
+
+    MD.Replay._seek((cast.at or cast.t) + 1.0)
+    check("and it is gone once the cast has landed", not L.incoming:IsShown())
+
+    -- a cast that never landed still shows for the seconds its bar plausibly ran
+    local mage
+    for i, e in ipairs(rec.roster) do if e.name == "Alkandari" then mage = i end end
+    local ghost
+    for _, c in ipairs(RP.incoming and RP.incoming[mage] or {}) do ghost = c end
+    check("a cast that never landed is still indexed", ghost ~= nil and ghost.at == nil,
+        ghost and tostring(ghost.at) or "none")
+    MD.Replay._seek(0)
+end
+
 print(string.format("\n%d ok, %d failed", ok, #fails))
 if #fails > 0 then for _, m in ipairs(fails) do print("  FAIL " .. m) end; os.exit(1) end

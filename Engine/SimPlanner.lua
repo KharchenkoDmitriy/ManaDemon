@@ -1019,6 +1019,42 @@ function SP.Replay(rec, opts)
         end
     end
     rp.ticks = ticks
+
+    -- v0.12.2: the two things the author's frames show coming, indexed per
+    -- target for the window. Kept on `rp` rather than in the trace: they are
+    -- facts about the FIGHT, identical for both columns, and the trace is per
+    -- simulation.
+    local byTarget, threatBy = {}, {}
+    for _, c in ipairs(scenario.incoming or {}) do
+        if c.target then
+            byTarget[c.target] = byTarget[c.target] or {}
+            table.insert(byTarget[c.target], c)
+        end
+    end
+    for _, e in ipairs(scenario.threat or {}) do
+        if e.target then
+            threatBy[e.target] = threatBy[e.target] or {}
+            table.insert(threatBy[e.target], e)
+        end
+    end
+    rp.incoming, rp.threat = byTarget, threatBy
+    -- a bar is up from the moment it starts until it lands; one that never
+    -- landed stays up for the 3s a cast bar plausibly ran, and no longer
+    function rp.IncomingAt(ti, at)
+        for _, c in ipairs(byTarget[ti] or {}) do
+            local ends = c.at or (c.t + 3)
+            if at >= c.t and at < ends then return c end
+        end
+        return nil
+    end
+    function rp.ThreatAt(ti, at)
+        local status = 0
+        for _, e in ipairs(threatBy[ti] or {}) do
+            if e.t <= at then status = e.status or 0 else break end
+        end
+        return status
+    end
+
     return rp
 end
 
