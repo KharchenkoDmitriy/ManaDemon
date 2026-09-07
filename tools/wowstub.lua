@@ -211,6 +211,10 @@ function FrameMT:SetFormattedText(fmt, ...)
 end
 function FrameMT:GetText() return self.text or "" end
 function FrameMT:GetStringWidth() return 40 end
+function FrameMT:GetStringHeight() return 12 end
+-- the addon prefers Show/Hide (older clients), but it does use SetShown in
+-- places and the stub has to see through it either way
+function FrameMT:SetShown(v) if v then self:Show() else self:Hide() end end
 function FrameMT:SetValue(v) self.value = v end
 function FrameMT:GetValue() return self.value or 0 end
 function FrameMT:SetMinMaxValues(a, b) self.minV, self.maxV = a, b end

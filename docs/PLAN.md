@@ -189,7 +189,8 @@ the left, level 2 horizontal on top, deeper levels in a box that repeats the rul
   *(2026-09-07; the kit only. No window has moved yet, so nothing changed on screen.)*
 - [x] **v0.11.1** the dashboard moves in: Spells and Reports. *(2026-09-07; new suite
   `tools/dashui.lua`, the dashboard's first offline test.)*
-- [ ] **v0.11.2** Settings becomes the fourth group; `UI/OptionsFrame.lua` becomes a shim.
+- [x] **v0.11.2** Settings becomes the fourth group; `UI/OptionsFrame.lua` becomes a shim.
+  *(2026-09-07; 114 lines to 50, and a fourth bare pipe found in the command list.)*
 - [ ] **v0.11.3** Simulate becomes the third group; the standalone window goes.
 - [ ] **v0.11.4** Runs as its own Reports view; first use of the level-3 box.
 

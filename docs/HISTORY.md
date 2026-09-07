@@ -2025,3 +2025,26 @@ rather than in the addon, all of which had been hiding real coverage from every 
 
 Ten suites now: simcheck 10, reccheck 46, simwindow 8, regencheck 27, replaycheck 62, replayui
 54, runcheck 69, reviewui 43, navui 25, dashui 19.
+
+## 2026-09-07 — v0.11.2: settings stop being a second window
+
+`MD.optionsFrame` is a **panel** now, not a window: the dashboard's navigation hosts it as its
+fourth group and the two tab panes are untouched — they still parent themselves to it and still
+show and hide themselves on the `ShowOptionsTab` callback. `UI/OptionsFrame.lua` went from 114
+lines to 50, losing its tab strip, its header bar, its drag handling and its position saving,
+because the window it decorated no longer exists.
+
+`/md options` routes into the group through a new `MD:SelectView(group, view)`, which opens the
+window if it is closed. That is the entry point `/md sim` will use in v0.11.3 and the minimap
+button's right-click already does.
+
+Three more stub gaps surfaced, each hiding coverage rather than breaking the addon:
+`GetStringHeight` returned nil (the About tab measures its command list with it, and had never
+been built offline before), and `SetShown` fell through to the no-op fallback so a hidden font
+string still read as shown. The addon's own new code uses Show/Hide per CLAUDE.md's rule about
+older clients; the stub understands both now.
+
+And a **fourth bare pipe**, this time in the command list itself: `/md regentest [N|clear]` and
+`/md run start|stop|status`, which the About tab paints and `/md help` prints. Both read with
+slashes now. That rule has now been broken four times by three different kinds of notation —
+maths, an alternation, and a usage string.

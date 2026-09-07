@@ -86,6 +86,40 @@ MD:ToggleDashboard()
 check("it reopens where it was", frame:IsShown() and MD.db.uiPath[1] ~= nil,
     table.concat(MD.db.uiPath, "/"))
 
+--------------------------------------------------------------------------------
+-- Settings is the fourth group, not a second window (v0.11.2)
+--------------------------------------------------------------------------------
+S.Load({ "UI/OptionsFrame.lua", "UI/Options_General.lua", "UI/Options_About.lua" }, "ManaDemon", MD)
+check("the settings panel exists", MD.optionsFrame ~= nil)
+check("it is a panel, not a window", _G.ManaDemonOptionsFrame == nil,
+    tostring(_G.ManaDemonOptionsFrame))
+
+Click(ButtonNamed("Settings"))
+check("Settings is a group of the one window", MD.db.uiPath[1] == "settings",
+    table.concat(MD.db.uiPath, "/"))
+check("it opens on General", MD.db.uiPath[2] == "general", MD.db.uiPath[2])
+check("the general pane is in there", ButtonNamed("Record fights") ~= nil
+    or Painted("Record fights") ~= nil)
+Click(ButtonNamed("About"))
+check("About is its second view", MD.db.uiPath[2] == "about", MD.db.uiPath[2])
+
+-- /md options routes into the group instead of opening anything
+Click(ButtonNamed("Spells"))
+MD:ShowOptionsFrame("general")
+check("/md options selects the settings group", MD.db.uiPath[1] == "settings"
+    and MD.db.uiPath[2] == "general", table.concat(MD.db.uiPath, "/"))
+check("and it did not open a second window", _G.ManaDemonOptionsFrame == nil)
+
+-- the spell-only furniture is not drawn over the settings
+Click(ButtonNamed("Settings"))
+check("the rank table's header lines are hidden in Settings", (function()
+    for _, f in ipairs(S.allFrames) do
+        local t = f.GetText and f:GetText() or ""
+        if type(t) == "string" and t:find("HPM heal per mana") and f.shown ~= false then return false end
+    end
+    return true
+end)())
+
 -- no bare pipe anywhere it paints
 local bad
 for _, f in ipairs(S.allFrames) do

@@ -185,6 +185,8 @@ local function Groups()
         -- Waste and Review work for any class: a recorded stream is numbers
         { id = "reports", text = "Reports", views = {
             { id = "Waste", text = "Waste" }, { id = "Review", text = "Review" } } },
+        { id = "settings", text = "Settings", views = {
+            { id = "general", text = "General" }, { id = "about", text = "About" } } },
     }
 end
 
@@ -202,6 +204,11 @@ local function CreateDashboard()
                 reviewView.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -104)
                 reviewView.frame:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 24)
                 return reviewView.frame
+            elseif group == "settings" then
+                -- one panel for both settings views; the tabs inside it show
+                -- and hide themselves on the ShowOptionsTab callback
+                if MD.AdoptOptionsPanel then MD:AdoptOptionsPanel(content) end
+                return MD.optionsFrame
             elseif group == "spells" and not rankTable then
                 rankTable = MD.DashboardParts.CreateTable(content, CONTENT_W)
                 rankTable.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -104)
@@ -213,24 +220,30 @@ local function CreateDashboard()
         function(group, view)
             currentFamily = view
             userPicked = true
-            Refresh()
+            MD:Fire("UI_VIEW_SELECTED", group, view)
+            if group ~= "settings" then Refresh() end
+            -- Show/Hide rather than SetShown: the older pair exists on every
+            -- client this addon targets (CLAUDE.md)
+            local function Shown(f, on) if not f then return end if on then f:Show() else f:Hide() end end
+            local spellish = (group == "spells")
+            if simStrip then simStrip:SetShown(spellish and MD.player.isDruid) end
+            Shown(effectiveCB, spellish and MD.player.isDruid)
+            for _, fs in ipairs({ statsFS, calloutFS, hintFS, recapFS }) do
+                Shown(fs, group ~= "settings")
+            end
         end)
     frame = nav.frame
     tinsert(UISpecialFrames, "ManaDemonDashboard") -- ESC closes
     local content = nav:Content()
 
-    local settingsBtn = UI.CreateButton(frame, "Settings", "accent-hover", { 90, 20 }, false, false,
-        UI.FONT_TITLE, UI.FONT_TITLE_DISABLE)
-    settingsBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -2)
-    settingsBtn:SetScript("OnClick", function() MD:ShowOptionsFrame("general") end)
-
+    -- Settings is the fourth group now, not a button that opens a second window
     effectiveCB = UI.CreateCheckButton(frame, "Effective", function(checked)
         MD.db.effectiveMode = checked
         Refresh()
     end, "Overheal-adjusted values", "Heal, HPM and HPS become value x (1 - measured overheal),",
         "from your own combat log. Mana, Cast and To OOM never move.",
         "A grey ? means that rank has no measurement of its own yet.")
-    effectiveCB:SetPoint("RIGHT", settingsBtn, "LEFT", -84, 0) -- label runs right of the box
+    effectiveCB:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -100, -2) -- label runs right of the box
     effectiveCB:SetShown(MD.player.isDruid)
 
     simStrip = MD.DashboardParts.CreateStrip(content, 2, -2, Refresh)
@@ -283,6 +296,15 @@ local function CreateDashboard()
             Refresh()
         end
     end)
+end
+
+-- Every entry point that wants a particular view goes through here: /md sim,
+-- /md options, the minimap button's right-click. The window opens if it is
+-- closed, which is what all of them used to do with their own window.
+function MD:SelectView(group, view)
+    if not nav then return end
+    if not frame:IsShown() then frame:Show() end
+    nav:Select(group, view)
 end
 
 function MD:ToggleDashboard()
