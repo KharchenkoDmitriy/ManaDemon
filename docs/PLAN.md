@@ -185,7 +185,8 @@ Spec: **`docs/SPEC-v0.11.md`**. The author's ask on 2026-09-07: merge the settin
 windows, keep the settings palette, and group the views the way ElvUI does — level 1 vertical on
 the left, level 2 horizontal on top, deeper levels in a box that repeats the rule.
 
-- [ ] **v0.11.0** `UI.PALETTE`, `UI.CreateNavFrame` / `UI.CreateNavBox`, `tools/navui.lua`.
+- [x] **v0.11.0** `UI.PALETTE`, `UI.CreateNavFrame` / `UI.CreateNavBox`, `tools/navui.lua`.
+  *(2026-09-07; the kit only. No window has moved yet, so nothing changed on screen.)*
 - [ ] **v0.11.1** the dashboard moves in: Spells and Reports.
 - [ ] **v0.11.2** Settings becomes the fourth group; `UI/OptionsFrame.lua` becomes a shim.
 - [ ] **v0.11.3** Simulate becomes the third group; the standalone window goes.

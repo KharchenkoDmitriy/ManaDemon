@@ -1966,3 +1966,30 @@ the test now asserts it directly.
 
 A third bare pipe found and fixed: the card's hint read `<safe|health|cheap|regen>`, which the
 client would have eaten from the first `|`.
+
+## 2026-09-07 — v0.11.0: the navigation, before anything moves
+
+`docs/SPEC-v0.11.md` §3. The author wants the dashboard, the simulator and the settings in one
+window, on the settings palette, grouped the way ElvUI groups things: top-level categories down
+the left, their views along the top, and deeper levels inside a box that repeats the rule.
+
+This version ships **only the kit**, so nothing changed on screen. `UI.PALETTE` puts the colours
+in one place — the author asked for the settings window's palette *everywhere*, and "everywhere"
+only holds if there is a single thing to change. `UI.CreateNavFrame` is the navigation, written
+once so the panes can stay dumb:
+
+- **panes are built lazily and cached**: a druid who never opens Simulate never builds it, and
+  clicking back to a view does not throw its frames away. That split cost one iteration —
+  the first cut called one hook for both creating and showing, so returning to a tab rebuilt the
+  pane. There are two hooks now, `onCreate` (once per view) and `onShow` (every selection, where
+  a pane refreshes itself);
+- one pane is visible at a time, and it is the selected one;
+- a hidden view is refused rather than drawn, and an unknown group falls back instead of erroring;
+- `nav:SetViews` replaces a group's views while the window is open, for Reports/Runs;
+- the path is remembered in `db.uiPath`.
+
+`UI.CreateNavBox` is the same code with a border and no header, for level 3. Nothing needs it
+yet; it exists so the next thing that does is not a fourth window.
+
+`tools/navui.lua` (new, 25 assertions) is the ninth suite. It goes in before anything is rebuilt
+on top of the kit, which is the whole point of writing it first.

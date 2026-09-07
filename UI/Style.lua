@@ -321,6 +321,216 @@ function UI.CreateButtonGroup(buttons, onClick, onActive, onInactive)
 end
 
 --------------------------------------------------------------------------------
+-- Navigation (docs/SPEC-v0.11.md §3): one window, groups down the left, that
+-- group's views along the top, and -- where a pane needs it -- the same rule
+-- again inside a bordered box.
+--
+-- Written once so the panes stay dumb: a pane is a frame parented to
+-- nav:Content(), created LAZILY the first time its view is selected and cached
+-- after. A druid who never opens Simulate never builds it.
+--
+-- The palette is UI.PALETTE and nothing here carries its own literals: the
+-- author asked for the settings window's colours everywhere, and "everywhere"
+-- only holds if there is one place to change.
+--------------------------------------------------------------------------------
+UI.PALETTE = {
+    frame  = { 0.1, 0.1, 0.1, 0.9 },      -- the window itself (UI.StylizeFrame's default)
+    header = { 0.115, 0.115, 0.115, 1 },  -- the title bar and the nav columns
+    pane   = { 0.13, 0.13, 0.13, 1 },     -- a box drawn inside the content area
+    border = { 0, 0, 0, 1 },
+}
+
+local NAV_W = 108        -- the left column
+local NAV_TOP = 24       -- the horizontal view row
+local NAV_PAD = 8
+
+-- groups: { { id, text, views = { { id, text, hidden }, ... } }, ... }
+-- onCreate(groupID, viewID, content, nav) -> pane. Called ONCE per view, the
+--   first time it is selected; the pane is cached and shown thereafter.
+-- onShow(groupID, viewID, pane, nav). Called on every selection, including the
+--   first. This is where a pane is refreshed -- rebuilding it instead would
+--   throw away its state and its frames every time the author clicked a tab.
+function UI.CreateNavFrame(title, name, width, height, groups, onCreate, onShow)
+    local P = UI.PALETTE
+    local f = UI.CreateMovableFrame(title, name, width, height)
+    UI.StylizeFrame(f, P.frame, P.border)
+
+    local nav = { frame = f, groups = groups, buttons = {}, viewButtons = {},
+                  group = nil, view = nil }
+
+    -- the left column
+    local left = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    left:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+    left:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
+    left:SetWidth(NAV_W)
+    UI.StylizeFrame(left, P.header, P.border)
+    nav.left = left
+
+    -- the content area, and the row of view buttons above it
+    local content = CreateFrame("Frame", nil, f)
+    content:SetPoint("TOPLEFT", left, "TOPRIGHT", NAV_PAD, -(NAV_TOP + NAV_PAD))
+    content:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -NAV_PAD, NAV_PAD)
+    nav.content = content
+    function nav:Content() return content end
+
+    local function ShowOnly(groupID, viewID)
+        for gid, panes in pairs(nav.panes or {}) do
+            for vid, pane in pairs(panes) do
+                if pane.Show then
+                    if gid == groupID and vid == viewID then pane:Show() else pane:Hide() end
+                end
+            end
+        end
+    end
+
+    -- the horizontal row for the selected group
+    local function BuildViews(group)
+        for _, b in ipairs(nav.viewButtons) do b:Hide() end
+        wipe(nav.viewButtons)
+        local prev
+        for _, v in ipairs(group.views or {}) do
+            if not v.hidden then
+                local b = UI.CreateButton(f, v.text, "accent-hover", { math.max(64, #v.text * 8 + 16), 20 },
+                    false, false, UI.FONT_TITLE, UI.FONT_TITLE_DISABLE)
+                b.id = v.id
+                if prev then b:SetPoint("LEFT", prev, "RIGHT", -1, 0)
+                else b:SetPoint("TOPLEFT", left, "TOPRIGHT", NAV_PAD, -2) end
+                nav.viewButtons[#nav.viewButtons + 1] = b
+                prev = b
+            end
+        end
+        nav.highlightView = UI.CreateButtonGroup(nav.viewButtons, function(id) nav:Select(group.id, id) end)
+    end
+
+    function nav:Select(groupID, viewID)
+        local group
+        for _, g in ipairs(groups) do if g.id == groupID then group = g end end
+        if not group then group = groups[1] end
+        if not group then return end
+        if nav.group ~= group.id then
+            nav.group = group.id
+            BuildViews(group)
+            nav.view = nil
+        end
+        local views = group.views or {}
+        local view
+        for _, v in ipairs(views) do
+            if v.id == viewID and not v.hidden then view = v end
+        end
+        if not view then
+            for _, v in ipairs(views) do if not v.hidden and not view then view = v end end
+        end
+        nav.view = view and view.id or nil
+        if nav.highlightGroup then nav.highlightGroup(group.id) end
+        if nav.highlightView and nav.view then nav.highlightView(nav.view) end
+        if MD.db then MD.db.uiPath = { group.id, nav.view } end
+        nav.panes = nav.panes or {}
+        nav.panes[group.id] = nav.panes[group.id] or {}
+        local pane = nav.view and nav.panes[group.id][nav.view] or nil
+        if not pane and nav.view and onCreate then
+            pane = onCreate(group.id, nav.view, content, nav)
+            if pane then nav.panes[group.id][nav.view] = pane end
+        end
+        ShowOnly(group.id, nav.view)
+        if onShow then onShow(group.id, nav.view, pane, nav) end
+    end
+
+    -- a group's views can change while the window is open (Reports/Runs)
+    function nav:SetViews(groupID, views)
+        for _, g in ipairs(groups) do
+            if g.id == groupID then
+                g.views = views
+                if nav.group == groupID then BuildViews(g); nav:Select(groupID, nav.view) end
+                return
+            end
+        end
+    end
+
+    function nav:Selected() return nav.group, nav.view end
+
+    local prev
+    for _, g in ipairs(groups) do
+        local b = UI.CreateButton(left, g.text, "accent-hover", { NAV_W - 2, 22 }, false, false,
+            UI.FONT_TITLE, UI.FONT_TITLE_DISABLE)
+        b.id = g.id
+        if prev then b:SetPoint("TOP", prev, "BOTTOM", 0, 1)
+        else b:SetPoint("TOP", left, "TOP", 0, -2) end
+        nav.buttons[#nav.buttons + 1] = b
+        prev = b
+    end
+    nav.highlightGroup = UI.CreateButtonGroup(nav.buttons, function(id) nav:Select(id, nil) end)
+
+    return nav
+end
+
+-- The same rule one level down, in a bordered box: for a pane that has
+-- sub-categories of its own. Nothing needs it yet; it exists so that the next
+-- thing that does is not a fourth window.
+function UI.CreateNavBox(parent, width, height, groups, onSelect)   -- one hook: a box owns no panes
+    local P = UI.PALETTE
+    local box = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    box:SetSize(width, height)
+    UI.StylizeFrame(box, P.pane, P.border)
+    local nav = { frame = box, groups = groups, buttons = {}, viewButtons = {} }
+
+    local left = CreateFrame("Frame", nil, box, "BackdropTemplate")
+    left:SetPoint("TOPLEFT", 1, -1)
+    left:SetPoint("BOTTOMLEFT", 1, 1)
+    left:SetWidth(NAV_W - 20)
+    UI.StylizeFrame(left, P.header, P.border)
+
+    local content = CreateFrame("Frame", nil, box)
+    content:SetPoint("TOPLEFT", left, "TOPRIGHT", 6, -(NAV_TOP + 2))
+    content:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -6, 6)
+    function nav:Content() return content end
+
+    local function BuildViews(group)
+        for _, b in ipairs(nav.viewButtons) do b:Hide() end
+        wipe(nav.viewButtons)
+        local prev
+        for _, v in ipairs(group.views or {}) do
+            local b = UI.CreateButton(box, v.text, "accent-hover", { math.max(56, #v.text * 7 + 14), 18 },
+                false, false, UI.FONT_SMALL, UI.FONT_SMALL)
+            b.id = v.id
+            if prev then b:SetPoint("LEFT", prev, "RIGHT", -1, 0)
+            else b:SetPoint("TOPLEFT", left, "TOPRIGHT", 6, -2) end
+            nav.viewButtons[#nav.viewButtons + 1] = b
+            prev = b
+        end
+        nav.highlightView = UI.CreateButtonGroup(nav.viewButtons, function(id) nav:Select(group.id, id) end)
+    end
+
+    function nav:Select(groupID, viewID)
+        local group
+        for _, g in ipairs(groups) do if g.id == groupID then group = g end end
+        group = group or groups[1]
+        if not group then return end
+        if nav.group ~= group.id then nav.group = group.id; BuildViews(group); nav.view = nil end
+        local view
+        for _, v in ipairs(group.views or {}) do if v.id == viewID then view = v end end
+        view = view or (group.views or {})[1]
+        nav.view = view and view.id or nil
+        if nav.highlightGroup then nav.highlightGroup(group.id) end
+        if nav.highlightView and nav.view then nav.highlightView(nav.view) end
+        if onSelect then onSelect(group.id, nav.view, content, nav) end
+    end
+
+    local prev
+    for _, g in ipairs(groups) do
+        local b = UI.CreateButton(left, g.text, "accent-hover", { NAV_W - 22, 18 }, false, false,
+            UI.FONT_SMALL, UI.FONT_SMALL)
+        b.id = g.id
+        if prev then b:SetPoint("TOP", prev, "BOTTOM", 0, 1)
+        else b:SetPoint("TOP", left, "TOP", 0, -2) end
+        nav.buttons[#nav.buttons + 1] = b
+        prev = b
+    end
+    nav.highlightGroup = UI.CreateButtonGroup(nav.buttons, function(id) nav:Select(id, nil) end)
+
+    return nav
+end
+
+--------------------------------------------------------------------------------
 -- Check button
 --------------------------------------------------------------------------------
 -- UI.CreateCheckButton(parent, label, onClick(checked, cb), tooltip...)
