@@ -82,6 +82,8 @@ local SWIFTMEND = 18562
 
 local frame, scrubber, playBtn, timeFS, headerFS, speedHighlight, speedButtons
 local runStrip                  -- the run's pulls and drinks on one timeline (v0.9.4)
+local stratButtons, stratHighlight = {}, nil   -- the four strategies (v0.11.7)
+local openSpec, openForce                      -- what the window was opened with, for a rebuild
 local runIdx, pullIdx, curRun   -- which pull of which run is open, if any
 local topH = HEADER_H           -- header, plus the run strip when there is one
 local left, right          -- the two columns: { state, frames = {}, strip = {}, title }
@@ -871,6 +873,23 @@ local function Build()
     headerFS:SetJustifyH("LEFT")
     headerFS:SetWidth(2 * COL_W + GUTTER)
 
+    -- The strategies the last search produced for this recording (v0.11.7).
+    -- Switching between them does NOT search again: the plans are already in
+    -- hand, and this rebuilds the suggested column from the chosen one.
+    for i = 1, 4 do
+        local b = UI.CreateButton(frame, "", "accent-hover", { 58, 16 }, false, false,
+            UI.FONT_SMALL, UI.FONT_SMALL)
+        b:Hide()
+        stratButtons[i] = b
+    end
+    stratHighlight = UI.CreateButtonGroup(stratButtons, function(id)
+        local w = rp and rp.rec and MD.SimPlanner.strategies[rp.rec.id]
+        w = w and w[id]
+        if not w then return end
+        MD.SimPlanner.plans[rp.rec.id] = w.plan
+        MD:RebuildSuggested()
+    end)
+
     runStrip = CreateFrame("Frame", nil, frame)
     runStrip:SetPoint("TOPLEFT", frame, "TOPLEFT", GUTTER, -(HEADER_H - 2))
     runStrip:SetSize(2 * COL_W + GUTTER, 18)
@@ -1198,6 +1217,18 @@ local function Layout()
     end
 end
 
+-- Redraw the suggested column from whatever plan is now cached for this
+-- recording, keeping the clock where it is. Switching strategy is a redraw, not
+-- a search: the window never searches (SPEC-v0.8 2.5).
+function MD:RebuildSuggested()
+    if not (rp and openSpec) then return end
+    local at = left.state and left.state.t or 0
+    local wasPlaying = playing
+    MD:OpenReplay(openSpec .. (openForce and " force" or ""))
+    if left.state and at > 0 then SeekTo(at) end
+    if wasPlaying then SetPlaying(true) end
+end
+
 function MD:OpenReplay(n)
     local FR, SP = MD.FightRecorder, MD.SimPlanner
     if not (FR and SP and MD.ReplayTrace) then MD:Print("replay: not loaded.") return end
@@ -1225,6 +1256,7 @@ function MD:OpenReplay(n)
     Build()
     playing = false
     local t0 = debugprofilestop and debugprofilestop() or 0
+    openSpec, openForce = n, force
     rp = SP.Replay(rec, { dt = 0.25, force = force })
     if not rp then MD:Print("replay: could not build the fight.") return end
     if force and not rp.right then
@@ -1254,6 +1286,34 @@ function MD:OpenReplay(n)
         run and (run.name .. " pull " .. tostring(pullK) .. " - ") or "", rec.zone or "?", when,
         Clock(rec.dur or 0), v and (v.ok and "|cff99dd99replays|r" or "|cffff9966does not replay|r") or "",
         fit ~= "" and ("  |cff888888" .. fit .. "|r") or ""))
+    -- the strategy row, when a search has produced one for this recording
+    do
+        local SP = MD.SimPlanner
+        local winners = rp.rec and SP.strategies[rp.rec.id]
+        local prev, n = nil, 0
+        for _, obj in ipairs(SP.OBJECTIVES) do
+            local w = winners and winners[obj.key]
+            if w and rp.right then
+                n = n + 1
+                local b = stratButtons[n]
+                if b then
+                    b.id = obj.key
+                    b:SetText(obj.name)
+                    b:ClearAllPoints()
+                    if prev then b:SetPoint("LEFT", prev, "RIGHT", -1, 0)
+                    else b:SetPoint("LEFT", right.title, "RIGHT", 10, 0) end
+                    UI.SetTooltips(b, "ANCHOR_TOP", 0, 3, obj.name, obj.what)
+                    b:Show()
+                    prev = b
+                    if MD.SimPlanner.plans[rp.rec.id] == w.plan and stratHighlight then
+                        stratHighlight(obj.key)
+                    end
+                end
+            end
+        end
+        for i = n + 1, #stratButtons do stratButtons[i]:Hide() end
+    end
+
     if rp.right then
         local p = rp.right.plan
         right.title:SetText(string.format("SUGGESTED  |cff888888(%s, %d binds)|r%s", p.name or "plan", p:BindCount(),

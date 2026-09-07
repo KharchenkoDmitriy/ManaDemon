@@ -254,5 +254,60 @@ do
     MD:OpenReplay(1)
 end
 
+--------------------------------------------------------------------------------
+-- v0.11.7: the strategy row. One search produced four plans; switching between
+-- them is a redraw of the suggested column, never another search.
+--------------------------------------------------------------------------------
+do
+    local kit2 = MD.RankMath:SpellKit()
+    local function planWith(params)
+        return SP.NewPlan(SP.MaxRankBinds(), params, kit2)
+    end
+    local cheap = planWith({ swiftmendBelow = 0.30, directBelow = 0.35, rollStacks = 0,
+                             hotBelow = 0.50, filler = false })
+    local safe = planWith({ swiftmendBelow = 0.40, directBelow = 0.55, rollStacks = 3,
+                            hotBelow = 0.90, filler = true })
+    local function snap() return { deaths = { n = 0 }, floorSeconds = 0, manaSpent = 1,
+                                   deficitArea = 1, endDeficit = 0, manaEnd = 1,
+                                   healed = 1, overhealed = 0, lowest = { hp = 0.6 } } end
+    SP.strategies[rec.id] = {
+        safe = { plan = safe, result = snap() }, health = { plan = safe, result = snap() },
+        cheap = { plan = cheap, result = snap() }, regen = { plan = cheap, result = snap() },
+    }
+    SP.plans[rec.id] = cheap
+    MD:OpenReplay(1)
+
+    local function StratButton(text)
+        for _, f in ipairs(S.allFrames) do
+            if f.kind == "Button" and f.text == text and f:IsVisible() then return f end
+        end
+        return nil
+    end
+    check("the strategy row is drawn", StratButton("Least mana") ~= nil and StratButton("Safest") ~= nil)
+    check("every objective that has a winner gets a button", (function()
+        for _, obj in ipairs(SP.OBJECTIVES) do
+            if not StratButton(obj.name) then return false end
+        end
+        return true
+    end)())
+
+    -- play a little way in, then switch: the clock must not jump back
+    MD.Replay._seek(8.0)
+    local before = MD.Replay._state().left.state.t
+    local btn = StratButton("Safest")
+    btn:GetScript("OnClick")(btn)
+    check("switching strategy changes the plan the column draws",
+        SP.plans[rec.id] == safe, tostring(SP.plans[rec.id] == safe))
+    check("and keeps the clock where it was",
+        math.abs(MD.Replay._state().left.state.t - before) < 0.3,
+        string.format("%.1f vs %.1f", MD.Replay._state().left.state.t, before))
+    check("the suggested column is still drawn", MD.Replay._state().right.state ~= nil)
+
+    -- a fight with no strategies shows no row at all
+    SP.strategies[rec.id] = nil
+    MD:OpenReplay(1)
+    check("no strategies, no row", StratButton("Least mana") == nil)
+end
+
 print(string.format("\n%d ok, %d failed", ok, #fails))
 if #fails > 0 then for _, m in ipairs(fails) do print("  FAIL " .. m) end; os.exit(1) end

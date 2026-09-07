@@ -2117,3 +2117,24 @@ are cleared on acquisition now, scripts and highlight included.
 
 dashui 49 → 53: clicking Fights inside the Runs view sticks across three ticker refreshes, and a
 reused row carries no text from its last render.
+
+## 2026-09-07 — v0.11.7 and v0.11.8: the strategy row, and waiting for the good spell
+
+**v0.11.7, the selector the author could not find.** `docs/SPEC-v0.10.md` §6c.4 promised a row of
+strategy buttons beside the SUGGESTED title and v0.10.4 shipped only the slash command. It is
+there now: one button per objective that has a winner, each with what it optimises on hover.
+Clicking one redraws the suggested column from that plan **and keeps the clock where it was** —
+switching strategy is a redraw, never another search, because the window does not search
+(SPEC-v0.8 §2.5). A recording with no strategies yet shows no row at all.
+
+**v0.11.8, the author's second reading of the same card**: "the main problem is the Rejuvenation
+casts — the recording was a lot of overheal, while the right column was 0% but inefficient
+Rejuvenation." Right. Rule 4 took the best rate *available*, and when Lifebloom was already
+rolling that meant Rejuvenation at 4.72 health per mana instead of waiting a few seconds for
+Lifebloom at 6.17. It waits now: if the efficient HoT is on the target and only a worse one is
+free, it casts nothing unless the target is under `directBelow`, where a worse heal beats no
+heal. On the author's 74 s fight the plan went from Lifebloom-then-Rejuvenation to **four
+Lifeblooms and nothing else**, 880 mana of healing, ending with no deficit at all.
+
+replaycheck 62 → 66, replayui 54 → 60. One harness note: a hand-built plan state needs its damage
+ring filled, because `RecentDamage` reads it by index and an empty one compares nil with a number.

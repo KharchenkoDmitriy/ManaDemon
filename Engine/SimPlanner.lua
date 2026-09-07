@@ -230,21 +230,34 @@ function Plan:Decide(S, t, mana, form)
         if i then
             local deficit = (S.maxHP[i] or 0) - (S.hp[i] or 0)
             local rate = SM.RecentDamage(S, i, t, 5) / 5
-            local pick, pickE, pickHPM
+            local pick, pickE, pickHPM = nil, nil, nil
+            local bestPossibleHPM = 0        -- the best rate this plan can ever buy
             for _, fam in ipairs(SP.HOT_RULE) do
                 local id = self.binds[fam]
                 local e = affordable(id)
                 local fi = HOT_INDEX[fam]
                 local st = fi and S.hots[i] and S.hots[i][fi]
-                if e and not (st and st.active) then
+                if e then
                     local heal = (e.direct or 0) + (e.tick or 0) * (e.ticks or 0) + (e.bloom or 0)
-                    local horizon = e.duration or ((e.ticks or 0) * (e.tickPeriod or 3))
-                    local room = deficit + rate * horizon
                     local hpm = heal / (e.cost or 1)
-                    if heal > 0 and heal <= room and (not pick or hpm > pickHPM) then
-                        pick, pickE, pickHPM = id, e, hpm
+                    if heal > 0 and hpm > bestPossibleHPM then bestPossibleHPM = hpm end
+                    if not (st and st.active) then
+                        local horizon = e.duration or ((e.ticks or 0) * (e.tickPeriod or 3))
+                        local room = deficit + rate * horizon
+                        if heal > 0 and heal <= room and (not pick or hpm > pickHPM) then
+                            pick, pickE, pickHPM = id, e, hpm
+                        end
                     end
                 end
+            end
+            -- The best HoT is already on them, and what is left is a worse rate.
+            -- Casting it costs mana the efficient one would have healed for
+            -- less; unless the target is urgent, WAIT for the good one to come
+            -- off. On this author's gear that is the difference between a
+            -- Rejuvenation at 4.72 per mana and a Lifebloom at 6.17 (v0.11.8).
+            if pick and pickHPM < bestPossibleHPM - 1e-9 then
+                local frac = (S.hp[i] or 0) / (S.maxHP[i] or 1)
+                if frac >= self.directBelow then pick = nil end
             end
             if pick then return pick, i, 4 end
         end

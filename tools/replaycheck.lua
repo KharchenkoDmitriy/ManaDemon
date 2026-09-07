@@ -486,6 +486,46 @@ do
 end
 
 --------------------------------------------------------------------------------
+-- 9f. v0.11.8: the HoT rule waits for the efficient spell rather than spending
+-- more mana on a worse one, unless the target is urgent.
+--------------------------------------------------------------------------------
+do
+    local kit2 = kit
+    local lb = MD.SpellData.maxRank.Lifebloom
+    local rj = MD.SpellData.maxRank.Rejuvenation
+    local e1, e2 = kit2.caster[lb], kit2.caster[rj]
+    local function hpm(e)
+        return ((e.direct or 0) + (e.tick or 0) * (e.ticks or 0) + (e.bloom or 0)) / (e.cost or 1)
+    end
+    check("Lifebloom is the efficient one on this kit", hpm(e1) > hpm(e2),
+        string.format("%.2f vs %.2f per mana", hpm(e1), hpm(e2)))
+
+    local plan2 = SP.NewPlan(SP.MaxRankBinds(),
+        { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 0, hotBelow = 0.90, filler = false }, kit2)
+    -- a target hurt but not urgent, with the efficient HoT already rolling
+    local S2 = { nT = 1, tracked = { true }, dead = { false }, hp = { 6000 }, maxHP = { 10000 },
+                 role = { "TANK" }, hots = { { } }, cd = {}, dmg = { { t = {}, a = {} } } }
+    -- the damage ring is read by index, so it has to be filled: an empty one
+    -- compares nil with a number
+    for j = 1, 64 do S2.dmg[1].t[j], S2.dmg[1].a[j] = -1000, 0 end
+    S2.hots[1][SM.HOT_INDEX.Lifebloom] = { active = true, expires = 99, stacks = 1 }
+    local id = plan2:Decide(S2, 5, 9999, "caster")
+    check("it does not buy the worse rate when the target can wait", id ~= rj,
+        id and tostring(id) or "waited")
+
+    -- the same target, now urgent: the worse HoT is better than nothing
+    S2.hp[1] = 3000
+    local id2 = plan2:Decide(S2, 5, 9999, "caster")
+    check("but it does when the target is urgent", id2 ~= nil, tostring(id2))
+
+    -- with nothing rolling, it takes the efficient one
+    S2.hp[1] = 6000
+    S2.hots[1][SM.HOT_INDEX.Lifebloom].active = false
+    local id3 = plan2:Decide(S2, 5, 9999, "caster")
+    check("with nothing rolling it takes the efficient one", id3 == lb, tostring(id3))
+end
+
+--------------------------------------------------------------------------------
 -- 9. no trace unless asked
 --------------------------------------------------------------------------------
 local plain = SM:Run(rp.scenario, nil, { critMode = "ev" })
