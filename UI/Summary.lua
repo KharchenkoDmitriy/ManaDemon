@@ -205,6 +205,12 @@ MD:On("COMBAT_LOG_EVENT_UNFILTERED", function()
         else
             MD.FightRecorder:Event(subevent, sourceGUID, destGUID, destName,
                 p1, p2, p3, p4, p5, p6, p7, p8, p9, p10)
+            -- v0.12.0: a hostile cast aimed at somebody we are healing. Not
+            -- handled inside FR:Event because that one is written around "is
+            -- this the player's own event"; this is the opposite question.
+            if sourceGUID ~= MD.player.guid then
+                MD.FightRecorder:EnemyCast(subevent, sourceGUID, destGUID, destName, p1)
+            end
         end
     end
     if sourceGUID ~= MD.player.guid then return end

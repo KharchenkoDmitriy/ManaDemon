@@ -81,8 +81,16 @@ swing("Mage-1", "Alkandari", 3000)
 aura("SPELL_AURA_APPLIED", "Mob-1", "Mage-1", "Alkandari", 55555, "Curse of Weakness", "DEBUFF")
 foreignHeal("Mage-1", "Alkandari", 900)
 advance(2.0); cast(rejuv, "Mage-1", "Alkandari");    S.mana = S.mana - (SD:GetCost(rejuv) or 0)
--- refresh a Rejuvenation with three ticks still pending: this must label "early"
-advance(3.0); cast(rejuv, "Mage-1", "Alkandari");    S.mana = S.mana - (SD:GetCost(rejuv) or 0)
+-- refresh a Rejuvenation with three ticks still pending: this must label "early".
+-- v0.12.0 rides along inside this same 3s so the fixture's clock does not move:
+-- a hostile cast on the tank that lands, and one on the mage that never does.
+-- This is what Cell's "Targeted Spells" shows, and the only foresight the plan
+-- is given.
+ev("SPELL_CAST_START", "Mob-1", "Tank-1", "Destroyka", 12471, "Shadow Bolt", 32)
+ev("SPELL_CAST_START", "Mob-1", "Mage-1", "Alkandari", 12472, "Shadow Bolt", 32)
+advance(3.0)
+ev("SPELL_DAMAGE", "Mob-1", "Tank-1", "Destroyka", 12471, "Shadow Bolt", 32, 900, 0, 32, false)
+cast(rejuv, "Mage-1", "Alkandari");    S.mana = S.mana - (SD:GetCost(rejuv) or 0)
 aura("SPELL_AURA_APPLIED_DOSE", "Mob-1", "Mage-1", "Alkandari", 55555, "Curse of Weakness", "DEBUFF", 2)
 aura("SPELL_AURA_REMOVED", "Tank-1", "Tank-1", "Destroyka", 871, "Shield Wall", "BUFF")
 -- and one cast on a target at full health: this must label "overheal"

@@ -187,6 +187,7 @@ function FR:Start(t0)
         mana = { t = {}, v = {}, base = {}, cast = {} },
         precasts = {}, deaths = {}, n = 0, truncated = false,
         auraOn = {}, auraN = 0, auraTruncated = false,   -- v0.8.3, per-target aura bookkeeping
+        threatOn = {},    -- v0.12.0: [roster index] = last recorded threat status
         names = {},       -- v0.10.1: [spellID] = "Moonfire r11". A recording is read offline,
                           -- where no client can name an id; a few dozen bytes buys that
         pinned = false,
@@ -287,6 +288,7 @@ function FR:Tick()
         m.t[n], m.v[n] = t, UnitPower("player", 0) or 0
         m.base[n], m.cast[n] = RM and RM.apiBase or 0, RM and RM.apiCasting or 0
     end
+    if FR.tickCount % MANA_SAMPLE_TICKS == 0 then FR:SampleThreat(t) end
     if t >= FR.nextHpAt then
         FR.nextHpAt = t + HP_SNAPSHOT_EVERY
         FR:Snapshot(t)
@@ -440,6 +442,57 @@ function FR:Event(subevent, sourceGUID, destGUID, destName, p1, p2, p3, p4, p5, 
         Push(s, t, K.CASTSTART, idx, 0, p1 or 0)
         FR.pending = FR.pending or {}
         FR.pending[1], FR.pending[2] = p1, t
+    end
+end
+
+--------------------------------------------------------------------------------
+-- v0.12.0: the two things the author's frames show them coming.
+--
+-- A hostile cast aimed at somebody they are healing is Cell's "Targeted Spells"
+-- indicator, and aggro is its "Aggro (bar)" and "Aggro (border)". Neither is
+-- foresight: the cast bar is on screen and the aggro is on the frame. What the
+-- plan may do with them is docs/SPEC-v0.12.md §2; what the recorder does is
+-- write them down.
+--
+-- The combat log's SPELL_CAST_START often carries no destination -- the target
+-- is not committed until the cast lands -- so the target and the landing time
+-- are PAIRED with the damage the cast did, in ScenarioFromRecording. When
+-- nothing lands (interrupted, missed, the mob died) the cast stays in the
+-- record with no target, exactly as the author saw a bar that came to nothing.
+--------------------------------------------------------------------------------
+function FR:EnemyCast(subevent, sourceGUID, destGUID, destName, spellID)
+    local s = FR.active
+    if not s or not spellID then return end
+    if not (MD.db and MD.db.recordThreat ~= false) then return end
+    if subevent ~= "SPELL_CAST_START" and subevent ~= "SPELL_CHANNEL_START" then return end
+    -- a group member's cast is not an enemy cast; Index returns -1 for anybody
+    -- who is not in the roster, which is exactly "a mob"
+    if MD.Recorder:Index(sourceGUID) > 0 then return end
+    local idx = destGUID and MD.Recorder:Index(destGUID, destName) or -1
+    if idx > 0 and not s.trackedSet[idx] then return end
+    Push(s, GetTime() - s.t0, K.ECAST, idx, 0, spellID)
+    if not s.names[spellID] and GetSpellInfo then s.names[spellID] = GetSpellInfo(spellID) end
+end
+
+-- Sampled, not evented: the client has no "threat changed" for a party member.
+function FR:SampleThreat(t)
+    local s = FR.active
+    if not s then return end
+    if not (MD.db and MD.db.recordThreat ~= false) then return end
+    if not UnitThreatSituation then return end
+    s.threatOn = s.threatOn or {}
+    for _, idx in ipairs(s.tracked) do
+        local e = s.roster[idx]
+        local entry = e and e.guid and MD.Targets and MD.Targets:Lookup(e.guid, e.name)
+        local unit = entry and entry.unit
+        if unit then
+            local ok, status = pcall(UnitThreatSituation, unit)
+            status = (ok and status) or 0
+            if s.threatOn[idx] ~= status then
+                s.threatOn[idx] = status
+                Push(s, t, K.THREAT, idx, status, 0)
+            end
+        end
     end
 end
 

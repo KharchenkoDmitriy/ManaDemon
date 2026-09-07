@@ -29,7 +29,8 @@ if rec then
     for i = 1, rec.n do n[rec.ev.kind[i]] = (n[rec.ev.kind[i]] or 0) + 1 end
     local K = MD.SimModel.K
     check("own casts recorded", (n[K.OWNCAST] or 0) == 6, tostring(n[K.OWNCAST]))
-    check("damage recorded", (n[K.DMG] or 0) == 2, tostring(n[K.DMG]))
+    -- two swings, plus the Shadow Bolt that v0.12.0's scripted hostile cast lands
+    check("damage recorded", (n[K.DMG] or 0) == 3, tostring(n[K.DMG]))
     check("foreign heal recorded", (n[K.FHEAL] or 0) == 1, tostring(n[K.FHEAL]))
     check("own tick recorded", (n[K.OWNTICK] or 0) == 1, tostring(n[K.OWNTICK]))
     check("death recorded", #rec.deaths == 1, tostring(#rec.deaths))
@@ -184,6 +185,43 @@ do
     check("Mark of the Wild is utility, not a hole",
         (sum.utility.casts or 0) >= 1 and sum.unknown.casts == 0,
         string.format("utility %d, unknown %d", sum.utility.casts, sum.unknown.casts))
+end
+
+-- v0.12.0: the two things a healer can see coming
+do
+    local K2 = MD.SimModel.K
+    local casts, threats = 0, 0
+    for i = 1, (rec.n or 0) do
+        if rec.ev.kind[i] == K2.ECAST then casts = casts + 1 end
+        if rec.ev.kind[i] == K2.THREAT then threats = threats + 1 end
+    end
+    check("a hostile cast on a tracked target is recorded", casts == 2, tostring(casts))
+    check("and its spell is named for the offline tools", rec.names[12471] ~= nil,
+        tostring(rec.names[12471]))
+
+    local sc = MD.SimModel.ScenarioFromRecording(rec, MD.RankMath:SpellKit())
+    check("the scenario carries the incoming casts", #sc.incoming == 2, tostring(#sc.incoming))
+    local landed, unlanded
+    for _, c in ipairs(sc.incoming) do
+        if c.at then landed = c else unlanded = c end
+    end
+    check("a cast that landed is paired with its damage",
+        landed ~= nil and landed.at > landed.t and landed.amount == 900,
+        landed and string.format("cast %.1fs, landed %.1fs for %d", landed.t, landed.at or -1,
+            landed.amount or -1) or "none")
+    check("and with the target it actually hit", landed and landed.target ~= nil)
+    check("a cast that never landed has no landing time", unlanded ~= nil and unlanded.at == nil,
+        unlanded and tostring(unlanded.at) or "every cast landed")
+
+    -- the setting turns the pair off
+    MD.db.recordThreat = false
+    local before = rec.n
+    MD.FightRecorder.active = rec
+    MD.FightRecorder:EnemyCast("SPELL_CAST_START", "Mob-9", "Tank-1", "Destroyka", 999)
+    MD.FightRecorder:SampleThreat(1)
+    MD.FightRecorder.active = nil
+    check("db.recordThreat off records neither", rec.n == before, tostring(rec.n - before))
+    MD.db.recordThreat = true
 end
 
 print(string.format("\n%d ok, %d failed", ok, #fails))

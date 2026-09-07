@@ -44,6 +44,9 @@ local DEFAULTS = {
                           -- waiting is a legitimate action for a 5-man healer)
     recordFights = true,  -- keep the full event stream of the last 8 interesting pulls so they
                           -- can be replayed (Engine/FightRecorder.lua). Summaries run regardless
+    recordThreat = true,  -- record the two things a healer can see coming: aggro on each tracked
+                          -- target, and a hostile cast aimed at one (docs/SPEC-v0.12.md). A few
+                          -- dozen events a pull; off for anyone who does not want the bytes
     recordRuns = true,    -- allow /md run start: a whole dungeon as one recording, every pull plus
                           -- the gaps (Engine/RunRecorder.lua). Two runs kept, one pinnable
     runMaxMinutes = 90,   -- a recording run stops itself at this age (0 = no ceiling)

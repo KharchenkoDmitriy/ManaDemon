@@ -202,7 +202,9 @@ Spec: **`docs/SPEC-v0.12.md`**. The plan may know what the author's own unit fra
 nothing else; their Cell layout is the specification, read on 2026-09-07. Exactly two of their
 enabled indicators are foresight: **aggro** and **an enemy cast with a named target**.
 
-- [ ] **v0.12.0** record threat and enemy casts (`K.THREAT`, `K.ECAST`), `db.recordThreat`.
+- [x] **v0.12.0** record threat and enemy casts (`K.THREAT`, `K.ECAST`), `db.recordThreat`.
+  *(2026-09-07; a cast is paired with the damage it did, because the log's SPELL_CAST_START
+  carries no destination. A cast that never landed stays in the record with no landing time.)*
 - [ ] **v0.12.1** `Plan:Decide` reads them: a cast in the air counts towards rule 4's room, and
   `Anchor` prefers a target that has threat.
 - [ ] **v0.12.2** the replay draws the Targeted Spells icon and the aggro border, in the author's

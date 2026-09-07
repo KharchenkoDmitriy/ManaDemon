@@ -40,6 +40,13 @@ SM.K = {
     AURA = 12,   -- v0.8.3: a defensive buff or a debuff on a tracked target; x = spellID
                  -- (+ AURA_BUFF_FLAG for a buff), amt = stacks, -1 on removal. The engine
                  -- ignores it: the damage it changed was recorded as changed.
+    -- v0.12.0, the two things a healer can see coming (docs/SPEC-v0.12.md §2).
+    -- Both are present-tense facts about the world, not future events: aggro is
+    -- on the frame now, and a cast bar is a promise the game is already making.
+    THREAT = 13, -- tgt = roster index, amt = UnitThreatSituation 0..3, recorded on change
+    ECAST = 14,  -- a hostile cast aimed at a tracked target. tgt = that target (-1 when the
+                 -- log did not carry one), x = spellID, amt = seconds until it landed
+                 -- (0 until ScenarioFromRecording pairs it with the damage it did)
 }
 SM.AURA_BUFF_FLAG = 1000000
 
@@ -1015,6 +1022,39 @@ function SM.ScenarioFromRecording(rec, kit)
         end
     end
 
+    -- v0.12.0: what the healer could see coming. Threat is a state per target;
+    -- an enemy cast is paired with the damage it did, because the combat log's
+    -- SPELL_CAST_START usually carries no destination -- the mob has not
+    -- committed to a target yet. The pairing is post-hoc (a recording is always
+    -- post-hoc); what the PLAN is given is only ever the cast's start time, its
+    -- target and when it landed, which is what the cast bar showed.
+    --
+    -- A cast that never landed keeps `at = nil`: the author watched a bar that
+    -- came to nothing, and so does the plan.
+    local incoming, threat = {}, {}
+    do
+        local evK = rec.ev or {}
+        local open = {}          -- spellID -> index into `incoming`
+        for i = 1, (rec.n or 0) do
+            local kind = evK.kind[i]
+            if kind == K.ECAST then
+                incoming[#incoming + 1] = { t = evK.t[i], spellID = evK.x[i],
+                                            target = (evK.tgt[i] or -1) > 0 and evK.tgt[i] or nil }
+                open[evK.x[i]] = #incoming
+            elseif kind == K.DMG then
+                local j = open[evK.x[i]]
+                if j then
+                    local c = incoming[j]
+                    c.at, c.amount = evK.t[i], evK.amt[i]
+                    c.target = c.target or evK.tgt[i]
+                    open[evK.x[i]] = nil
+                end
+            elseif kind == K.THREAT then
+                threat[#threat + 1] = { t = evK.t[i], target = evK.tgt[i], status = evK.amt[i] }
+            end
+        end
+    end
+
     local rates = {}
     local mn = rec.mana or {}
     for i = 1, #(mn.t or {}) do rates[i] = { mn.t[i], mn.base[i] or 0, mn.cast[i] or 0 } end
@@ -1040,6 +1080,7 @@ function SM.ScenarioFromRecording(rec, kit)
         dur = rec.dur or 0, pool = rec.pool or 0,
         initial = initial, energizeAssumed = assumed,
         targets = targets, ev = ev, rates = rates, fixed = fixed,
+        incoming = incoming, threat = threat,
         sampleT = mn.t, hpSampleT = hp.t, kit = kit,
         floor = (MD.db and MD.db.simFloor) or 0.30,
         script = script,

@@ -2312,3 +2312,27 @@ about what a reason may be: the inputs the rule read, in the author's units, nev
 justification written afterwards and never a fact `Decide` was not given.
 
 replayui 68 → 72.
+
+## 2026-09-07 — v0.12.0: recording what the frames show
+
+`docs/SPEC-v0.12.md` §3. Two new event kinds, neither of them modelled yet:
+
+- **`K.THREAT`** — `UnitThreatSituation` per tracked target, sampled on the 2 s mana tick and
+  written only when it changes. This is Cell's Aggro bar and border, which the author has on.
+- **`K.ECAST`** — a hostile cast aimed at a tracked target, which is Cell's Targeted Spells. Not
+  foresight: the bar is on screen, and reading it is reading the screen.
+
+The combat log makes the second one harder than it looks. `SPELL_CAST_START` usually carries **no
+destination**, because the mob has not committed to a target yet, and it never carries a cast
+time. So the recorder writes the cast down as it starts and `ScenarioFromRecording` **pairs it
+with the damage it did** — that gives the target it actually hit and the moment it landed. A cast
+that never landed keeps no landing time at all: the author watched a bar that came to nothing,
+and so does the plan. The pairing is post-hoc, which a recording always is; what the plan will be
+given in v0.12.1 is only what the cast bar showed.
+
+`db.recordThreat` (default on) turns the pair off. `reccheck` 46 → 53, with a scripted Shadow
+Bolt that lands and one that does not.
+
+One fixture lesson: the first cut inserted a two-second `advance` for the new cast, which moved
+every timestamp after it and broke four aura assertions in two other suites. The events ride
+inside an existing three-second step now, and the fixture's clock is where it was.
