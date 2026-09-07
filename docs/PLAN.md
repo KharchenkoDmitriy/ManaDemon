@@ -179,6 +179,18 @@ Spec: **`docs/SPEC-v0.10.md`**; the calls in `docs/DECISIONS.md` §v0.10.
   regen), shown as rows and selectable for the replay's suggested column. *(2026-09-07;
   `/md coach N safe|health|cheap|regen`. The replay window's selector is still to do.)*
 
+## Phase 1.12 — one window, four groups (v0.11)
+
+Spec: **`docs/SPEC-v0.11.md`**. The author's ask on 2026-09-07: merge the settings and dashboard
+windows, keep the settings palette, and group the views the way ElvUI does — level 1 vertical on
+the left, level 2 horizontal on top, deeper levels in a box that repeats the rule.
+
+- [ ] **v0.11.0** `UI.PALETTE`, `UI.CreateNavFrame` / `UI.CreateNavBox`, `tools/navui.lua`.
+- [ ] **v0.11.1** the dashboard moves in: Spells and Reports.
+- [ ] **v0.11.2** Settings becomes the fourth group; `UI/OptionsFrame.lua` becomes a shim.
+- [ ] **v0.11.3** Simulate becomes the third group; the standalone window goes.
+- [ ] **v0.11.4** Runs as its own Reports view; first use of the level-3 box.
+
 ## Phase 2 — other classes (after 1 is green)
 
 Generic parts already work for any mana class: the OOM clock, widget, datatexts,
