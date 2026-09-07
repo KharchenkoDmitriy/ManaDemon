@@ -1895,3 +1895,38 @@ same split offline, per spell.
 `GetSpellInfo` could not name a Mark of the Wild and the classifier called it unknown — a
 property of the harness, not of the addon. The ids the fixtures cast are named in
 `tools/harness.lua` now.
+
+## 2026-09-07 — v0.10.2: fixed points, and the gate that was measuring the wrong thing
+
+`docs/SPEC-v0.10.md` §3, the change the author asked for on 2026-09-07: "treat CC casts as
+necessary at that moment, so they are in the record and in the coach variant at the same place."
+
+`ScenarioFromRecording` now splits the own casts. `script` stays complete — a replay is every
+cast the healer made, byte for byte as before — and `fixed` is the subset the healing model does
+not price. When a plan runs it drops `script` and **keeps `fixed`**: each of those casts happens
+at its recorded moment, for its recorded mana, taking the global cooldown and restarting the
+five-second rule, in the suggested column exactly as it did in the real fight. The plan decides
+around them; it never gets the mana back.
+
+A fixed cast **preempts** a plan cast in flight, cancelling it, which costs no mana — that is
+what the healer did, interrupting themselves to press it. The two alternatives are worse:
+delaying the fixed cast moves a recorded event, and letting the plan see it coming is
+clairvoyance. Its trace carries `why = SM.WHY_FIXED`, a sixth value that is not a rule, so the
+replay window can name it on hover.
+
+**The gate now counts what the engine reproduces**, not what the healing kit prices. On the
+author's four solo recordings that is 100%, 100%, 100% and 23%, and two of them pass every gate
+and can be coached without forcing. Before this, a healer who assisted the damage dealers failed
+a gate for playing their class.
+
+Two bugs found while wiring it, both by output rather than by a syntax check:
+- `local _, kind = MD.ClassifyCast and MD:ClassifyCast(id)` truncates the call to one value, so
+  `kind` was always nil and everything read "unclassified". This is the exact Lua trap CLAUDE.md
+  warns about, and it has now bitten three times in this repo. The `if` is written out.
+- The fixed cast pushed its own decision event while the plan's chain was still alive, so two
+  chains ran and every wait was counted twice: the card read "otherwise wait — 390% of the
+  fight, longest gap 338s" on an 87 s fight. Exactly one chain may be alive; the pending one
+  reschedules itself against a busy guard.
+
+`replaycheck` 44 → 47: the plan pays for the casts it did not choose, waiting never exceeds the
+fight, the longest wait fits inside it, and a preempted cast costs nothing.

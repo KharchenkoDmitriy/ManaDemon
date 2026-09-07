@@ -263,6 +263,7 @@ end
 SP.RULE_NAMES = {
     "Swiftmend on a big hit", "direct heal, a HoT would be late",
     "keep Lifebloom rolling on the anchor", "the HoT that fits the deficit", "filler",
+    "your own cast - damage, control or a shapeshift the plan cannot choose",
 }
 
 function Plan:BindCount()

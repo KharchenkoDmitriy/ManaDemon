@@ -53,6 +53,11 @@ local HOT_INDEX = SM.HOT_INDEX
 -- replay window when opts.trace asks for it. Distinct from SM.K, which are the
 -- RECORDED kinds; neither table is ever renumbered.
 SM.TK = { CAST_START = 1, CAST = 2, CANCEL = 3, HOT = 4, HOT_END = 5, DEATH = 6, FORM = 7, WAIT = 8 }
+-- The trace's `why` is the Plan rule that caused a cast, 1..5. A sixth value
+-- means no rule caused it: it is one of the healer's own non-healing casts,
+-- replayed into the suggested column because the plan does not get to remove it
+-- (v0.10.2). SP.RULE_NAMES carries its line.
+SM.WHY_FIXED = 6
 local TK = SM.TK
 SM.TRACE_MAX_NUMBERS = 30000
 
@@ -511,6 +516,12 @@ function SM:Run(scenario, plan, opts)
     local rates, rateN, rateI = scenario.rates, scenario.rates and #scenario.rates or 0, 1
     local script = plan and plan.script or scenario.script
     local scriptN, scriptI = script and #script or 0, 1
+    -- v0.10.2: the casts a plan may not remove. A replay runs them out of
+    -- `script` like everything else, so they are only a separate cursor when a
+    -- plan is deciding.
+    local fixed = plan and scenario.fixed or nil
+    local fixedN, fixedI = fixed and #fixed or 0, 1
+    local inFlight = false      -- the plan has a cast committed and not yet landed
     local samples, sampleN, sampleI = scenario.sampleT, scenario.sampleT and #scenario.sampleT or 0, 1
     local hpT, hpN, hpI = scenario.hpSampleT, scenario.hpSampleT and #scenario.hpSampleT or 0, 1
     local deciding = plan and plan.Decide and true or false
@@ -574,6 +585,7 @@ function SM:Run(scenario, plan, opts)
         if forms and formI <= formN and forms[formI][1] < nt then nt, src = forms[formI][1], 2 end
         if ev and evi <= evN and ev.t[evi] < nt then nt, src = ev.t[evi], 3 end
         if script and scriptI <= scriptN and script[scriptI][1] < nt then nt, src = script[scriptI][1], 4 end
+        if fixed and fixedI <= fixedN and fixed[fixedI][1] < nt then nt, src = fixed[fixedI][1], 6 end
         if h.n > 0 and h.t[1] < nt then nt, src = h.t[1], 5 end
 
         -- Samples strictly before the next event. A sample that sits exactly ON
@@ -644,6 +656,30 @@ function SM:Run(scenario, plan, opts)
             local c = script[scriptI]
             scriptI = scriptI + 1
             Succeed(c[2], c[4] or -1, c[3])
+        elseif src == 6 then
+            -- A cast the healer made that no healing plan gets to choose: the
+            -- damage, the crowd control, the shapeshift. It costs its recorded
+            -- mana, restarts the five-second rule and takes the global
+            -- cooldown, in the suggested column exactly as it did in the real
+            -- fight. It PREEMPTS a plan cast in flight -- that is what the
+            -- healer did, interrupting themselves to press it, and a cancelled
+            -- cast costs no mana. Delaying the fixed cast instead would move a
+            -- recorded event, and letting the plan see it coming would be
+            -- clairvoyance.
+            local c = fixed[fixedI]
+            fixedI = fixedI + 1
+            if inFlight then
+                inFlight = false
+                if trace then Trace(TK.CANCEL, 0, 0, 0) end
+            end
+            pendingWhy = SM.WHY_FIXED
+            Succeed(c[2], c[4] or -1, c[3])
+            -- the global cooldown it takes, and NO new decision event: exactly
+            -- one decision chain may be alive, and the pending one will hit the
+            -- busy guard below and reschedule itself. Pushing here as well made
+            -- two chains, and the plan's waiting was counted twice -- a card
+            -- reading "waited 390% of the fight" is how that showed up.
+            busyUntil = t + GCD
         elseif src == 5 then
             local et, prio, a, b, aux = HeapPop(h)
             if prio == E_TICK then
@@ -670,8 +706,23 @@ function SM:Run(scenario, plan, opts)
                     Trace(TK.HOT_END, a, b, bloomed)
                 end
             elseif prio == E_LAND then
-                Succeed(a, b, aux)   -- aux carries the committed cast's cost
+                -- only one cast is ever in flight, so a cleared marker means a
+                -- fixed cast preempted this one: it never happened, and a
+                -- cancelled cast costs nothing
+                if inFlight then
+                    inFlight = false
+                    Succeed(a, b, aux)   -- aux carries the committed cast's cost
+                end
             elseif prio == E_DECIDE and deciding then
+                -- Still casting, or inside a fixed cast's global cooldown: ask
+                -- again when the healer is free. Only one decision chain may be
+                -- alive at a time, or the plan would commit two casts at once.
+                -- (repeat/until true is Lua 5.1's `goto`.)
+                repeat
+                if t < busyUntil - 1e-9 then
+                    HeapPush(h, busyUntil, E_DECIDE, 0, 0, 0)
+                    break
+                end
                 local spellID, ti, rule = plan:Decide(S, t, mana, form)
                 if spellID and lastWasWait and reaction > 0 then
                     -- Coming out of idle: pay the reaction delay, then ask
@@ -693,6 +744,7 @@ function SM:Run(scenario, plan, opts)
                         Succeed(spellID, ti, e and e.cost or nil)
                     else
                         if trace then EndWait(); Trace(TK.CAST_START, ti, spellID, castTime, pendingWhy) end
+                        inFlight = true
                         HeapPush(h, succeedAt, E_LAND, spellID, ti, e and e.cost or nil)
                     end
                     busyUntil = succeedAt > t + GCD and succeedAt or (t + GCD)
@@ -713,6 +765,7 @@ function SM:Run(scenario, plan, opts)
                     if waitRun > maxWaitRun then maxWaitRun, maxWaitAt = waitRun, t + span end
                     if nextT < dur then HeapPush(h, nextT, E_DECIDE, 0, 0, 0) end
                 end
+                until true
             end
         end
 
@@ -895,12 +948,35 @@ function SM.ScenarioFromRecording(rec, kit)
                        tracked = trackedSet[i] and hp0 >= 0 or false }
     end
 
-    local script = {}
+    -- v0.10.2: the own casts split in two. `script` is what the healing model
+    -- prices, which a plan REPLACES when it runs. `fixed` is everything else --
+    -- the damage, the crowd control, the shapeshifts, the buffs -- which a plan
+    -- must WORK AROUND: same moment, same cost, same global cooldown, same
+    -- five-second-rule restart. Dropping them would hand the simulated healer
+    -- the mana back while leaving the damage timeline untouched, which is a
+    -- third of this author's mana and the reason a plan looked cheap.
+    local script, fixed = {}, {}
     local ev = rec.ev or {}
     for i = 1, (rec.n or 0) do
         if ev.kind[i] == K.OWNCAST then
-            script[#script + 1] = { ev.t[i], ev.x[i], (ev.amt[i] or -1) >= 0 and ev.amt[i] or nil,
-                                    ev.tgt[i] }
+            local id = ev.x[i]
+            local cost = (ev.amt[i] or -1) >= 0 and ev.amt[i] or nil
+            local entry = { ev.t[i], id, cost, ev.tgt[i] }
+            -- `script` stays COMPLETE: a replay is every cast the healer made,
+            -- byte for byte as before. `fixed` is the subset a plan may not
+            -- remove, and it is only read when a plan is deciding (which is
+            -- also when `script` is dropped).
+            script[#script + 1] = entry
+            if not MD.SpellData.spells[id] then
+                -- `a and f()` truncates f() to one value (CLAUDE.md); the if
+                -- has to be written out or `kind` is always nil
+                local kind = "unknown"
+                if MD.ClassifyCast then
+                    local _, k = MD:ClassifyCast(id)
+                    kind = k or "unknown"
+                end
+                fixed[#fixed + 1] = { ev.t[i], id, cost, ev.tgt[i], kind }
+            end
         end
     end
 
@@ -928,7 +1004,7 @@ function SM.ScenarioFromRecording(rec, kit)
     return {
         dur = rec.dur or 0, pool = rec.pool or 0,
         initial = initial, energizeAssumed = assumed,
-        targets = targets, ev = ev, rates = rates,
+        targets = targets, ev = ev, rates = rates, fixed = fixed,
         sampleT = mn.t, hpSampleT = hp.t, kit = kit,
         floor = (MD.db and MD.db.simFloor) or 0.30,
         script = script,
@@ -1101,16 +1177,34 @@ function SM:Validate(rec, kit)
             or "every spell worth 10% of the spend is within 3%"),
         nil, 0.03, "Calibration ALERT_REL")
 
-    -- 8: did the engine even know what the mana went on
-    local modelled = 0
+    -- 8: did the engine even know what the mana went on. v0.10.2: everything it
+    -- REPRODUCES counts, not only what the healing model prices. A Cyclone is
+    -- replayed as a fixed point -- same moment, same cost, same five-second-rule
+    -- restart, in both columns -- so the engine is not guessing about it; a cast
+    -- nobody can classify still is, and that is the hole this gate exists to
+    -- notice. Before this, a healer who assisted the damage dealers failed the
+    -- gate for playing their class.
+    local form = rec.initial and rec.initial.form or "caster"
+    local modelled, replayed, unclassified = 0, 0, 0
     for i = 1, #sc.script do
         local c = sc.script[i]
-        local e = kit[rec.initial and rec.initial.form or "caster"][c[2]] or kit.caster[c[2]]
-        if e then modelled = modelled + (c[3] or e.cost or 0) end
+        local e = kit[form][c[2]] or kit.caster[c[2]]
+        local cost = c[3] or (e and e.cost) or 0
+        if e then
+            modelled = modelled + cost
+        else
+            local kind
+            if MD.ClassifyCast then local _, k = MD:ClassifyCast(c[2]); kind = k end
+            if kind and kind ~= "unknown" then replayed = replayed + cost
+            else unclassified = unclassified + cost end
+        end
     end
-    local coverage = spend > 0 and modelled / spend or 0
+    local coverage = spend > 0 and (modelled + replayed) / spend or 0
     Gate("spend coverage", coverage >= 0.90,
-        string.format("%.0f%% of the mana went on spells the model knows", coverage * 100),
+        string.format("%.0f%% of the mana is accounted for (%.0f%% healing, %.0f%% replayed as cast)%s",
+            coverage * 100, spend > 0 and modelled / spend * 100 or 0,
+            spend > 0 and replayed / spend * 100 or 0,
+            unclassified > 0 and string.format("; %d mana on spells nothing can name", unclassified) or ""),
         coverage, 0.90, "12.6% utility hole in BF-1")
 
     out.result = r

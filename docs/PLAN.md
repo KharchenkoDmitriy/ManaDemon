@@ -166,8 +166,9 @@ Spec: **`docs/SPEC-v0.10.md`**; the calls in `docs/DECISIONS.md` §v0.10.
 - [x] **v0.10.1** `Data/DruidSpells.lua` (seeded from the TBC database, checked against recorded
   costs), `MD:ClassifyCast`, the learned `cdb.spellbook`, per-stream spell names, `import spells N`.
   *(2026-09-07; every cast in the author's fights is now named and classified.)*
-- [ ] **v0.10.2** fixed points: non-healing casts happen in the suggested column at the same time
+- [x] **v0.10.2** fixed points: non-healing casts happen in the suggested column at the same time
   and cost; `spend coverage` counts what the engine reproduces, not what the healing kit prices.
+  *(2026-09-07; two of the author's four recordings now pass every gate.)*
 - [x] **v0.10.0** the deficit you still owe (health missing at the end priced as mana), the danger
   line measured from the fight's biggest hit instead of a flat 30%, and rule 4 casting the HoT
   whose whole heal fits the deficit. *(2026-09-07; shipped first because it is what the author

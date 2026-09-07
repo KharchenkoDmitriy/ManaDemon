@@ -153,17 +153,45 @@ check("grid == gate sampler at snapshots", agree and agreeN > 0, tostring(agreeN
 check("right column built", rp.right ~= nil and rp.right.trace ~= nil)
 if rp.right then
     local R = rp.right.trace
+    local fixedCasts = 0
     local rightCasts, whyOk, waits, waitsOk = 0, true, 0, true
     for i = 1, R.nEv do
         if R.ev.kind[i] == TK.CAST then
             rightCasts = rightCasts + 1
-            if R.ev.why[i] < 1 or R.ev.why[i] > 5 then whyOk = false end
+            -- 6 is not a rule: a cast of the healer's own that the plan had to
+            -- work around rather than choose (v0.10.2)
+            if R.ev.why[i] < 1 or R.ev.why[i] > 6 then whyOk = false end
+            if R.ev.why[i] == SM.WHY_FIXED then fixedCasts = fixedCasts + 1 end
         elseif R.ev.kind[i] == TK.WAIT then
             waits = waits + 1
             if R.ev.a[i] <= 0 then waitsOk = false end
         end
     end
     check("right casts carry a rule", rightCasts > 0 and whyOk, tostring(rightCasts))
+    -- the scripted pull casts Mark of the Wild: the plan does not choose it and
+    -- may not skip it, so it is in the suggested column too, at its own time
+    check("the plan pays for the casts it did not choose", fixedCasts > 0, tostring(fixedCasts))
+    -- one decision chain, always: two of them counted every wait twice and put
+    -- "waited 390% of the fight" on a card
+    check("waiting never exceeds the fight", (rp.right.snapshot.waitFraction or 0) <= 1.0001,
+        string.format("%.0f%%", (rp.right.snapshot.waitFraction or 0) * 100))
+    check("the longest wait fits inside the fight",
+        (rp.right.snapshot.maxWaitRun or 0) <= (rec.dur or 0) + 0.01,
+        string.format("%.1fs of %.1fs", rp.right.snapshot.maxWaitRun or 0, rec.dur or 0))
+    -- a fixed cast preempts a plan cast in flight, and a cancelled cast is free
+    check("a preempted cast costs nothing", (function()
+        local sc = SM.ScenarioFromRecording(rec, kit)
+        local withFixed = SP.RunPlan(sc, plan, { critMode = "ev" }).manaSpent
+        local saved = sc.fixed
+        sc.fixed = nil
+        local without = SP.RunPlan(sc, plan, { critMode = "ev" }).manaSpent
+        sc.fixed = saved
+        local fixedMana = 0
+        for _, c in ipairs(saved or {}) do fixedMana = fixedMana + (c[3] or 0) end
+        -- with the fixed casts the plan spends their mana on top, and never
+        -- more than that: a cast it had to abandon is not paid for
+        return withFixed <= without + fixedMana + 1
+    end)())
     check("waits carry their length", waits > 0 and waitsOk, tostring(waits))
     local differ = rightCasts ~= #traceCasts
     if not differ then
