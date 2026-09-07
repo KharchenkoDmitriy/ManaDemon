@@ -9,6 +9,7 @@ local UI = MD.UI
 local WIDTH, HEIGHT = 912, 617 -- +20% (author, 2026-09-06: not everything fit); was 760 x 514
 local frame, statsFS, calloutFS, hintFS, recapFS, messageFS, effectiveCB
 local rankTable, simStrip, wasteView, reviewView, nav
+local currentGroup = "spells"
 local currentFamily = "HealingTouch"
 local userPicked = false   -- once a tab is clicked, stop picking one automatically
 
@@ -33,8 +34,25 @@ end
 --------------------------------------------------------------------------------
 -- refresh
 --------------------------------------------------------------------------------
+local function Shown(f, on) if not f then return end if on then f:Show() else f:Hide() end end
+
 local function Refresh()
     if not frame or not frame:IsShown() then return end
+
+    -- Only two groups own this furniture. Simulate and Settings bring their own
+    -- panel, and drawing the rank table's header lines and the what-if strip on
+    -- top of it is what the author's screenshots showed (v0.11.5).
+    local spells, reports = currentGroup == "spells", currentGroup == "reports"
+    Shown(statsFS, spells or reports)
+    Shown(calloutFS, spells or reports)
+    Shown(hintFS, spells or reports)
+    Shown(recapFS, spells or reports)
+    if simStrip then simStrip:SetShown(spells and MD.player.isDruid) end
+    Shown(effectiveCB, spells and MD.player.isDruid)
+    if not (spells or reports) then
+        messageFS:Hide()
+        return
+    end
     messageFS:Hide()
 
     -- overall info line: current regen state
@@ -68,7 +86,7 @@ local function Refresh()
     end
 
     local waste = currentFamily == "Waste"
-    effectiveCB:SetShown(not waste and not review and MD.player.isDruid)
+    Shown(effectiveCB, not waste and not review and MD.player.isDruid and spells)
     if waste and wasteView then
         messageFS:Hide()
         if rankTable then rankTable:Release() end
@@ -79,8 +97,7 @@ local function Refresh()
         return
     end
 
-    if review or waste then return end
-    simStrip:SetShown(MD.player.isDruid)
+    if review or waste or not spells then return end
     if not MD.player.isDruid then
         if rankTable then rankTable:Release() end
         messageFS:Show()
@@ -245,19 +262,11 @@ local function CreateDashboard()
             return rankTable and rankTable.frame or nil
         end,
         function(group, view)
-            currentFamily = view
+            currentGroup, currentFamily = group, view
             userPicked = true
             MD:Fire("UI_VIEW_SELECTED", group, view)
-            if group ~= "settings" then Refresh() end
-            -- Show/Hide rather than SetShown: the older pair exists on every
-            -- client this addon targets (CLAUDE.md)
-            local function Shown(f, on) if not f then return end if on then f:Show() else f:Hide() end end
-            local spellish = (group == "spells")
-            if simStrip then simStrip:SetShown(spellish and MD.player.isDruid) end
-            Shown(effectiveCB, spellish and MD.player.isDruid)
-            for _, fs in ipairs({ statsFS, calloutFS, hintFS, recapFS }) do
-                Shown(fs, group ~= "settings")
-            end
+            Refresh()
+
         end)
     frame = nav.frame
     tinsert(UISpecialFrames, "ManaDemonDashboard") -- ESC closes

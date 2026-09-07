@@ -168,6 +168,57 @@ check("it opens on the run, not on the fights", Painted("run Ramparts") ~= nil,
 Click(ButtonNamed("Review"))
 check("Review goes back to the single fights", MD.db.uiPath[2] == "Review", MD.db.uiPath[2])
 
+--------------------------------------------------------------------------------
+-- One group's furniture must not be drawn over another's panel (v0.11.5). The
+-- author's screenshots of Simulate had the Spells what-if strip, the regen
+-- line, the rank table and the recap painted on top of it.
+--------------------------------------------------------------------------------
+-- what the eye sees: shown, and every parent shown too
+local function ShownText(pat)
+    for _, f in ipairs(S.allFrames) do
+        local t = f.GetText and f:GetText() or ""
+        if type(t) == "string" and t:find(pat) and f:IsVisible() then return t end
+    end
+    return nil
+end
+local function ShownButton(text)
+    for _, f in ipairs(S.allFrames) do
+        if f.kind == "Button" and f.text == text and f:IsVisible() then return true end
+    end
+    return false
+end
+
+Click(ButtonNamed("Simulate"))
+check("no rank-table hint over the simulator", ShownText("HPM heal per mana") == nil,
+    ShownText("HPM heal per mana"))
+check("no regen line over the simulator", ShownText("healing   regen") == nil,
+    ShownText("healing   regen"))
+check("no recap line over the simulator", ShownText("No fights recorded") == nil
+    and ShownText("Last fight:") == nil, ShownText("Last fight:") or ShownText("No fights recorded"))
+check("the what-if strip is not over the simulator", not ShownButton("Clear"))
+check("the simulator's own controls are visible", ShownButton("Run") or ShownButton("From recordings"))
+
+-- ...and coming from Reports, not just from Spells: the author saw both
+Click(ButtonNamed("Reports"))
+Click(ButtonNamed("Review"))
+Click(ButtonNamed("Simulate"))
+check("nor when arriving from Reports", ShownText("The fights this character recorded") == nil
+    and ShownText("HPM heal per mana") == nil,
+    ShownText("The fights this character recorded") or ShownText("HPM heal per mana"))
+
+Click(ButtonNamed("Settings"))
+check("nor over the settings", ShownText("HPM heal per mana") == nil and not ShownButton("Clear"))
+
+-- and the Spells furniture comes back when Spells does
+Click(ButtonNamed("Spells"))
+check("the rank table comes back with Spells", ShownText("HPM heal per mana") ~= nil)
+check("and so does the what-if strip", ShownButton("Clear"))
+
+-- the rank table is one frame registered under every family: switching family
+-- must not leave it hidden (the nav hides everything, then shows the keeper)
+Click(ButtonNamed("Regrowth"))
+check("switching family keeps the table visible", ShownText("HPM heal per mana") ~= nil)
+
 -- no bare pipe anywhere it paints
 local bad
 for _, f in ipairs(S.allFrames) do

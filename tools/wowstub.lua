@@ -161,7 +161,19 @@ function FrameMT:UnregisterEvent(e) self.events[e] = nil end
 function FrameMT:SetScript(k, fn) self.scripts[k] = fn end
 function FrameMT:GetScript(k) return self.scripts[k] end
 function FrameMT:IsShown() return self.shown == true end
-function FrameMT:IsVisible() return self.shown == true end
+-- Visible means shown AND every parent shown, which is what the eye sees: the
+-- client hides a whole subtree when it hides a frame, and a harness that only
+-- knows IsShown cannot tell that a hidden panel's buttons are gone (v0.11.5).
+function FrameMT:IsVisible()
+    local f, guard = self, 0
+    while f and guard < 50 do
+        if f.shown ~= true then return false end
+        f, guard = f.parentFrame, guard + 1
+    end
+    return true
+end
+function FrameMT:SetParent(p) self.parentFrame = p end
+function FrameMT:GetParent() return self.parentFrame end
 -- Show/Hide fire OnShow/OnHide, as the client does: a window that populates
 -- itself in OnShow (the dashboard) would otherwise open empty under the stub.
 function FrameMT:Show()
@@ -191,16 +203,17 @@ function FrameMT:GetBottom() return 0 end
 -- Enough of a widget for the UI files to load and paint: font strings and
 -- textures are frames too (every unknown method is a no-op), text and values
 -- are stored so a harness can read back what was painted.
-local function Child(kind)
-    local c = setmetatable({ events = {}, scripts = {}, kind = kind }, FrameMT)
+local function Child(kind, parent)
+    local c = setmetatable({ events = {}, scripts = {}, kind = kind, parentFrame = parent,
+                             shown = true }, FrameMT)
     -- font strings and textures go into the same registry as frames, so a
     -- harness can read back every string a pane painted (tools/reviewui.lua)
     frames[#frames + 1] = c
     return c
 end
-function FrameMT:CreateFontString() return Child("FontString") end
-function FrameMT:CreateTexture() return Child("Texture") end
-function FrameMT:GetFontString() self.fs = self.fs or Child("FontString"); return self.fs end
+function FrameMT:CreateFontString() return Child("FontString", self) end
+function FrameMT:CreateTexture() return Child("Texture", self) end
+function FrameMT:GetFontString() self.fs = self.fs or Child("FontString", self); return self.fs end
 function FrameMT:SetText(t) self.text = t end
 -- SetFormattedText was falling through to the no-op fallback, so every string
 -- written with it was invisible to the harnesses -- including their bare-pipe
@@ -246,7 +259,10 @@ _G.RAID_CLASS_COLORS = {
 }
 
 function CreateFrame(kind, name, parent, tmpl)
-    local f = setmetatable({ events = {}, scripts = {}, kind = kind, frameName = name }, FrameMT)
+    -- a new frame is SHOWN in the client; the kit's CreateFrame hides the ones
+    -- that should start hidden
+    local f = setmetatable({ events = {}, scripts = {}, kind = kind, frameName = name,
+                             parentFrame = parent, shown = true }, FrameMT)
     frames[#frames + 1] = f
     -- a named frame is a global in the client, and addon code looks itself up
     -- that way (tinsert(UISpecialFrames, "ManaDemonDashboard"), _G[name])

@@ -2074,3 +2074,27 @@ stays separate, as the spec ruled — it is a player, not a view.
 
 Ten suites: simcheck 10, reccheck 46, simwindow 8, regencheck 27, replaycheck 62, replayui 54,
 runcheck 69, reviewui 43, navui 25, dashui 39.
+
+## 2026-09-07 — v0.11.5: one group's furniture over another's panel
+
+Two screenshots from the author, Simulate reached from Spells and from Reports, both with the
+Spells group's what-if strip, regen line, rank table and recap painted on top of the simulator.
+
+`Refresh()` still assumed every group was the Spells group. It is the rank table's renderer and
+it was running on every selection, re-showing the strip and repainting the header lines over
+whatever panel the navigation had just put there. It now takes the current group: Spells and
+Reports own that furniture, Simulate and Settings bring their own panel and get none of it.
+
+A second bug, latent and about to bite: `ShowOnly` hid and showed in one pass, and the rank
+table is registered as the pane for **every** spell family. Whichever key `pairs()` visited last
+decided whether it ended up shown, so switching family could have left the table hidden. It hides
+everything that is not the keeper and then shows the keeper.
+
+The harness could not have caught either, because it could not see what the eye sees: hiding a
+frame hides its children in the client, but the stub had no parent chain, so a hidden panel's
+buttons still read as shown. Frames now record their parent, `IsVisible` walks it, and a new
+frame starts shown as it does in the client. `tools/dashui.lua` asserts *visibility* rather than
+the shown flag: no rank-table hint, regen line, recap or what-if strip over the simulator or the
+settings, arriving from either group, and all of it back when Spells is selected.
+
+dashui 39 → 49.

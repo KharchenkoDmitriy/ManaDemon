@@ -373,14 +373,18 @@ function UI.CreateNavFrame(title, name, width, height, groups, onCreate, onShow)
     nav.content = content
     function nav:Content() return content end
 
+    -- Hide everything that is not the selected pane, THEN show it. One frame can
+    -- be registered under several views (the rank table is the pane for every
+    -- spell family), and a single pass would hide it again on whichever key
+    -- pairs() happened to visit last.
     local function ShowOnly(groupID, viewID)
-        for gid, panes in pairs(nav.panes or {}) do
-            for vid, pane in pairs(panes) do
-                if pane.Show then
-                    if gid == groupID and vid == viewID then pane:Show() else pane:Hide() end
-                end
+        local keep = nav.panes and nav.panes[groupID] and nav.panes[groupID][viewID]
+        for _, panes in pairs(nav.panes or {}) do
+            for _, pane in pairs(panes) do
+                if pane ~= keep and pane.Hide then pane:Hide() end
             end
         end
+        if keep and keep.Show then keep:Show() end
     end
 
     -- the horizontal row for the selected group
