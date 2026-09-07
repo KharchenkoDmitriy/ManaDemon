@@ -41,6 +41,16 @@ local ROW_GAP = 18
 function MD.DashboardParts.CreateStrip(parent, x, y, onChange)
     local boxes = {}
 
+    -- v0.11.1: the strip lives in a frame of its own so it can be shown and
+    -- hidden with the Spells group. Everything below parents to `holder`; only
+    -- the two absolute anchors moved, the rest chain off the title as before.
+    local holder = CreateFrame("Frame", nil, parent)
+    holder:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+    holder:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, y)
+    holder:SetHeight(46)
+    parent = holder
+    x, y = 0, 0
+
     local title = parent:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
     title:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
     title:SetTextColor(UI.accent[1], UI.accent[2], UI.accent[3])
@@ -191,6 +201,9 @@ function MD.DashboardParts.CreateStrip(parent, x, y, onChange)
     end
 
     clearBtn:SetScript("OnClick", function() api:Clear() end)
+
+    api.frame = holder
+    function api:SetShown(on) if on then holder:Show() else holder:Hide() end end
 
     return api
 end

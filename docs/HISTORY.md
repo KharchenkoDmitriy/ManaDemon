@@ -1993,3 +1993,35 @@ yet; it exists so the next thing that does is not a fourth window.
 
 `tools/navui.lua` (new, 25 assertions) is the ninth suite. It goes in before anything is rebuilt
 on top of the kit, which is the whole point of writing it first.
+
+## 2026-09-07 — v0.11.1: the dashboard moves into the navigation
+
+`/md` is now groups down the left and views along the top: **Spells** (the six families) and
+**Reports** (Waste, Review). The eight-button top edge is gone, and with it the reason Review and
+Waste sat beside Healing Touch as though they were spell ranks. Nothing about the panes changed —
+they parent themselves to the nav's content frame and are built the first time their view is
+selected, so a non-druid never builds a rank table and the Review tab never builds until asked.
+
+The window is 1036 × 646 because the content area is kept at the 912 the panes were laid out for;
+the navigation is added beside them rather than taken out of them. The remembered path
+(`db.uiPath`) means `/md` reopens where you left it.
+
+The Simulate strip gained a frame of its own so it can be shown with the Spells group and hidden
+elsewhere. It had been drawing its widgets straight onto the dashboard, which is fine when there
+is one view and wrong the moment there are two.
+
+**`tools/dashui.lua` (new, 19 assertions)** is the dashboard's first offline test in the
+project's history: it opens the window, clicks the groups and the views the way a mouse would,
+and reads back what was painted and which panes exist. Writing it found three gaps in the stub
+rather than in the addon, all of which had been hiding real coverage from every other UI suite:
+
+- **`CreateFrame` never registered a named frame as a global.** The client does, and addon code
+  looks itself up that way.
+- **`Show()` and `Hide()` did not fire `OnShow` / `OnHide`.** A window that populates itself in
+  `OnShow` — this one — opened empty under the stub.
+- **`SetFormattedText` was falling through to the no-op fallback**, so every string written with
+  it was invisible to the harnesses, including their bare-pipe scans. Two of the dashboard's
+  three header lines are written that way.
+
+Ten suites now: simcheck 10, reccheck 46, simwindow 8, regencheck 27, replaycheck 62, replayui
+54, runcheck 69, reviewui 43, navui 25, dashui 19.

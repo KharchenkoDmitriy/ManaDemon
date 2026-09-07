@@ -162,8 +162,18 @@ function FrameMT:SetScript(k, fn) self.scripts[k] = fn end
 function FrameMT:GetScript(k) return self.scripts[k] end
 function FrameMT:IsShown() return self.shown == true end
 function FrameMT:IsVisible() return self.shown == true end
-function FrameMT:Show() self.shown = true end
-function FrameMT:Hide() self.shown = false end
+-- Show/Hide fire OnShow/OnHide, as the client does: a window that populates
+-- itself in OnShow (the dashboard) would otherwise open empty under the stub.
+function FrameMT:Show()
+    local was = self.shown
+    self.shown = true
+    if not was and self.scripts.OnShow then self.scripts.OnShow(self) end
+end
+function FrameMT:Hide()
+    local was = self.shown
+    self.shown = false
+    if was and self.scripts.OnHide then self.scripts.OnHide(self) end
+end
 function FrameMT:SetSize(w, h) self.w, self.h = w, h end
 function FrameMT:SetWidth(w) self.w = w end
 function FrameMT:SetHeight(h) self.h = h end
@@ -192,6 +202,13 @@ function FrameMT:CreateFontString() return Child("FontString") end
 function FrameMT:CreateTexture() return Child("Texture") end
 function FrameMT:GetFontString() self.fs = self.fs or Child("FontString"); return self.fs end
 function FrameMT:SetText(t) self.text = t end
+-- SetFormattedText was falling through to the no-op fallback, so every string
+-- written with it was invisible to the harnesses -- including their bare-pipe
+-- scans (v0.11.1)
+function FrameMT:SetFormattedText(fmt, ...)
+    local ok, out = pcall(string.format, fmt, ...)
+    self.text = ok and out or tostring(fmt)
+end
 function FrameMT:GetText() return self.text or "" end
 function FrameMT:GetStringWidth() return 40 end
 function FrameMT:SetValue(v) self.value = v end
@@ -225,8 +242,11 @@ _G.RAID_CLASS_COLORS = {
 }
 
 function CreateFrame(kind, name, parent, tmpl)
-    local f = setmetatable({ events = {}, scripts = {}, kind = kind }, FrameMT)
+    local f = setmetatable({ events = {}, scripts = {}, kind = kind, frameName = name }, FrameMT)
     frames[#frames + 1] = f
+    -- a named frame is a global in the client, and addon code looks itself up
+    -- that way (tinsert(UISpecialFrames, "ManaDemonDashboard"), _G[name])
+    if name then _G[name] = f end
     return f
 end
 

@@ -8,10 +8,9 @@ local UI = MD.UI
 
 local WIDTH, HEIGHT = 912, 617 -- +20% (author, 2026-09-06: not everything fit); was 760 x 514
 local frame, statsFS, calloutFS, hintFS, recapFS, messageFS, effectiveCB
-local rankTable, simStrip, wasteView, reviewView
+local rankTable, simStrip, wasteView, reviewView, nav
 local currentFamily = "HealingTouch"
 local userPicked = false   -- once a tab is clicked, stop picking one automatically
-local spellTabs, highlightTab = {}, nil
 
 -- The family this character actually casts most (persisted counts kept by the
 -- spend tracker), so the dashboard opens on the spell that matters. The first
@@ -54,14 +53,12 @@ local function Refresh()
 
     -- the Waste and Review views each replace the rank table, its hint and its
     -- callout
+    -- a pane is built on first sight, so any of these may still be nil
     local review = currentFamily == "Review"
-    reviewView.frame:SetShown(review)
-    if review then
-        wasteView.frame:Hide()
-        rankTable.frame:Hide()
+    if review and reviewView then
         effectiveCB:Hide()
         messageFS:Hide()
-        rankTable:Release()
+        if rankTable then rankTable:Release() end
         calloutFS:SetText("|cffffcc00The fights this character recorded, and what the engine can reproduce about each.|r")
         hintFS:SetText("|cff888888A greyed row is a fight the model could not replay - the reason is in the validate " ..
             "column. Coach only runs on fights that passed, because advice from a fight the engine gets wrong is worse than none.|r")
@@ -70,12 +67,10 @@ local function Refresh()
     end
 
     local waste = currentFamily == "Waste"
-    wasteView.frame:SetShown(waste)
-    rankTable.frame:SetShown(not waste)
-    effectiveCB:SetShown(not waste)
-    if waste then
+    effectiveCB:SetShown(not waste and not review and MD.player.isDruid)
+    if waste and wasteView then
         messageFS:Hide()
-        rankTable:Release()
+        if rankTable then rankTable:Release() end
         calloutFS:SetText("|cffffcc00Where the mana went and where the healing was wasted, from your own combat log.|r")
         hintFS:SetText("|cff888888Overheal is a share of gross healing. Wasted mana is each event that healed nothing, " ..
             "carrying its share of the cast's cost. Mana belongs to the spell, so it only appears in Spell mode.|r")
@@ -83,15 +78,15 @@ local function Refresh()
         return
     end
 
+    if review or waste then return end
+    simStrip:SetShown(MD.player.isDruid)
     if not MD.player.isDruid then
-        rankTable:Release()
+        if rankTable then rankTable:Release() end
         messageFS:Show()
         messageFS:SetText("Rank analysis is Druid-only in v1 - the OOM widget, datatext and advisor still work for your class.")
         calloutFS:SetText("")
         return
     end
-
-    if highlightTab then highlightTab(currentFamily) end
 
     local results = MD.RankMath:Compute()
     local info = MD.RankMath.info
@@ -132,8 +127,8 @@ local function Refresh()
     end
 
     local res = results[currentFamily]
-    if not res then
-        rankTable:Release()
+    if not res or not rankTable then
+        if rankTable then rankTable:Release() end
         calloutFS:SetText("")
         return
     end
@@ -161,51 +156,72 @@ local function Refresh()
 end
 
 --------------------------------------------------------------------------------
--- frame construction
+-- frame construction (v0.11.1: the navigation kit, docs/SPEC-v0.11.md)
+--
+-- The window is groups down the left and that group's views along the top. The
+-- three panes -- the rank table, Waste and Review -- are unchanged and simply
+-- parent themselves to the content frame; they are built the first time their
+-- view is selected and cached after, so a non-druid never builds a rank table.
+--
+-- `currentFamily` is the selected VIEW id, which is why the families and the
+-- two reports can share one variable: a family id ("Rejuvenation") and a report
+-- id ("Waste") are both just the view that is showing.
 --------------------------------------------------------------------------------
-local function CreateDashboard()
-    frame = UI.CreateMovableFrame("ManaDemon", "ManaDemonDashboard", WIDTH, HEIGHT, "HIGH", 1, true)
-    UI.StylizeFrame(frame, { 0.1, 0.1, 0.1, 0.95 })
-    tinsert(UISpecialFrames, "ManaDemonDashboard") -- ESC closes
+local CONTENT_W = 912          -- what the panes were laid out for; the window is wider by the nav
+local NAV_W, NAV_PAD = 108, 8
+local WIN_W, WIN_H = CONTENT_W + NAV_W + 2 * NAV_PAD, 646
 
-    -- spell tab row (druid only) + Settings on the right
-    local prev
-    local buttons = {}
+local function Groups()
+    local spells = {}
     for _, family in ipairs(MD.SpellData.familyOrder) do
         local info = MD.SpellData.families[family]
         if info and not info.exclude then
-            local btn = UI.CreateButton(frame, info.label, "accent-hover", { 110, 20 }, false, false, UI.FONT_TITLE, UI.FONT_TITLE_DISABLE)
-            btn.id = family
-            if prev then
-                btn:SetPoint("LEFT", prev, "RIGHT", -1, 0)
-            else
-                btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -10)
-            end
-            spellTabs[family] = btn
-            buttons[#buttons + 1] = btn
-            prev = btn
-            btn:SetShown(MD.player.isDruid)
+            spells[#spells + 1] = { id = family, text = info.label or family,
+                                    hidden = not MD.player.isDruid }
         end
     end
-    -- the Waste view is a fifth tab after the families
-    local wasteBtn = UI.CreateButton(frame, "Waste", "accent-hover", { 80, 20 }, false, false, UI.FONT_TITLE, UI.FONT_TITLE_DISABLE)
-    wasteBtn.id = "Waste"
-    wasteBtn:SetPoint("LEFT", prev, "RIGHT", -1, 0)
-    buttons[#buttons + 1] = wasteBtn
-    -- and Review after it: also class-agnostic, because the recorded stream is
-    -- just numbers
-    local reviewBtn = UI.CreateButton(frame, "Review", "accent-hover", { 80, 20 }, false, false, UI.FONT_TITLE, UI.FONT_TITLE_DISABLE)
-    reviewBtn.id = "Review"
-    reviewBtn:SetPoint("LEFT", wasteBtn, "RIGHT", -1, 0)
-    buttons[#buttons + 1] = reviewBtn
-    highlightTab = UI.CreateButtonGroup(buttons, function(id)
-        currentFamily = id
-        userPicked = true
-        Refresh()
-    end)
+    return {
+        { id = "spells", text = "Spells", views = spells },
+        -- Waste and Review work for any class: a recorded stream is numbers
+        { id = "reports", text = "Reports", views = {
+            { id = "Waste", text = "Waste" }, { id = "Review", text = "Review" } } },
+    }
+end
 
-    local settingsBtn = UI.CreateButton(frame, "Settings", "accent-hover", { 90, 20 }, false, false, UI.FONT_TITLE, UI.FONT_TITLE_DISABLE)
-    settingsBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -10)
+local function CreateDashboard()
+    nav = UI.CreateNavFrame("ManaDemon", "ManaDemonDashboard", WIN_W, WIN_H, Groups(),
+        function(group, view, content)
+            -- built once, on first sight
+            if group == "reports" and view == "Waste" then
+                wasteView = MD.DashboardParts.CreateWaste(content, CONTENT_W)
+                wasteView.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -104)
+                wasteView.frame:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 24)
+                return wasteView.frame
+            elseif group == "reports" and view == "Review" then
+                reviewView = MD.DashboardParts.CreateReview(content, CONTENT_W)
+                reviewView.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -104)
+                reviewView.frame:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 24)
+                return reviewView.frame
+            elseif group == "spells" and not rankTable then
+                rankTable = MD.DashboardParts.CreateTable(content, CONTENT_W)
+                rankTable.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -104)
+                rankTable.frame:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 24)
+                return rankTable.frame
+            end
+            return rankTable and rankTable.frame or nil
+        end,
+        function(group, view)
+            currentFamily = view
+            userPicked = true
+            Refresh()
+        end)
+    frame = nav.frame
+    tinsert(UISpecialFrames, "ManaDemonDashboard") -- ESC closes
+    local content = nav:Content()
+
+    local settingsBtn = UI.CreateButton(frame, "Settings", "accent-hover", { 90, 20 }, false, false,
+        UI.FONT_TITLE, UI.FONT_TITLE_DISABLE)
+    settingsBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -2)
     settingsBtn:SetScript("OnClick", function() MD:ShowOptionsFrame("general") end)
 
     effectiveCB = UI.CreateCheckButton(frame, "Effective", function(checked)
@@ -214,55 +230,45 @@ local function CreateDashboard()
     end, "Overheal-adjusted values", "Heal, HPM and HPS become value x (1 - measured overheal),",
         "from your own combat log. Mana, Cast and To OOM never move.",
         "A grey ? means that rank has no measurement of its own yet.")
-    effectiveCB:SetPoint("LEFT", settingsBtn, "LEFT", -80, 0) -- label runs right of the box
+    effectiveCB:SetPoint("RIGHT", settingsBtn, "LEFT", -84, 0) -- label runs right of the box
     effectiveCB:SetShown(MD.player.isDruid)
-    -- Waste and Review work for any class; only the rank tabs are druid-only
-    wasteBtn:Show()
-    reviewBtn:Show()
 
-    simStrip = MD.DashboardParts.CreateStrip(frame, 16, -42, Refresh)
+    simStrip = MD.DashboardParts.CreateStrip(content, 2, -2, Refresh)
 
-    statsFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    statsFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -86)
+    statsFS = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    statsFS:SetPoint("TOPLEFT", content, "TOPLEFT", 2, -46)
     statsFS:SetJustifyH("LEFT")
-    statsFS:SetWidth(WIDTH - 32)
+    statsFS:SetWidth(CONTENT_W - 8)
 
-    calloutFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    calloutFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -104)
+    calloutFS = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    calloutFS:SetPoint("TOPLEFT", content, "TOPLEFT", 2, -64)
     calloutFS:SetJustifyH("LEFT")
-    calloutFS:SetWidth(WIDTH - 32)
+    calloutFS:SetWidth(CONTENT_W - 8)
 
-    hintFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    hintFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -120)
+    hintFS = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hintFS:SetPoint("TOPLEFT", content, "TOPLEFT", 2, -82)
     hintFS:SetJustifyH("LEFT")
-    hintFS:SetWidth(WIDTH - 32)
+    hintFS:SetWidth(CONTENT_W - 8)
 
-    messageFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    messageFS:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -144)
+    messageFS = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    messageFS:SetPoint("TOPLEFT", content, "TOPLEFT", 2, -110)
     messageFS:SetJustifyH("LEFT")
-    messageFS:SetWidth(WIDTH - 32)
+    messageFS:SetWidth(CONTENT_W - 8)
     messageFS:Hide()
 
-    rankTable = MD.DashboardParts.CreateTable(frame, WIDTH)
-    rankTable.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -138)
-    rankTable.frame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 40)
-
-    wasteView = MD.DashboardParts.CreateWaste(frame, WIDTH)
-    wasteView.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -138)
-    wasteView.frame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 40)
-
-    reviewView = MD.DashboardParts.CreateReview(frame, WIDTH)
-    reviewView.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -138)
-    reviewView.frame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 40)
-
-    recapFS = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    recapFS:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 16)
+    recapFS = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    recapFS:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", 2, 2)
     recapFS:SetJustifyH("LEFT")
-    recapFS:SetWidth(WIDTH - 32)
+    recapFS:SetWidth(CONTENT_W - 8)
 
     frame:SetScript("OnShow", function()
         effectiveCB:SetChecked(MD.db.effectiveMode and true or false)
-        if not userPicked then currentFamily = DefaultFamily() end
+        local path = MD.db.uiPath
+        if path and path[1] then
+            nav:Select(path[1], path[2])
+        else
+            nav:Select("spells", DefaultFamily())
+        end
         Refresh()
     end)
 
