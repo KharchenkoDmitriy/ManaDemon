@@ -40,6 +40,19 @@ A 90% threshold cannot fix that. Fixed points can.
 
 ---
 
+## 0b. Delivery order (revised 2026-09-07, after §6b shipped first)
+
+| version | ships | state |
+|---|---|---|
+| **v0.10.0** | §6b: the deficit priced as mana, the measured danger line, rule 4 casting the HoT that fits | **done** |
+| **v0.10.1** | §2: the addon knows what it cast — the seed table, `MD:ClassifyCast`, the learned `cdb.spellbook`, per-stream names | |
+| **v0.10.2** | §3: fixed points — non-healing casts happen in both columns; coverage counts what the engine reproduces | |
+| **v0.10.3** | §4: what the damage casts cost, in mana and in five-second-rule regen | |
+| **v0.10.4** | §6c: several strategies from one search, and the author picks | |
+
+§6b shipped first because it was what the author kept seeing in the replay window; the rest
+follows the original order.
+
 ## 1. Decisions this spec encodes (author, 2026-09-07)
 
 1. **CC and damage never enter the plan's decision rules.** A Cyclone is not triggered by party
@@ -290,6 +303,78 @@ that spends that mana to top them up, and neither may be beaten by one that heal
 `simFullHp`. `replaycheck`: the measured danger line on the BF-1 fixture is the fixture's own
 biggest hit, not 30%.
 
+---
+
+## 6c. v0.10.4 — several strategies, and the author picks
+
+> "Make a few different coach strategies which we simulate at the same time and then pick the one
+> based on the result (the least dead, the most HP healed, the least mana used, the most mana
+> regenerated) — or we can even allow the user to select and look at different ones, to pick the
+> one he likes the most."
+
+This is the honest alternative to inventing a weight. A lexicographic tuple already refuses to
+blend deaths, health and mana; showing the **corners of the trade-off** and letting a human pick
+is the same refusal, made visible.
+
+### 6c.1 It is free
+
+`SP.Search` already evaluates up to 300 plans and keeps every one of them in `seen`. Picking the
+best under a different objective is a scan of that table: **no extra simulation at all**. One
+search, N winners.
+
+### 6c.2 The objectives
+
+Each is a lexicographic tuple over the same run result. Deaths lead every one of them: no
+objective may trade a corpse for anything.
+
+| key | name | tuple |
+|---|---|---|
+| `safe` | Safest | deaths, dangerSeconds, deficitArea, mana |
+| `health` | Highest health | deaths, deficitArea, dangerSeconds, mana |
+| `cheap` | Least mana | deaths, dangerSeconds, mana, deficitArea |
+| `regen` | Most regen realised | deaths, dangerSeconds, -manaEnd, deficitArea |
+
+- `deficitArea` is new and cheap: the time-integral of missing health over living tracked targets,
+  as a fraction-second. "Most HP healed" as a statistic that cannot be gamed by overhealing —
+  healing a full target adds nothing to it.
+- `regen` maximises the mana actually in the pool at the end, which rewards *spacing* casts out
+  of the five-second rule rather than simply casting less; `cheap` minimises what left the pool.
+  They are different plans and the author asked for both.
+- `mana` is v0.10.0's `manaSpent + manaOwed` throughout, so no objective can win by leaving the
+  group hurt.
+
+### 6c.3 What the author sees
+
+The card gains a block, one row per strategy, with the numbers that separate them:
+
+```
+  strategies (one search, four ways of reading it)
+    safe      1.6k mana   floor 71%   0.0s in danger   ends whole
+    health    2.2k mana   floor 84%   0.0s in danger   ends whole
+    cheap     1.1k mana   floor 49%   0.0s in danger   owes 0.3k
+    regen     1.4k mana   floor 62%   0.0s in danger   ends whole, 1.1k more mana
+  the same plan won three of them: safe = health = regen
+```
+
+Identical winners are collapsed rather than repeated: often two objectives agree, and saying so
+is more useful than printing the same row twice.
+
+### 6c.4 Picking one
+
+`SP.strategies[rec.id]` holds the winners. `/md coach 1 health` (or `safe` / `cheap` / `regen`)
+makes that one the plan the replay's suggested column draws, exactly as the overall winner is
+today. In the replay window, a row of strategy buttons beside the SUGGESTED title switches the
+column between them **without re-searching** — the traces are rebuilt from the cached plans.
+
+The default winner stays `cheap`+ the standing tuple, so nothing changes for anyone who does not
+touch it.
+
+### 6c.5 Harness
+
+`replaycheck`: four winners come out of one search; every objective's winner beats every other
+plan in the pool *under its own tuple*; no objective ever prefers a plan with more deaths; the
+collapse of identical winners is by plan identity, not by score.
+
 ## 7. Rejected and reserved
 
 ### Rejected (do not re-propose)
@@ -325,3 +410,5 @@ biggest hit, not 30%.
 | the mana term includes the deficit left behind | yes (6b.2) |
 | the danger line is the fight's biggest hit | yes, `db.simDangerHits` = 1 (6b.3) |
 | rule 4 may bind Lifebloom | yes, `hotBind` (6b.4) |
+| which strategy is the default | `cheap`, the standing tuple (6c.4) |
+| strategies for a run as well as a fight | yes, same objectives over `ChainRun` |
