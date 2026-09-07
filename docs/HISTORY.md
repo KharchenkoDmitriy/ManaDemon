@@ -1686,3 +1686,23 @@ and must leave the model at API + Dreamstate; plus the refusal of an over-large 
 
 Suites: simcheck 10, reccheck 38, simwindow 8, regencheck 27, replaycheck 33, replayui 50,
 runcheck 69, reviewui 31.
+
+## 2026-09-07 — v0.9.6: forcing the suggested column
+
+The author, on the three solo recordings that fail their gates: "I want to have a force replay
+with coach (second column) option." Until now `/md coach N force` printed a card and cached its
+plan, but the replay window re-checked validation and dropped the right column, so the forced
+plan had nowhere to be seen.
+
+A forced coach is now **remembered** (`SP.forced[rec.id]`): forcing is a deliberate act, and
+making the author repeat it at the Play button would be a second lock on a door they had already
+opened. Play draws both columns afterwards, with `FORCED - this fight does not replay` beside
+the column title so it is never mistaken for a validated one. Two explicit ways in as well:
+`/md replay 2 force`, and shift-clicking Play on the Review tab. Forcing without a coached plan
+says exactly that and points at `/md coach N force` — the replay window still never searches.
+
+The disabled Coach button's tooltip now names both steps instead of only the reason.
+
+`reviewui` 31 → 38: the scripted fight really does fail its gates, no right column without force,
+force draws it, the title says so, a forced coach stays forced, and shift-clicking Play does the
+same from the tab. The stub grew `IsShiftKeyDown` (a harness sets `S.shift`).

@@ -141,7 +141,9 @@ function MD.DashboardParts.CreateReview(parent, width)
     local playBtn = UI.CreateButton(pane, "Play", "accent-hover", { 48, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL, "Play this fight as unit frames",
         "What you did on the left; what Coach suggested on the right.",
-        "Press Coach first for the right column. Any class can play the left one.")
+        "Press Coach first for the right column. Any class can play the left one.",
+        "Shift-click to force the right column onto a fight that does not replay",
+        "(coach it first with /md coach N force).")
 
     local runBtn = UI.CreateButton(pane, "Start run", "accent-hover", { 76, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL, "Record a whole dungeon",
@@ -216,9 +218,13 @@ function MD.DashboardParts.CreateReview(parent, width)
     exportBtn:SetScript("OnClick", function() if MD.RunExport then MD:RunExport() end end)
     -- runtime lookup: UI/ReplayWindow.lua loads after this file
     -- on a run with no pull selected yet, Play opens its first pull with the
-    -- run strip; the strip is the map from there
+    -- run strip; the strip is the map from there. Shift-click forces the
+    -- suggested column onto a fight the gates rejected -- it needs a plan, so
+    -- /md coach N force has to have run first (v0.9.6).
     playBtn:SetScript("OnClick", function()
-        if MD.Replay then MD.Replay:Open(Spec()) end
+        if not MD.Replay then return end
+        local shift = IsShiftKeyDown and IsShiftKeyDown()
+        MD.Replay:Open(Spec() .. (shift and " force" or ""))
     end)
 
     local function AcquireRow()
@@ -444,6 +450,8 @@ function MD.DashboardParts.CreateReview(parent, width)
                 for _, g in ipairs(v.gates) do
                     if not g.ok then lines[#lines + 1] = { l = "  " .. g.name, r = g.text } end
                 end
+                lines[#lines + 1] = { l = "|cff888888/md coach " .. Spec() .. " force|r", r = "see a card anyway" }
+                lines[#lines + 1] = { l = "|cff888888then shift-click Play|r", r = "for the second column" }
             elseif not v then
                 lines[#lines + 1] = { l = "|cff888888Validate first, or press Coach to do both.|r", r = "" }
             else

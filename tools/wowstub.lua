@@ -115,6 +115,11 @@ function S.Combat(...)
     S.clogN = select("#", ...)
     S.Fire("COMBAT_LOG_EVENT_UNFILTERED")
 end
+-- modifier keys: a harness sets S.shift to click as if the key were held
+S.shift = false
+function IsShiftKeyDown() return S.shift == true end
+function IsControlKeyDown() return false end
+function IsAltKeyDown() return false end
 function GetWeaponEnchantInfo() return false end
 function IsUsableSpell() return true end
 function GetItemCount() return 0 end

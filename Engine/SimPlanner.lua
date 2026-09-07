@@ -654,10 +654,18 @@ function SP.Coach(rec, opts)
     if progress then card[#card + 1] = "  " .. progress end
     -- the last plan coached for this fight, so Play never searches (SPEC-v0.8 2.5)
     SP.plans[rec.id] = best
+    -- A plan the author asked for ANYWAY, on a fight the gates rejected. The
+    -- replay window shows it without being asked twice: forcing the coach is a
+    -- deliberate act, and having to repeat it at the Play button would be a
+    -- second lock on a door the author already opened. It is marked, not hidden.
+    if opts and opts.force and validation and not validation.ok then
+        SP.forced[rec.id] = true
+    end
     return card, validation, cls, best
 end
 
 SP.plans = {}   -- [rec.id] = the plan Coach last produced for it
+SP.forced = {}  -- [rec.id] = that plan came from a forced coach on a fight that does not replay
 
 --------------------------------------------------------------------------------
 -- Replay (docs/SPEC-v0.8.md 2.5): both columns of the replay window in one
@@ -688,7 +696,9 @@ function SP.Replay(rec, opts)
     rp.left = { trace = left.trace, snapshot = Snap(left) }
 
     local plan = opts.plan or SP.plans[rec.id]
-    if plan and (opts.force or not validation or validation.ok) then
+    local forced = opts.force or SP.forced[rec.id] or false
+    if plan and (forced or not validation or validation.ok) then
+        rp.forced = forced and validation and not validation.ok or false
         local right = SP.RunPlan(scenario, plan, { critMode = "ev", trace = { dt = dt } })
         rp.right = { trace = right.trace, snapshot = Snap(right), plan = plan }
         if opts.labels ~= false then

@@ -240,6 +240,44 @@ check("switching back shows the single fights", (function()
     return false
 end)())
 
+--------------------------------------------------------------------------------
+-- forcing the suggested column onto a fight the gates reject (v0.9.6)
+--------------------------------------------------------------------------------
+Click(ButtonNamed("Fights"))
+api:Render()
+local single = MD.FightRecorder:Get(1)
+MD.SimPlanner.plans[single.id] = MD.SimPlanner.NewPlan(MD.SimPlanner.MaxRankBinds(),
+    { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 3, hotBelow = 0.80, filler = false },
+    MD.RankMath:SpellKit())
+MD.SimPlanner.forced[single.id] = nil
+check("the scripted fight really does fail its gates", (function()
+    local v = MD.SimModel:Validate(single)
+    return v and not v.ok
+end)())
+MD:OpenReplay(1)
+check("no suggested column on a fight that does not replay", MD.Replay._state().right.state == nil)
+MD:OpenReplay("1 force")
+check("force draws it", MD.Replay._state().right.state ~= nil)
+check("and the column says it was forced", (function()
+    local t = MD.Replay._state().right.title:GetText() or ""
+    return t:find("FORCED") ~= nil
+end)(), MD.Replay._state().right.title:GetText())
+
+-- a forced coach is remembered, so Play alone shows it afterwards
+MD:OpenReplay(1)
+check("without force it is hidden again", MD.Replay._state().right.state == nil)
+MD.SimPlanner.forced[single.id] = true
+MD:OpenReplay(1)
+check("a fight coached with force stays forced", MD.Replay._state().right.state ~= nil)
+MD.SimPlanner.forced[single.id] = nil
+
+-- shift-clicking Play is the same thing from the tab
+MD:OpenReplay(1)
+S.shift = true
+Click(ButtonNamed("Play"))
+S.shift = false
+check("shift-click Play forces from the tab", MD.Replay._state().right.state ~= nil)
+
 -- a single fight has no run strip at all
 MD:OpenReplay(1)
 check("no run strip for a single fight", (function()

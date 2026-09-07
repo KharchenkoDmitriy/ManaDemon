@@ -1195,8 +1195,15 @@ function MD:OpenReplay(n)
         return
     end
     -- "3" is a single fight, "2:7" the seventh pull of run 2 (v0.9.2); "run 2"
-    -- opens the first pull of run 2 with its strip (v0.9.4)
+    -- opens the first pull of run 2 with its strip (v0.9.4); a trailing "force"
+    -- draws the suggested column on a fight the gates rejected (v0.9.6)
     local spec = tostring(n or 1)
+    local force = false
+    if spec:find("force") then
+        force = true
+        spec = spec:gsub("force", ""):gsub("^%s+", ""):gsub("%s+$", "")
+        if spec == "" then spec = "1" end
+    end
     local r = spec:match("^run%s*(%d+)$")
     if r then spec = r .. ":1" end
     local rec, label, run, pullK = MD:GetRecording(spec)
@@ -1207,8 +1214,12 @@ function MD:OpenReplay(n)
     Build()
     playing = false
     local t0 = debugprofilestop and debugprofilestop() or 0
-    rp = SP.Replay(rec, { dt = 0.25 })
+    rp = SP.Replay(rec, { dt = 0.25, force = force })
     if not rp then MD:Print("replay: could not build the fight.") return end
+    if force and not rp.right then
+        MD:Print(string.format("replay: nothing to force - no plan has been coached for this fight. " ..
+            "|cffffff00/md coach %s force|r first.", tostring(n)))
+    end
     local RT = MD.ReplayTrace
     left.state = RT.New(rp.left.trace, rp.scenario, { onEvent = MakeOnEvent(left) })
     right.state = rp.right and RT.New(rp.right.trace, rp.scenario, { onEvent = MakeOnEvent(right) }) or nil
@@ -1234,7 +1245,8 @@ function MD:OpenReplay(n)
         fit ~= "" and ("  |cff888888" .. fit .. "|r") or ""))
     if rp.right then
         local p = rp.right.plan
-        right.title:SetText(string.format("SUGGESTED  |cff888888(%s, %d binds)|r", p.name or "plan", p:BindCount()))
+        right.title:SetText(string.format("SUGGESTED  |cff888888(%s, %d binds)|r%s", p.name or "plan", p:BindCount(),
+            rp.forced and "  |cffff9966FORCED - this fight does not replay|r" or ""))
         frame.hint:SetText("")
     else
         frame.hint:SetText(v and not v.ok and "no plan: this fight does not replay"

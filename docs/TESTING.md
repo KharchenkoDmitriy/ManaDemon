@@ -659,6 +659,23 @@ Report: whether the strip's shape matches the run you remember (long boss pull i
 place, drinks where you sat down), and whether auto-advance is welcome or annoying. It is one
 setting (`db.replayNextPull`) either way.
 
+## 32. Force the suggested column (v0.9.6)
+A fight that fails its gates has its Coach button disabled, and until now the replay window
+would not draw the suggested column for it either — even after a forced coach. Now:
+
+```
+/md coach 2 force
+```
+
+prints the card anyway *and remembers* that you asked, so Play on that fight shows both columns
+from then on, with `FORCED - this fight does not replay` next to the column's title. Two other
+ways in: `/md replay 2 force`, and shift-clicking **Play** on the Review tab. If nothing has
+been coached for the fight, forcing says so and tells you to coach it first — the replay window
+never searches.
+
+Report whether the second column on a forced fight looks like it is describing the same fight
+you played, or obviously not.
+
 ## Reporting
 Paste the `.logs/*.txt` files (or their names if committed locally) and, for §3/§4, the
 raw numbers. `/md profile` output is welcome with any report. I turn them into

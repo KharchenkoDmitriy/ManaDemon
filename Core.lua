@@ -405,7 +405,7 @@ MD.COMMANDS = {
     { "/md simreplay [n]", "replay recorded fight n (or the BF-1 fixture) and score it against the log" },
     { "/md coach [n]",    "search for a better plan on recorded fight n and show the card (cancel stops it)" },
     { "/md sim",          "simulation window: build a fight and find the cheapest plan that holds it" },
-    { "/md replay [n]",   "play recorded fight n (or run:pull, or 'run N') as unit frames" },
+    { "/md replay [n] [force]", "play recorded fight n (or run:pull, or 'run N') as unit frames; force: draw the suggested column on a fight that does not replay" },
     { "/md run start|stop|status", "record a whole dungeon: every pull and the gaps between them" },
     { "/md coachrun [n]", "coach a recorded RUN: one plan and a drink policy for the whole dungeon" },
     { "/md debug",        "toggle the debug console (enable logging there, Copy to export)" },
