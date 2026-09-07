@@ -942,10 +942,13 @@ function SM:Validate(rec, kit)
     local limMax, whyMax = Threshold("manaMax")
     if mMean then
         Gate("mana mean", mMean <= limMean,
-            string.format("mean |d| %.1f%% of pool (limit %.0f%%)", mMean * 100, limMean * 100),
+            -- no bare "|" in a rendered string: the client reads it as the start
+            -- of an escape sequence and eats what follows (CLAUDE.md). This said
+            -- "mean |d|" from v0.7.3 until the Review tab started painting it.
+            string.format("mean off by %.1f%% of pool (limit %.0f%%)", mMean * 100, limMean * 100),
             mMean, limMean, whyMean)
         Gate("mana max", mMax <= limMax,
-            string.format("worst |d| %.1f%% of pool (limit %.0f%%)", mMax * 100, limMax * 100),
+            string.format("worst sample off by %.1f%% of pool (limit %.0f%%)", mMax * 100, limMax * 100),
             mMax, limMax, whyMax)
     else
         Gate("mana curve", false, "no mana samples recorded", nil, nil, whyMean)

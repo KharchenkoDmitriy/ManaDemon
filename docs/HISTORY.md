@@ -1776,3 +1776,29 @@ The author's framing of the fix is the one that made it into `docs/SPEC-v0.10.md
 missing at the end is *mana not yet spent*, so charge for it; the danger line should be the
 fight's own biggest hit rather than a constant; and eating time is the run's version of the same
 debt. No weight anywhere — every term has a unit.
+
+## 2026-09-07 — v0.9.8: shift-click coaches it anyway, and a bare pipe six versions old
+
+"Let's also add a shift click for force coach." The obstacle was that the Coach button was
+*disabled* on a fight the gates rejected, and a disabled button cannot be shift-clicked — it also
+says nothing at all unless you happen to hover it. So the rule moved from the button's enabled
+state into its behaviour: a rejected fight keeps a clickable **Coach\*** (starred), a plain click
+still refuses and prints which gate failed, and **shift-click forces**. You cannot get a card
+from a fight the engine gets wrong by accident; you can get one on purpose. Shift works on
+**Coach pull** inside a run too, and a forced coach is remembered, so Play afterwards draws both
+columns without a second modifier.
+
+**The selected row is now validated on sight** — one simulation, cached, druid-only. Until now
+the v0.7.6 rule ("a fight that does not replay has Coach disabled") only took effect *after* a
+manual Validate, which is the one moment it was not needed: on first sight the button looked
+ordinary, and clicking it produced a refusal.
+
+Painting that verdict into the tab immediately found a bug six versions old. The mana gates'
+text was `mean |d| 2.3% of pool` — a **bare pipe**, which the client reads as the start of an
+escape sequence and eats what follows. It has been in every chat report since v0.7.3 and nobody
+caught it, because `reviewui`'s no-bare-pipe scan only ever saw cells that had not been
+validated. It now reads `mean off by 2.3% of pool` / `worst sample off by 9.4% of pool`. This is
+the second time the "never a bare `|`" rule in CLAUDE.md has been broken by maths notation, and
+the first time a test caught it.
+
+`reviewui` 38 → 43.

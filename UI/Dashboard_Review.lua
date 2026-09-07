@@ -126,12 +126,13 @@ function MD.DashboardParts.CreateReview(parent, width)
     local validateBtn = UI.CreateButton(pane, "Validate", "accent-hover", { 72, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL, "Replay this fight through the engine",
         "Runs the eight gates and shows what matched and what did not.")
-    local coachBtn = UI.CreateButton(pane, "Coach", "accent-hover", { 74, 18 }, false, false,
+    local coachBtn = UI.CreateButton(pane, "Coach", "accent-hover", { 78, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL)
     -- while a run is shown, Coach coaches the run and this coaches one pull
-    local pullBtn = UI.CreateButton(pane, "Coach pull", "accent-hover", { 74, 18 }, false, false,
+    local pullBtn = UI.CreateButton(pane, "Coach pull", "accent-hover", { 82, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL, "Coach this one pull",
-        "The v0.7 card for the selected pull, inside the run.")
+        "The v0.7 card for the selected pull, inside the run.",
+        "A star means the pull does not replay: shift-click to coach it anyway.")
     local pinBtn = UI.CreateButton(pane, "Pin", "accent-hover", { 68, 18 }, false, false,
         UI.FONT_SMALL, UI.FONT_SMALL, "Keep this recording",
         "Pinned fights are never replaced (at most two).",
@@ -190,16 +191,26 @@ function MD.DashboardParts.CreateReview(parent, width)
     end)
     -- On a run, Coach coaches the RUN: one plan and a drink policy for the whole
     -- dungeon, scored on time before mana. On a single fight it is v0.7's card.
+    --
+    -- v0.9.8: shift-click forces, on a fight the gates rejected. The button is
+    -- no longer DISABLED for that case -- a disabled button cannot be
+    -- shift-clicked, and it says nothing unless you happen to hover it. It is
+    -- marked instead, and a plain click still refuses, printing which gate
+    -- failed. You cannot get a card from a fight the engine gets wrong by
+    -- accident; you can get one on purpose.
+    local function Forcing()
+        return IsShiftKeyDown and IsShiftKeyDown() or false
+    end
     coachBtn:SetScript("OnClick", function()
         local i = RunIndex()
         if i then
             if MD.RunCoachRun then MD:RunCoachRun(tostring(i)) end
         elseif MD.RunCoach then
-            MD:RunCoach(Spec())
+            MD:RunCoach(Spec() .. (Forcing() and " force" or ""))
         end
     end)
     pullBtn:SetScript("OnClick", function()
-        if MD.RunCoach then MD:RunCoach(Spec()) end
+        if MD.RunCoach then MD:RunCoach(Spec() .. (Forcing() and " force" or "")) end
     end)
     -- Pinning a pull would be meaningless: a run is kept or dropped whole, so
     -- while a run is shown this pins the RUN.
@@ -403,7 +414,13 @@ function MD.DashboardParts.CreateReview(parent, width)
 
         -- buttons follow the selection
         local rec = Selected()
-        local v = rec and cache[rec.id]
+        -- The selected row is validated on sight (one simulation, cached), so
+        -- the buttons can tell the truth without the author pressing Validate
+        -- first. Before v0.9.8 the "a fight that does not replay has Coach
+        -- disabled" rule only took effect AFTER a manual Validate, which is the
+        -- one moment it was not needed. Druid-only: the gates run the druid
+        -- spell kit, and running them for anyone else would print fiction.
+        local v = rec and MD.player.isDruid and Validation(rec) or (rec and cache[rec.id])
         if run then
             pinBtn:SetText(run.pinned and "Unpin run" or "Pin run")
         else
@@ -418,13 +435,17 @@ function MD.DashboardParts.CreateReview(parent, width)
         Set(playBtn, rec ~= nil and MD.Replay ~= nil)
         Set(exportBtn, #list > 0)
         Set(runBtn, RR ~= nil)
-        coachBtn:SetText(run and "Coach run" or "Coach")
+        -- a fight the gates rejected keeps its button, marked with a star: a
+        -- plain click refuses and names the gate, shift forces
+        local rejected = (v and not v.ok) and true or false
+        coachBtn:SetText(run and "Coach run" or (rejected and "Coach*" or "Coach"))
+        pullBtn:SetText(rejected and "Coach pull*" or "Coach pull")
         pullBtn:SetShown(run ~= nil)
         Set(pullBtn, rec ~= nil and not rec.short and MD.player.isDruid)
         if run then
             Set(coachBtn, MD.player.isDruid and #(run.pulls or {}) > 0)
         else
-            Set(coachBtn, rec ~= nil and not rec.short and MD.player.isDruid and not (v and not v.ok))
+            Set(coachBtn, rec ~= nil and not rec.short and MD.player.isDruid)
         end
         coachBtn:SetScript("OnEnter", function(self)
             if not MD.Tip then return end
@@ -450,8 +471,9 @@ function MD.DashboardParts.CreateReview(parent, width)
                 for _, g in ipairs(v.gates) do
                     if not g.ok then lines[#lines + 1] = { l = "  " .. g.name, r = g.text } end
                 end
-                lines[#lines + 1] = { l = "|cff888888/md coach " .. Spec() .. " force|r", r = "see a card anyway" }
-                lines[#lines + 1] = { l = "|cff888888then shift-click Play|r", r = "for the second column" }
+                lines[#lines + 1] = { l = "|cffffff00shift-click|r to coach it anyway", r = "" }
+                lines[#lines + 1] = { l = "|cff888888(or /md coach " .. Spec() .. " force)|r", r = "" }
+                lines[#lines + 1] = { l = "|cff888888Play then shows both columns, marked FORCED.|r", r = "" }
             elseif not v then
                 lines[#lines + 1] = { l = "|cff888888Validate first, or press Coach to do both.|r", r = "" }
             else

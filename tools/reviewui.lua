@@ -136,10 +136,11 @@ end)())
 -- selected pull; that one is off for a pull under the gate
 check("Coach becomes Coach run", ButtonNamed("Coach run") ~= nil)
 Click(pullRows[2]); api:Render()
-local coachPull = ButtonNamed("Coach pull")
+local coachPull = ButtonNamed("Coach pull") or ButtonNamed("Coach pull*")
 check("Coach pull is disabled on the short pull", coachPull and coachPull.enabled == false,
     tostring(coachPull and coachPull.enabled))
 Click(pullRows[1]); api:Render()
+coachPull = ButtonNamed("Coach pull") or ButtonNamed("Coach pull*")
 check("Coach pull is enabled on the real pull", coachPull and coachPull.enabled ~= false,
     tostring(coachPull and coachPull.enabled))
 check("Coach run is enabled while the run has pulls", (function()
@@ -233,12 +234,53 @@ check("a pull that does not exist says so, and does not error",
 Click(ButtonNamed("Fights"))
 api:Render()
 check("back on the fights list the run button is gone", ButtonNamed("Coach run") == nil
-    and ButtonNamed("Coach") ~= nil)
+    and (ButtonNamed("Coach") ~= nil or ButtonNamed("Coach*") ~= nil))
 rows = Rows()
 check("switching back shows the single fights", (function()
     for _, r in ipairs(rows) do if CellText(r, "zone") == "Blood Furnace" then return true end end
     return false
 end)())
+
+--------------------------------------------------------------------------------
+-- shift-clicking Coach forces it on a fight the gates reject (v0.9.8). The
+-- button stays clickable for that case on purpose: a disabled button cannot be
+-- shift-clicked, and a plain click still refuses.
+--------------------------------------------------------------------------------
+Click(ButtonNamed("Fights"))
+api:Render()
+do
+    local rec1 = MD.FightRecorder:Get(1)
+    MD.SimPlanner.plans[rec1.id] = nil
+    MD.SimPlanner.forced[rec1.id] = nil
+    MD.player.isDruid = true
+    api:Render()
+    local star = ButtonNamed("Coach*")
+    check("a rejected fight keeps a clickable Coach, marked", star ~= nil and star.enabled ~= false,
+        star and tostring(star.enabled) or "no starred button")
+
+    out = {}
+    chat = {}
+    S.shift = false
+    Click(star)
+    for _ = 1, 200 do S.Tick(0.016) end
+    check("a plain click refuses and names a gate", MD.SimPlanner.plans[rec1.id] == nil
+        and (function()
+            for _, m in ipairs(chat) do if m:find("does not replay") then return true end end
+            return false
+        end)(), chat[1] or "no chat")
+
+    S.shift = true
+    Click(ButtonNamed("Coach*"))
+    local frames = 0
+    while MD.coachSearch and frames < 20000 do S.Tick(0.016); frames = frames + 1 end
+    S.shift = false
+    check("shift-click coaches it anyway", MD.SimPlanner.plans[rec1.id] ~= nil,
+        string.format("%d frames", frames))
+    check("and the forced coach is remembered for Play", MD.SimPlanner.forced[rec1.id] == true)
+    MD:OpenReplay(1)
+    check("so Play alone now shows both columns", MD.Replay._state().right.state ~= nil)
+    MD.SimPlanner.forced[rec1.id] = nil
+end
 
 --------------------------------------------------------------------------------
 -- forcing the suggested column onto a fight the gates reject (v0.9.6)
