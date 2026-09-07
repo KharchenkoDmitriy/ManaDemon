@@ -21,12 +21,18 @@ end
 local chat = {}
 _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) chat[#chat + 1] = m end }
 
--- the dashboard builds on MD_READY, which the harness already fired
-S.Fire("PLAYER_LOGIN")
+-- the dashboard builds on MD_READY. The harness has already fired it, and
+-- firing it again used to build a SECOND window whose buttons shadowed the
+-- first: CreateDashboard is idempotent now, and this asserts it.
 MD:Fire("MD_READY")
 
 local frame = _G.ManaDemonDashboard
 check("the dashboard exists", frame ~= nil)
+check("firing MD_READY twice does not build a second one", (function()
+    local n = 0
+    for _, f in ipairs(S.allFrames) do if f.frameName == "ManaDemonDashboard" then n = n + 1 end end
+    return n == 1
+end)())
 check("it is one window, not two", frame ~= MD.optionsFrame)
 
 local function ButtonNamed(text)
@@ -119,6 +125,48 @@ check("the rank table's header lines are hidden in Settings", (function()
     end
     return true
 end)())
+
+--------------------------------------------------------------------------------
+-- Simulate is the third group, not a third window (v0.11.3)
+--------------------------------------------------------------------------------
+S.Load({ "UI/SimWindow.lua" }, "ManaDemon", MD)
+Click(ButtonNamed("Simulate"))
+check("Simulate is a group of the one window", MD.db.uiPath[1] == "simulate",
+    table.concat(MD.db.uiPath, "/"))
+check("it did not open a third window", _G.ManaDemonSimWindow == nil)
+check("the simulator's own controls came with it", ButtonNamed("Run") ~= nil
+    or ButtonNamed("From recordings") ~= nil)
+
+-- /md sim selects the group
+Click(ButtonNamed("Spells"))
+MD:ToggleSimWindow()
+check("/md sim selects Simulate", MD.db.uiPath[1] == "simulate", table.concat(MD.db.uiPath, "/"))
+-- ...and toggles the window when it is already what is showing
+MD:ToggleSimWindow()
+check("/md sim again closes the window", not frame:IsShown())
+MD:ToggleDashboard()
+
+--------------------------------------------------------------------------------
+-- Runs is a Reports view, and only once there is a run (v0.11.4)
+--------------------------------------------------------------------------------
+Click(ButtonNamed("Reports"))
+check("no Runs view before a run exists", ButtonNamed("Runs") == nil)
+
+MD.cdb.runs = { { v = 1, id = 1757000000, name = "Ramparts", zone = "Ramparts", pool = 7009,
+                  dur = 300, pulls = {}, mana = { t = {}, v = {} },
+                  ev = { t = {}, kind = {}, a = {}, b = {} }, zones = { "Ramparts" },
+                  stats = { pulls = 0, recorded = 0, wall = 300, combat = 0, combatPct = 0,
+                            drinks = 0, drinkTime = 0, deaths = 0, deadTime = 0, spent = 0,
+                            manaAtPull = {} } } }
+MD:Fire("RUN_STORED", MD.cdb.runs[1])
+check("storing a run makes the view appear", ButtonNamed("Runs") ~= nil)
+Click(ButtonNamed("Runs"))
+check("Runs is a view of Reports", MD.db.uiPath[1] == "reports" and MD.db.uiPath[2] == "Runs",
+    table.concat(MD.db.uiPath, "/"))
+check("it opens on the run, not on the fights", Painted("run Ramparts") ~= nil,
+    Painted("run Ramparts") or "the run line was not painted")
+Click(ButtonNamed("Review"))
+check("Review goes back to the single fights", MD.db.uiPath[2] == "Review", MD.db.uiPath[2])
 
 -- no bare pipe anywhere it paints
 local bad

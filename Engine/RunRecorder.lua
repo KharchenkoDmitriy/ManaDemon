@@ -336,6 +336,7 @@ function RR:Stop(reason)
     MD:Print(RR:Line(run) .. (run.stopReason ~= "manual" and (" [" .. run.stopReason .. "]") or "") ..
         (dropped and string.format(" - replaced %s", dropped.name or "an older run") or ""))
     MD:Debug("sim", "run stored in slot %d: %d event(s) over %d pull(s)", slot, RR:Events(run), #run.pulls)
+    MD:Fire("RUN_STORED", run)
     return run, nil
 end
 

@@ -2048,3 +2048,29 @@ And a **fourth bare pipe**, this time in the command list itself: `/md regentest
 `/md run start|stop|status`, which the About tab paints and `/md help` prints. Both read with
 slashes now. That rule has now been broken four times by three different kinds of notation —
 maths, an alternation, and a usage string.
+
+## 2026-09-07 — v0.11.3 and v0.11.4: three windows become one
+
+**v0.11.3**: the simulator is a panel, hosted as the dashboard's third group. `/md sim` selects
+it, and toggles the window only when Simulate is already what is showing — which is what the
+command always meant. `UI/SimWindow.lua` lost its movable frame and kept everything else.
+
+**v0.11.4**: **Runs** is its own Reports view, and it appears only once a run has been recorded —
+a view that is always empty teaches nothing. `RUN_STORED` fires when the recorder stores one and
+`nav:SetViews` puts the view there without a reload. The Review pane already knew how to list a
+run's pulls, so the view is that pane with a run selected instead of the ring of fights.
+
+The level-3 box is built and tested and still has no user. Nothing needed it, which is the right
+reason not to use it.
+
+One robustness fix the suite forced: `CreateDashboard` is idempotent. Firing `MD_READY` twice
+built a second window whose buttons shadowed the first, and the only reason that was ever visible
+is that `tools/dashui.lua` fires it — the assertion is in the suite now.
+
+**v0.11 is complete.** One window, four groups, the settings palette throughout: Spells,
+Reports, Simulate, Settings. Every entry point that used to open a window of its own now selects
+a view: `/md`, `/md sim`, `/md options`, and the minimap button's right-click. The replay window
+stays separate, as the spec ruled — it is a player, not a view.
+
+Ten suites: simcheck 10, reccheck 46, simwindow 8, regencheck 27, replaycheck 62, replayui 54,
+runcheck 69, reviewui 43, navui 25, dashui 39.

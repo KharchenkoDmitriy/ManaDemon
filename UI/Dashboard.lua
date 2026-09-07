@@ -54,7 +54,7 @@ local function Refresh()
     -- the Waste and Review views each replace the rank table, its hint and its
     -- callout
     -- a pane is built on first sight, so any of these may still be nil
-    local review = currentFamily == "Review"
+    local review = (currentFamily == "Review" or currentFamily == "Runs")
     if review and reviewView then
         effectiveCB:Hide()
         messageFS:Hide()
@@ -62,6 +62,7 @@ local function Refresh()
         calloutFS:SetText("|cffffcc00The fights this character recorded, and what the engine can reproduce about each.|r")
         hintFS:SetText("|cff888888A greyed row is a fight the model could not replay - the reason is in the validate " ..
             "column. Coach only runs on fights that passed, because advice from a fight the engine gets wrong is worse than none.|r")
+        reviewView:SetSource(currentFamily == "Runs" and "run" or "fights")
         reviewView:Render()
         return
     end
@@ -171,6 +172,15 @@ local CONTENT_W = 912          -- what the panes were laid out for; the window i
 local NAV_W, NAV_PAD = 108, 8
 local WIN_W, WIN_H = CONTENT_W + NAV_W + 2 * NAV_PAD, 646
 
+-- Reports' views depend on what has been recorded.
+local function ReportViews()
+    local views = { { id = "Waste", text = "Waste" }, { id = "Review", text = "Review" } }
+    if MD.RunRecorder and #(MD.RunRecorder:List()) > 0 then
+        views[#views + 1] = { id = "Runs", text = "Runs" }
+    end
+    return views
+end
+
 local function Groups()
     local spells = {}
     for _, family in ipairs(MD.SpellData.familyOrder) do
@@ -183,14 +193,19 @@ local function Groups()
     return {
         { id = "spells", text = "Spells", views = spells },
         -- Waste and Review work for any class: a recorded stream is numbers
-        { id = "reports", text = "Reports", views = {
-            { id = "Waste", text = "Waste" }, { id = "Review", text = "Review" } } },
+        -- Runs appears only once one has been recorded: a view that is always
+        -- empty teaches nothing, and nav:SetViews puts it there the moment a
+        -- run is stored (v0.11.4)
+        { id = "reports", text = "Reports", views = ReportViews() },
+        { id = "simulate", text = "Simulate", views = {
+            { id = "build", text = "Build a fight" } } },
         { id = "settings", text = "Settings", views = {
             { id = "general", text = "General" }, { id = "about", text = "About" } } },
     }
 end
 
 local function CreateDashboard()
+    if nav then return end     -- MD_READY can be fired more than once
     nav = UI.CreateNavFrame("ManaDemon", "ManaDemonDashboard", WIN_W, WIN_H, Groups(),
         function(group, view, content)
             -- built once, on first sight
@@ -199,11 +214,23 @@ local function CreateDashboard()
                 wasteView.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -104)
                 wasteView.frame:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 24)
                 return wasteView.frame
+            elseif group == "reports" and view == "Runs" then
+                -- the Review pane already knows how to list a run's pulls; the
+                -- Runs view is that pane with a run selected instead of Fights
+                if not reviewView then
+                    reviewView = MD.DashboardParts.CreateReview(content, CONTENT_W)
+                    reviewView.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -104)
+                    reviewView.frame:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 24)
+                end
+                return reviewView.frame
             elseif group == "reports" and view == "Review" then
                 reviewView = MD.DashboardParts.CreateReview(content, CONTENT_W)
                 reviewView.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -104)
                 reviewView.frame:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 24)
                 return reviewView.frame
+            elseif group == "simulate" then
+                if MD.AdoptSimPanel then return MD:AdoptSimPanel(content) end
+                return nil
             elseif group == "settings" then
                 -- one panel for both settings views; the tabs inside it show
                 -- and hide themselves on the ShowOptionsTab callback
@@ -298,6 +325,11 @@ local function CreateDashboard()
     end)
 end
 
+function MD:SelectedView()
+    if not nav then return nil end
+    return nav:Selected()
+end
+
 -- Every entry point that wants a particular view goes through here: /md sim,
 -- /md options, the minimap button's right-click. The window opens if it is
 -- closed, which is what all of them used to do with their own window.
@@ -316,6 +348,12 @@ end
 function MD:OpenDashboardSettings()
     MD:ShowOptionsFrame("general")
 end
+
+-- a run stored while the window is open makes the Runs view appear
+local function RefreshReportViews()
+    if nav then nav:SetViews("reports", ReportViews()) end
+end
+MD:RegisterCallback("RUN_STORED", RefreshReportViews)
 
 MD:RegisterCallback("MD_READY", CreateDashboard)
 MD:RegisterCallback("TALENTS_CHANGED", Refresh)

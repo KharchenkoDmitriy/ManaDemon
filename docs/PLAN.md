@@ -191,8 +191,10 @@ the left, level 2 horizontal on top, deeper levels in a box that repeats the rul
   `tools/dashui.lua`, the dashboard's first offline test.)*
 - [x] **v0.11.2** Settings becomes the fourth group; `UI/OptionsFrame.lua` becomes a shim.
   *(2026-09-07; 114 lines to 50, and a fourth bare pipe found in the command list.)*
-- [ ] **v0.11.3** Simulate becomes the third group; the standalone window goes.
-- [ ] **v0.11.4** Runs as its own Reports view; first use of the level-3 box.
+- [x] **v0.11.3** Simulate becomes the third group; the standalone window goes.
+- [x] **v0.11.4** Runs as its own Reports view, appearing once a run exists. *(2026-09-07; the
+  level-3 box is built and tested but still has no user — nothing needed it yet, which is the
+  right reason not to use it.)*
 
 ## Phase 2 — other classes (after 1 is green)
 

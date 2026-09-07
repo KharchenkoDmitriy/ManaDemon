@@ -144,11 +144,12 @@ end
 --------------------------------------------------------------------------------
 -- The window
 --------------------------------------------------------------------------------
+-- v0.11.3: a PANEL, not a window. The dashboard's navigation hosts it as its
+-- third group; everything below is unchanged and still anchors to `frame`.
 local function Build()
     if frame then return end
-    frame = UI.CreateMovableFrame("ManaDemon: Simulation", "ManaDemonSimWindow", WIDTH, HEIGHT)
-    frame:SetFrameStrata("HIGH")
-    tinsert(UISpecialFrames, "ManaDemonSimWindow")
+    frame = UI.CreateFrame("ManaDemonSimPanel", UIParent, WIDTH, HEIGHT, true)
+    frame:Hide()
 
     local function Group(label, list, x, y, width, get, set)
         local fs = frame:CreateFontString(nil, "OVERLAY", UI.FONT_SMALL)
@@ -237,16 +238,41 @@ local function Build()
     end)
 end
 
+-- The dashboard adopts the panel into its content area once, when its
+-- navigation builds the Simulate group.
+function MD:RefreshSimHeader()
+    if not headerFS then return end
+    headerFS:SetText(string.format("|cffffcc00%s, %ds%s|r",
+        (function()
+            for _, p in ipairs(MD.SimPresets.PARTY) do if p.id == partyID then return p.label end end
+            return partyID
+        end)(), duration, MD.player.isDruid and "" or "  (Druid-only in v1)"))
+end
+
+function MD:AdoptSimPanel(parent)
+    Build()
+    frame:SetParent(parent)
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
+    frame:Show()
+    return frame
+end
+
+-- /md sim: select the group. It opens the window if it is closed, and toggles
+-- the window only when Simulate is already what is showing.
 function MD:ToggleSimWindow()
+    if MD.SelectView then
+        local g = MD.SelectedView and MD:SelectedView()
+        if g == "simulate" and MD.ToggleDashboard then MD:ToggleDashboard() return end
+        MD:SelectView("simulate", "build")
+        MD:RefreshSimHeader()
+        return
+    end
     Build()
     if frame:IsShown() then
         frame:Hide()
     else
-        headerFS:SetText(string.format("|cffffcc00%s, %ds%s|r",
-            (function()
-                for _, p in ipairs(MD.SimPresets.PARTY) do if p.id == partyID then return p.label end end
-                return partyID
-            end)(), duration, MD.player.isDruid and "" or "  (Druid-only in v1)"))
+        MD:RefreshSimHeader()
         frame:Show()
     end
 end

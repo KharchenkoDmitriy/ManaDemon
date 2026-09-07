@@ -174,6 +174,22 @@ function MD.DashboardParts.CreateReview(parent, width)
         return Rows()[selected]
     end
 
+    -- v0.11.4: the Reports group has a Runs view, which is this pane with a run
+    -- selected rather than the ring of single fights. The selector stays: with
+    -- two runs kept, choosing between them is still a click.
+    function api:SetSource(which)
+        if which == "run" then
+            if not RunIndex() and MD.RunRecorder and MD.RunRecorder:Get(1) then
+                source = "run1"
+                selected = 1
+            end
+        elseif which == "fights" and RunIndex() then
+            source = "fights"
+            selected = 1
+        end
+    end
+
+
     local function Validation(rec, force)
         if not rec then return nil end
         if cache[rec.id] and not force then return cache[rec.id] end
