@@ -297,12 +297,29 @@ do
     check("the list has a row per strategy", btn ~= nil)
     btn:GetScript("OnClick")(btn)
     check("choosing one closes the list", not dd.list:IsShown())
+    -- two objectives often win with the SAME plan, so the choice cannot be read
+    -- back from the plan: picking one used to show the other (v0.11.13)
+    check("the chooser keeps the strategy that was chosen", dd:GetText() == "Safest",
+        dd:GetText())
     check("switching strategy changes the plan the column draws",
         SP.plans[rec.id] == safe, tostring(SP.plans[rec.id] == safe))
     check("and keeps the clock where it was",
         math.abs(MD.Replay._state().left.state.t - before) < 0.3,
         string.format("%.1f vs %.1f", MD.Replay._state().left.state.t, before))
     check("the suggested column is still drawn", MD.Replay._state().right.state ~= nil)
+
+    -- choosing a strategy whose plan another objective shares still reads back
+    -- as the one that was clicked
+    do
+        local same = SP.strategies[rec.id].safe.plan
+        SP.strategies[rec.id].health = { plan = same, result = snap() }
+        local row
+        for i, it in ipairs(dd.items) do if it.id == "health" then row = dd.rows[i] end end
+        row:GetScript("OnClick")(row)
+        check("Highest health does not read back as Safest",
+            MD.Replay._strategy():GetText() == "Highest health",
+            MD.Replay._strategy():GetText())
+    end
 
     -- a fight with no strategies shows no row at all
     SP.strategies[rec.id] = nil

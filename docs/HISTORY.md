@@ -2252,3 +2252,29 @@ The chooser in the replay window is how you look at both.
 
 `replaycheck` 70 → 71, with the regression pinned: every field an objective reads must survive
 into the search's snapshots.
+
+## 2026-09-07 — v0.11.13: "can they hold out until the good spell is free?"
+
+Two from the author, one cosmetic and one not.
+
+**The chooser redirected.** Picking "Highest health" showed "Safest", and "Most mana left" showed
+"Least mana". Two objectives frequently win with the *same plan*, and the dropdown recovered its
+value by asking which objective's winner matched the active plan — so it answered with whichever
+came first in the list. The choice is remembered now (`SP.strategyPick`), and the plan is only
+consulted when nothing has been chosen.
+
+**And the Rejuvenation on top of a fresh Lifebloom is gone.** The author: "Least mana still waits
+until HP drops to ~50%, casts a Lifebloom and a Rejuvenation, instead of casting a single
+Lifebloom early, allowing it to bloom, and repeating."
+
+v0.11.9 asked the wrong question. It bought the worse HoT when the healing in flight would not
+cover the damage arriving over *that HoT's own duration* — twelve seconds for a Rejuvenation. The
+real question is whether the target can hold out until the **efficient** spell is castable again:
+a Lifebloom four seconds from blooming does not need a Rejuvenation underneath it, it needs four
+seconds. The gate now measures against that window.
+
+The pattern on the author's 74 s fight is now Lifebloom, bloom, Lifebloom again — at every
+setting of the health gate — and **Least mana got cheaper doing it**, 3644 against 3761. The
+author was right that the pair was strictly worse: the same coverage for 117 mana less.
+
+replaycheck 71 → 72, replayui 66 → 68.

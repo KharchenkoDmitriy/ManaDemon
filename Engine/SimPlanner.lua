@@ -265,6 +265,7 @@ function Plan:Decide(S, t, mana, form)
             end
             local pick, pickE, pickHPM = nil, nil, nil
             local bestPossibleHPM = 0        -- the best rate this plan can ever buy
+            local bestFreeIn = 0             -- ...and how long until it can be cast again
             for _, fam in ipairs(SP.HOT_RULE) do
                 local id = self.binds[fam]
                 local e = affordable(id)
@@ -273,7 +274,10 @@ function Plan:Decide(S, t, mana, form)
                 if e then
                     local heal = (e.direct or 0) + (e.tick or 0) * (e.ticks or 0) + (e.bloom or 0)
                     local hpm = heal / (e.cost or 1)
-                    if heal > 0 and hpm > bestPossibleHPM then bestPossibleHPM = hpm end
+                    if heal > 0 and hpm > bestPossibleHPM then
+                        bestPossibleHPM = hpm
+                        bestFreeIn = (st and st.active) and math.max(0, (st.expires or t) - t) or 0
+                    end
                     if not (st and st.active) then
                         local horizon = e.duration or ((e.ticks or 0) * (e.tickPeriod or 3))
                         local room = deficit + rate * horizon - pending
@@ -295,9 +299,14 @@ function Plan:Decide(S, t, mana, form)
             -- Otherwise wait for the efficient one -- 6.17 health per mana
             -- against 4.72 on this author's gear. Wanting health NOW is rule 2's
             -- question, and rule 2 is above this one for that reason.
+            -- The question is not "does what is rolling cover the next twelve
+            -- seconds", it is "can they hold out until the efficient spell is
+            -- free again". A Lifebloom four seconds from blooming does not need
+            -- a Rejuvenation underneath it; it needs four seconds. Judging it
+            -- over the WORSE spell's duration is what put a Rejuvenation on top
+            -- of a fresh Lifebloom (the author, 2026-09-07).
             if pick and pickHPM < bestPossibleHPM - 1e-9 then
-                local horizon = pickE.duration or ((pickE.ticks or 0) * (pickE.tickPeriod or 3))
-                if pending >= rate * horizon then pick = nil end
+                if pending >= rate * bestFreeIn then pick = nil end
             end
             if pick then return pick, i, 4 end
         end
@@ -930,6 +939,9 @@ end
 
 SP.plans = {}   -- [rec.id] = the plan Coach last produced for it
 SP.strategies = {}  -- [rec.id] = { [objective key] = { plan, result, score } }, from one search
+SP.strategyPick = {}   -- [rec.id] = the objective the author chose. Two objectives often pick the
+                       -- SAME plan, so the choice cannot be recovered from the plan afterwards --
+                       -- picking "Highest health" would read back as "Safest" (v0.11.13)
 SP.forced = {}  -- [rec.id] = that plan came from a forced coach on a fight that does not replay
 
 --------------------------------------------------------------------------------

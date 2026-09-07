@@ -882,6 +882,7 @@ local function Build()
         w = w and w[id]
         if not w then return end
         MD.SimPlanner.plans[rp.rec.id] = w.plan
+        MD.SimPlanner.strategyPick[rp.rec.id] = id
         MD:RebuildSuggested()
     end)
     stratDrop:Hide()
@@ -1292,7 +1293,10 @@ function MD:OpenReplay(n)
                 local w = winners[obj.key]
                 if w then
                     items[#items + 1] = { id = obj.key, text = obj.name, tooltip = obj.what }
-                    if SP.plans[rp.rec.id] == w.plan and not current then current = obj.key end
+                    -- what the author CHOSE, not the first objective that
+                    -- happens to share the winning plan
+                    if SP.strategyPick[rp.rec.id] == obj.key then current = obj.key end
+                    if not current and SP.plans[rp.rec.id] == w.plan then current = obj.key end
                 end
             end
         end

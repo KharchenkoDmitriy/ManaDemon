@@ -537,13 +537,24 @@ do
         plan2:Decide(quiet, 5, 9999, "caster") ~= rj,
         tostring(plan2:Decide(quiet, 5, 9999, "caster")))
 
-    -- more damage than the Lifebloom can cover over its own duration: throughput
-    -- decides, and the second HoT goes out even at the worse rate
+    -- more damage than what is in flight can cover BEFORE the efficient spell
+    -- frees up: throughput decides and the worse HoT goes out
     local heavy = state(6000, 900)
     rolling(heavy, 7)
+    heavy.hots[1][SM.HOT_INDEX.Lifebloom].expires = 12    -- 7s away from being recastable
     check("it adds the worse HoT when the damage outruns what is in flight",
         plan2:Decide(heavy, 5, 9999, "caster") == rj,
         tostring(plan2:Decide(heavy, 5, 9999, "caster")))
+
+    -- ...but not when the efficient one is about to come off: a Lifebloom four
+    -- seconds from blooming does not need a Rejuvenation underneath it, it
+    -- needs four seconds (v0.11.13)
+    local nearlyFree = state(6000, 900)
+    rolling(nearlyFree, 7)
+    nearlyFree.hots[1][SM.HOT_INDEX.Lifebloom].expires = 6   -- 1s away
+    check("it waits when the efficient spell is about to come off",
+        plan2:Decide(nearlyFree, 5, 9999, "caster") ~= rj,
+        tostring(plan2:Decide(nearlyFree, 5, 9999, "caster")))
 
     -- and that is a question about damage, not about health: the same heavy
     -- damage on a nearly full target still gets it, a quiet fight on a badly
