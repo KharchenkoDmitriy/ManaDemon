@@ -275,8 +275,71 @@ def convert(blob, healer):
         stream_ev["amt"].append(int(amt))
         stream_ev["x"].append(int(x))
 
-    # ---- health snapshots on a 5s grid --------------------------------------
+    # ---- health, reconstructed then snapshotted on a 5s grid ----------------
+    # The log reports health as a PERCENTAGE, and only on events that happen to
+    # carry the actor's resources -- somebody nobody touches for a minute has no
+    # samples at all. Forward-filling the last percentage leaves them frozen at
+    # 100% while the fight kills them, which is what made every health curve
+    # fail its gate.
+    #
+    # So: integrate. Absolute damage and healing are both known exactly, so HP
+    # moves event by event; each reported percentage is an ANCHOR that resets
+    # the running value (it is exact to the 1% it is quantised at, and it also
+    # catches whatever the event stream does not carry -- absorbs, unlogged
+    # environmental damage). Between anchors the arithmetic carries it.
     tl = hp_timeline(blob)
+    moves = defaultdict(list)
+    for e in blob["damage"]:
+        if (e.get("amount") or 0) > 0 and e.get("targetID") in idx:
+            moves[e["targetID"]].append((e["timestamp"], -e["amount"]))
+    for e in blob["healing"]:
+        if (e.get("amount") or 0) > 0 and e.get("targetID") in idx:
+            moves[e["targetID"]].append((e["timestamp"], e["amount"]))
+    died = {}
+    for e in blob["deaths"]:
+        if e.get("targetID") in idx:
+            died.setdefault(e["targetID"], e["timestamp"])
+
+    curves = {}
+    for aid in order:
+        mx = maxhp.get(aid, (0,))[0]
+        if mx <= 0:
+            curves[aid] = []
+            continue
+        anchors = tl.get(aid) or []
+        # tag: 0 = an anchor (resync), 1 = a move. Sorting on the tag keeps the
+        # anchor first when both land on the same millisecond.
+        stream = sorted([(t, 0, 0) for t, _p in anchors]
+                        + [(t, 1, d) for t, d in moves.get(aid, [])])
+        cur = (anchors[0][1] / 100.0 * mx) if anchors else mx
+        pts, ai = [(t0, cur)], 0
+        for ts, tag, d in stream:
+            if tag == 0:
+                while ai < len(anchors) and anchors[ai][0] < ts:
+                    ai += 1
+                if ai < len(anchors) and anchors[ai][0] == ts:
+                    cur = anchors[ai][1] / 100.0 * mx     # re-sync to the truth
+            else:
+                cur += d
+            cur = max(0.0, min(float(mx), cur))
+            pts.append((ts, cur))
+        curves[aid] = pts
+
+    def hp_at(aid, ms):
+        pts = curves.get(aid) or []
+        if not pts:
+            return maxhp.get(aid, (0,))[0]
+        d = died.get(aid)
+        if d is not None and ms >= d:
+            return 0
+        v = pts[0][1]
+        for ts, val in pts:
+            if ts <= ms:
+                v = val
+            else:
+                break
+        return v
+
     hp = {"t": [], "hp": {}, "max": {}}
     for aid in order:
         hp["hp"][idx[aid]] = []
@@ -286,18 +349,8 @@ def convert(blob, healer):
         hp["t"].append(round(gt, 3))
         ms = t0 + gt * 1000
         for aid in order:
-            mx = maxhp.get(aid, (0,))[0]
-            pts = tl.get(aid) or []
-            pct = None
-            for ts, p in pts:
-                if ts <= ms:
-                    pct = p
-                else:
-                    break
-            if pct is None:
-                pct = pts[0][1] if pts else 100
-            hp["hp"][idx[aid]].append(int(round(mx * pct / 100.0)))
-            hp["max"][idx[aid]].append(mx)
+            hp["hp"][idx[aid]].append(int(round(hp_at(aid, ms))))
+            hp["max"][idx[aid]].append(maxhp.get(aid, (0,))[0])
         gt += HP_EVERY
 
     mana = {"t": [], "v": [], "base": [], "cast": []}
@@ -331,6 +384,29 @@ def convert(blob, healer):
     for e in blob.get("combatantinfo", []):
         if e.get("sourceID") == hid:
             ci = e
+
+    # Talents. The log carries the POINT SPLIT per tree, not the individual
+    # talents -- Blohz reads [0, 0, 61]. Restoration has 62 points' worth of
+    # talents worth taking, so a 55+ point split leaves almost no freedom: the
+    # healing talents below are in every deep resto build. They are applied and
+    # then CHECKED, by comparing what our model then predicts each spell heals
+    # against what the log says it actually healed (tools/wclcheckkit.py). An
+    # inferred talent that makes the prediction worse is a wrong inference.
+    #
+    # Moonglow lives in Balance and is NOT applied here: a 0-point Balance tree
+    # cannot have it, and the recorded costs are the client's own anyway.
+    trees = [t.get("id", 0) for t in (ci.get("talents") or [])]
+    resto = trees[2] if len(trees) >= 3 else 0
+    talents = {}
+    if resto >= 55:
+        talents = {
+            "Gift of Nature": 5, "Improved Rejuvenation": 3,
+            "Empowered Rejuvenation": 5, "Empowered Touch": 2,
+            "Improved Regrowth": 5, "Tranquil Spirit": 5, "Naturalist": 5,
+        }
+    elif resto >= 40:
+        talents = {"Gift of Nature": 5, "Improved Rejuvenation": 3,
+                   "Empowered Rejuvenation": 5}
     start_mana = track[0][1] if track else pool
 
     names = {}
@@ -386,7 +462,7 @@ def convert(blob, healer):
         "healing": int(healing), "crit": round(critpct, 2),
         "spirit": int(ci.get("spirit") or 0), "intellect": int(ci.get("intellect") or 0),
         "manaMax": pool, "form": "caster",
-        "talents": {},
+        "talents": talents,
         # v0.13: this profile came out of a log, not out of a client. The
         # importer reads it to decide the spellbook: a level 70 druid knows
         # every rank whose trainer level is at or below 70, which the stub's

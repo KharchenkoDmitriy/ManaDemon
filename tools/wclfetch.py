@@ -111,7 +111,7 @@ def main():
 
     for name, dt in (("damage", "DamageTaken"), ("healing", "Healing"),
                      ("casts", "Casts"), ("deaths", "Deaths"),
-                     ("resources", "Resources")):
+                     ("resources", "Resources"), ("combatantinfo", "CombatantInfo")):
         ev = events(code, fight, dt, host)
         blob[name] = ev
         print("  %-10s %6d events" % (name, len(ev)), flush=True)
