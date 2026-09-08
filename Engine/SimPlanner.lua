@@ -506,6 +506,10 @@ end
 
 function SP.ReasonText(r, names)
     if not r then return nil end
+    -- the solver's own rules (v0.13): it decided on a number, so it names it
+    if r.rule == 7 or r.rule == 8 or r.rule == 9 then
+        return MD.SimSolver and MD.SimSolver.ReasonText(r, names) or nil
+    end
     if r.rule == 1 then
         return string.format("at %d%%, under the %d%% Swiftmend line, with a HoT to eat",
             (r.hp or 0) * 100 + 0.5, (r.below or 0) * 100 + 0.5)
@@ -563,10 +567,82 @@ function SP.ReasonText(r, names)
 end
 
 -- One line per rule, for the replay window's "why" (docs/SPEC-v0.8.md 4.3).
+--------------------------------------------------------------------------------
+-- The strategies a human picks between (v0.13.2). Two planners -- the threshold
+-- rules and the solver -- in a few configurations each, so the author can put
+-- them side by side on their own fights rather than take one on trust. The
+-- replay window's chooser and tools/strategies.lua both read this list.
+--
+-- `foresight` means the plan is given a DEFORMED view of this fight
+-- (Engine/Foresight.lua). Such a plan is not causal and is labelled everywhere
+-- it appears; it is in the list because the author asked to be able to compare
+-- it, not because it is the default.
+--------------------------------------------------------------------------------
+SP.STRATEGY_SET = {
+    { key = "rules",        label = "Rules: balanced",  kind = "rules",
+      why = "the five thresholds, as shipped since v0.7",
+      params = { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 3,
+                 hotBelow = 0.80, filler = false } },
+    { key = "rules-hots",   label = "Rules: HoTs only", kind = "rules",
+      why = "no direct heals at all -- the cheap baseline",
+      params = { swiftmendBelow = 0.30, directBelow = 0.45, rollStacks = 3,
+                 hotBelow = 0.80, filler = false, noDirect = true } },
+    -- The three the author asked to be able to pick between (v0.13.2). They
+    -- differ ONLY in what the forecast is allowed to know.
+    { key = "solver-blind", label = "Solver: no intuition", kind = "solver",
+      why = "the present only: trailing damage, threat, a cast bar in the air",
+      params = { minValue = 15, horizon = 18 } },
+    { key = "solver-prior", label = "Solver: intuition from old logs", kind = "solver",
+      why = "a prior per zone and role, learned from OTHER fights, never this one",
+      params = { minValue = 15, horizon = 18, prior = true } },
+    { key = "solver-sight", label = "Solver: blurred foresight", kind = "solver",
+      why = "a smeared, quantised, half-trusted view of THIS fight -- not causal",
+      params = { minValue = 15, horizon = 18, foresight = true } },
+    -- and two dials on the same solver, for comparison
+    { key = "solver-frugal", label = "Solver: frugal", kind = "solver",
+      why = "no intuition, and it will not spend under 30 health-seconds per mana",
+      params = { minValue = 30, horizon = 18 } },
+    { key = "solver-near",  label = "Solver: reactive", kind = "solver",
+      why = "no intuition, 12s of forecast: what is happening, not what is building",
+      params = { minValue = 15, horizon = 12 } },
+}
+
+function SP.Strategy(key)
+    for _, e in ipairs(SP.STRATEGY_SET) do if e.key == key then return e end end
+    return nil
+end
+
+-- Build a plan for one strategy. `ctx.scenario` is required only by the
+-- strategies that ask for foresight; `ctx.seed` keeps a replay reproducible.
+function SP.MakeStrategy(entry, binds, kit, ctx)
+    if not entry then return nil end
+    if entry.kind == "solver" then
+        local params = {}
+        for k, v in pairs(entry.params) do params[k] = v end
+        if params.foresight then
+            params.foresight = (ctx and ctx.scenario and MD.Foresight)
+                and MD.Foresight.Build(ctx.scenario, { seed = (ctx and ctx.seed) or 1 })
+                or nil
+        end
+        if params.prior then
+            -- LEAVE ONE OUT: the fight being planned is never in its own prior.
+            params.prior = (ctx and ctx.recs and MD.Intuition)
+                and MD.Intuition:Build(ctx.recs, ctx.excludeID) or nil
+            params.zone = ctx and ctx.zone or nil
+        end
+        return MD.SimSolver.NewPlan(binds, params, kit)
+    end
+    return SP.NewPlan(binds, entry.params, kit)
+end
+
 SP.RULE_NAMES = {
     "Swiftmend on a big hit", "direct heal, a HoT would be late",
     "keep Lifebloom rolling on the anchor", "the HoT that fits the deficit", "filler",
     "your own cast - damage, control or a shapeshift the plan cannot choose",
+    -- 6 above is SM.WHY_FIXED; 7-9 are the solver's (v0.13)
+    [7] = "best health-seconds per mana",
+    [8] = "the danger line, cheapest hold",
+    [9] = "holding the mana",
 }
 
 function Plan:BindCount()

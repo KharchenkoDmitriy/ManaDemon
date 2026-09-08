@@ -2549,3 +2549,59 @@ So: built, tested, safe, `prior` nil unless passed. Turning it on waits on v0.13
 Corpus: eight more ranked Nightbane fights imported (ten total, 3-13% foreign healing).
 
 11 suites green (solvercheck 17 -> 26).
+
+## 2026-09-08 — v0.13.2: blurred foresight, the explainer, and a menu
+
+Three things, from one observation by the author: a prior learned from other fights "can be
+totally irrelevant". A blurred memory of **this** fight cannot be — it is this fight.
+
+**`Engine/Foresight.lua`.** Damage bucketed at 4s, smeared into neighbouring buckets,
+perturbed by a deterministic hash, quantised to six levels, capped at 10s of sight, trusted
+at 0.5. The shape survives; the numbers do not.
+
+Reading it **is** foresight, and that is said rather than hidden: the strict causality
+invariant does not hold for such a plan, `plan.foresees` is true, and every report prints
+"NO - sees this fight" beside it. What is defended is that the degradation is real, and
+each clause is asserted:
+
+```
+it knows a burst is coming before it lands   350/s at 34s vs 0/s at 10s
+it cannot place the burst                    already lit 6s early
+it cannot size it                            4900 vs 8200 = 40% off
+it sees nothing beyond its horizon           0 at the pull for a burst at 40s
+the same fight deforms the same way          seeded on the fight id
+```
+
+And it does its job: on a clean burst at 40s the blind solver first answers at 34.5s, the
+foresighted one at 30.5s -- into the burst instead of after it.
+
+**The explainer.** The solver decides on a number, so it names the number, through the same
+`SP.ReasonText` path the replay and card already use:
+
+```
+1.2k missing, 350/s expected -> closes 3.4k health-seconds of the gap for 220 mana:
+  15.5 per mana, the best on offer
+waiting: the best cast buys 12.1 per mana now and 18.4 after one global cooldown, and
+  nobody falls that far
+```
+
+**The menu.** `SP.STRATEGY_SET`: three forecasts (none / prior from old logs / blurred
+foresight of this fight) plus two rule configurations and two solver dials, all built by
+`SP.MakeStrategy` and run side by side by `tools/strategies.lua`. Leave-one-out for the
+prior is enforced there, not merely available.
+
+**On the author's own recordings, neither forecast helps:**
+
+```
+Rules: balanced                  deaths 0  floor 0.0s  mana 21900  98 casts  causal
+Solver: no intuition             deaths 0  floor 0.0s  mana 12372  54 casts  causal
+Solver: intuition from old logs  deaths 0  floor 0.0s  mana 12812  56 casts  causal
+Solver: blurred foresight        deaths 0  floor 1.4s  mana 12769  56 casts  NOT causal
+```
+
+The blind solver wins. Both forecasts spend 3-4% more, and the foresighted one gives up
+1.4s under the danger line having anticipated damage that arrived somewhere else. A small,
+mostly-solo corpus is not a verdict on the idea, and the raid corpus cannot settle it while
+the level 70 heal values are 1.6-1.8x low. Both stay selectable; neither is default.
+
+11 suites green (solvercheck 26 -> 46).

@@ -234,7 +234,13 @@ read only what a human can see.
   the signature and asserted in the harness). *(2026-09-08; it learns the right thing —
   TANK 1463/s at the pull over ten ranked Nightbane logs — and pre-casts before the first
   hit, but ships OFF: it has not been shown to help, and cannot be until v0.13.3.)*
-- [ ] **v0.13.2** the solver's reasons in the replay and on the card -- it knows the
+- [x] **v0.13.2** deformed foresight of the current fight (`Engine/Foresight.lua`), the
+  solver's explainer (rules 7-9 name the number they decided on), and `SP.STRATEGY_SET` —
+  three forecasts (none / old-log prior / blurred foresight) plus two rule configs and two
+  solver dials, all runnable side by side by `tools/strategies.lua`. *(2026-09-08; the
+  blind solver still wins on the author's corpus, so both forecasts ship selectable and
+  neither is default.)*
+- [ ] **v0.13.5** the solver's reasons in the replay and on the card -- it knows the
   number it decided on, so the sentence can name it.
 - [ ] **v0.13.4** `SP.Search` over `minValue`/`horizon`, the four strategy objectives
   reading the solver's pool, and the Review tab able to pick which planner coached.

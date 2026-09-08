@@ -280,5 +280,150 @@ do
         id and ((MD.SpellData.spells[id] or {}).family or tostring(id)) or "still waited")
 end
 
+--------------------------------------------------------------------------------
+-- 6. Deformed foresight: it must SEE the burst and must NOT see it clearly
+--------------------------------------------------------------------------------
+do
+    local FS = MD.Foresight
+    -- one clean burst: 8000 damage in a single second at t=40, nothing else
+    local ev = { t = {}, kind = {}, tgt = {}, amt = {}, x = {} }
+    local n = 0
+    local function add(at, amt)
+        n = n + 1
+        ev.t[n], ev.kind[n], ev.tgt[n], ev.amt[n], ev.x[n] = at, K.DMG, 1, amt, 0
+    end
+    for at = 2, 60, 4 do add(at, 200) end
+    add(40, 8000)
+    local sc = { dur = 70, pool = 9000, initial = { mana = 9000, apiBase = 10, apiCasting = 4 },
+                 kit = kit, floor = 0.30, ev = ev,
+                 targets = { { name = "T", role = "TANK", maxHP = 10000, hp0 = 10000, tracked = true } } }
+
+    local fs = FS.Build(sc, { seed = 7 })
+    check("foresight builds from the fight", fs ~= nil and fs.nT == 1)
+
+    -- it knows something is coming: the rate ahead of the burst beats a quiet spot
+    local before = FS.Rate(fs, 1, 34, 12)
+    local quiet = FS.Rate(fs, 1, 10, 12)
+    check("it knows a burst is coming before it lands", before > quiet * 2,
+        string.format("%.0f/s at 34s vs %.0f/s at 10s", before, quiet))
+
+    -- ...and it cannot place it: the bucket before the burst is already lit
+    local early = FS.Rate(fs, 1, 34, 4)
+    check("it cannot place the burst inside its own second", early > quiet,
+        string.format("%.0f/s already at 34s", early))
+
+    -- ...and it cannot size it: the deformed peak is off the truth
+    local peakBin = 0
+    for b = 1, fs.nBins do if fs.bins[1][b] > peakBin then peakBin = fs.bins[1][b] end end
+    local truth = 8000 + 200
+    check("it cannot size the burst either", math.abs(peakBin - truth) / truth > 0.10,
+        string.format("%.0f vs %.0f = %.0f%% off", peakBin, truth,
+            100 * math.abs(peakBin - truth) / truth))
+
+    -- nothing beyond sight
+    check("it sees nothing beyond its horizon", FS.Rate(fs, 1, 0, 12) < before,
+        string.format("%.0f at the pull", FS.Rate(fs, 1, 0, 12)))
+
+    -- deterministic: a replay must reproduce
+    local again = FS.Build(sc, { seed = 7 })
+    local same = true
+    for b = 1, fs.nBins do if math.abs(fs.bins[1][b] - again.bins[1][b]) > 1e-9 then same = false end end
+    check("the same fight deforms the same way every time", same)
+    local other = FS.Build(sc, { seed = 8 })
+    local diff = false
+    for b = 1, fs.nBins do if math.abs(fs.bins[1][b] - other.bins[1][b]) > 1e-9 then diff = true end end
+    check("a different seed deforms differently", diff)
+
+    -- the honest label: a plan with foresight admits it is not causal
+    local blind = SV.NewPlan(binds, { minValue = 15, horizon = 18 }, kit)
+    local seer = SV.NewPlan(binds, { minValue = 15, horizon = 18, foresight = fs }, kit)
+    check("a plan without foresight does not claim it", blind.foresees == false)
+    check("a plan with foresight admits it", seer.foresees == true)
+
+    -- and the point: it heals INTO the burst rather than after it
+    local function firstCastAfter(plan, from)
+        local at
+        SP.RunPlan(sc, plan, { critMode = "ev", onCast = function(_, t2)
+            if not at and t2 >= from then at = t2 end end })
+        return at
+    end
+    local a = firstCastAfter(SV.NewPlan(binds, { minValue = 15, horizon = 18 }, kit), 30)
+    local b = firstCastAfter(SV.NewPlan(binds, { minValue = 15, horizon = 18, foresight = fs }, kit), 30)
+    check("foresight moves the answer earlier, not later",
+        (a == nil and b ~= nil) or (a and b and b <= a + 1e-9),
+        string.format("blind %s, foresighted %s", tostring(a), tostring(b)))
+end
+
+--------------------------------------------------------------------------------
+-- 7. The explainer: the solver decided on a number, so it can name the number
+--------------------------------------------------------------------------------
+do
+    local plan = SV.NewPlan(binds, { minValue = 0.1, horizon = 12 }, kit)
+    local seen = {}
+    local S1 = state(3000, 400)
+    plan:Decide(S1, 10, 99999, "caster")
+    seen[#seen + 1] = plan.reason
+    local S2 = state(10000, 0)
+    plan:Decide(S2, 10, 99999, "caster")
+    seen[#seen + 1] = plan.reason
+    local stingy = SV.NewPlan(binds, { minValue = 1e6, horizon = 12 }, kit)
+    stingy:Decide(state(9700, 40), 10, 99999, "caster")
+    seen[#seen + 1] = stingy.reason
+
+    local allNumbered, anyPipe, rules = true, false, {}
+    for _, r in ipairs(seen) do
+        local txt = SP.ReasonText(r, {})
+        rules[#rules + 1] = tostring(r.rule)
+        if type(txt) ~= "string" or not txt:find("%d") then allNumbered = false end
+        if txt and txt:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):find("|", 1, true) then
+            anyPipe = true
+        end
+    end
+    check("every solver decision renders a sentence with a number in it",
+        allNumbered, "rules " .. table.concat(rules, ","))
+    check("no bare pipe in a solver sentence", not anyPipe)
+    check("the planner delegates the solver's rules to the solver",
+        SP.ReasonText({ rule = 7, deficit = 1200, rate = 350, saved = 3400,
+                        cost = 220, value = 15.5 }, {}):find("per mana") ~= nil,
+        SP.ReasonText({ rule = 7, deficit = 1200, rate = 350, saved = 3400,
+                        cost = 220, value = 15.5 }, {}))
+    check("each solver rule has a name for the replay's hover",
+        SP.RULE_NAMES[7] and SP.RULE_NAMES[8] and SP.RULE_NAMES[9] ~= nil)
+    print("   " .. tostring(SP.ReasonText({ rule = 7, deficit = 1200, rate = 350,
+        saved = 3400, cost = 220, value = 15.5 }, {})))
+    print("   " .. tostring(SP.ReasonText({ rule = 8, deficit = 6600, rate = 900,
+        below = 0.34, freeIn = 2.5, cost = 220 }, {})))
+    print("   " .. tostring(SP.ReasonText({ rule = 9, target = 1, deficit = 400,
+        value = 12.1, later = 18.4 }, {})))
+end
+
+--------------------------------------------------------------------------------
+-- 8. The strategy set is what a human picks between
+--------------------------------------------------------------------------------
+do
+    check("there are strategies to choose from", #SP.STRATEGY_SET >= 4,
+        tostring(#SP.STRATEGY_SET))
+    local kinds = {}
+    for _, e in ipairs(SP.STRATEGY_SET) do kinds[e.kind] = true end
+    check("both planners are represented", kinds.rules and kinds.solver)
+    local sc = { dur = 20, pool = 9000, initial = { mana = 9000, apiBase = 10, apiCasting = 4 },
+                 kit = kit, floor = 0.30, ev = { t = {}, kind = {}, tgt = {}, amt = {}, x = {} },
+                 targets = { { name = "T", role = "TANK", maxHP = 10000, hp0 = 10000, tracked = true } } }
+    local built, labelled = 0, 0
+    for _, e in ipairs(SP.STRATEGY_SET) do
+        local plan = SP.MakeStrategy(e, binds, kit, { scenario = sc, seed = 1 })
+        if plan then built = built + 1 end
+        if e.why and #e.why > 10 then labelled = labelled + 1 end
+    end
+    check("every strategy builds a plan", built == #SP.STRATEGY_SET,
+        string.format("%d of %d", built, #SP.STRATEGY_SET))
+    check("every strategy says what it is for", labelled == #SP.STRATEGY_SET)
+    local sight = SP.Strategy("solver-sight")
+    local plan = SP.MakeStrategy(sight, binds, kit, { scenario = sc, seed = 1 })
+    check("the foresighted strategy is flagged as not causal", plan.foresees == true)
+    local plain = SP.MakeStrategy(SP.Strategy("solver-blind"), binds, kit, { scenario = sc, seed = 1 })
+    check("the others are not", plain.foresees == false)
+end
+
 print(string.format("\n%d ok, %d failed", ok, #fails))
 if #fails > 0 then for _, m in ipairs(fails) do print("  FAIL " .. m) end; os.exit(1) end

@@ -125,9 +125,17 @@ function SV.Rate(S, i, t, plan)
     SM = SM or MD.SimModel
     local seen = SM.SeenDamage(S, i, t)
     local observed = math.max(SM.RecentDamage(S, i, t, 5) / 5, seen)
+    -- v0.13.2: deformed foresight of THIS fight, when the plan was given any.
+    -- It is blurred, quantised, short-sighted and half-believed, but it is this
+    -- fight, so a plan carrying it is NOT causal and says so (plan.foresees).
+    local guess = 0
+    if plan and plan.foresight then
+        guess = MD.Foresight.Rate(plan.foresight, i, t, plan.horizon)
+        if guess > observed then return guess end
+    end
     local prior = plan and plan.prior
     if not prior then return observed end
-    local guess = MD.Intuition:Rate(prior, plan.zone, S.role and S.role[i], t)
+    guess = MD.Intuition:Rate(prior, plan.zone, S.role and S.role[i], t)
     if guess <= 0 then return observed end
     -- Confidence in the guess decays as the fight gives us real evidence: at the
     -- pull it is all we have, and by the time the trailing window is full it is
@@ -189,6 +197,9 @@ function SV.NewPlan(binds, params, kit)
         -- v0.13.1: the prior, built from OTHER recordings (Engine/Intuition.lua).
         -- Absent, the solver is exactly as blind at the pull as before.
         prior = params.prior, zone = params.zone,
+        -- v0.13.2: a deformed view of THIS fight. Setting it forfeits the
+        -- causality invariant on purpose; `foresees` is what the card reports.
+        foresight = params.foresight, foresees = params.foresight ~= nil,
         priorFades = params.priorFades or 15,
         reason = nil,
     }, Solver)
@@ -362,8 +373,9 @@ function Solver:Decide(S, t, mana, form)
 
     local v, id, tgt, saved, cost, rate, deficit = self:Best(S, t, mana, form, t)
     if not id or v < self.minValue then
-        self.reason = { rule = 0, target = tgt, deficit = deficit, rate = rate,
-                        value = v > 0 and v or nil, floor = self.minValue }
+        self.reason = { rule = 9, target = tgt, deficit = deficit, rate = rate,
+                        value = v > 0 and v or nil, floor = self.minValue,
+                        watched = S.nT }
         return nil
     end
     -- Waiting is a candidate: the same question one global cooldown later, when
@@ -373,13 +385,62 @@ function Solver:Decide(S, t, mana, form)
     local gcd = 1.5
     local lv = self:Best(S, t, mana, form, t + gcd)
     if lv > v * 1.05 then
-        self.reason = { rule = 0, target = tgt, deficit = deficit, rate = rate,
+        self.reason = { rule = 9, target = tgt, deficit = deficit, rate = rate,
                         value = v, later = lv, floor = self.minValue }
         return nil
     end
     self.reason = { rule = 7, target = tgt, deficit = deficit, rate = rate,
                     saved = saved, cost = cost, value = v }
     return id, tgt, 7
+end
+
+
+--------------------------------------------------------------------------------
+-- 5. The explainer. The solver decides on a number, so its sentence can name
+--    the number -- which is more than a threshold rule could ever say. The
+--    units are health-seconds of gap removed per mana, which is the only
+--    quantity the solver compares anything on.
+--------------------------------------------------------------------------------
+
+local function K1(v)
+    v = v or 0
+    if v >= 1000 then return string.format("%.1fk", v / 1000) end
+    return string.format("%d", v + 0.5)
+end
+
+function SV.ReasonText(r, names)
+    if not r then return nil end
+    if r.rule == 7 then
+        local parts = { string.format("%s missing", K1(r.deficit)) }
+        if (r.rate or 0) > 0 then
+            parts[#parts + 1] = string.format("%d/s expected", (r.rate or 0) + 0.5)
+        end
+        return string.format("%s -> closes %s health-seconds of the gap for %d mana: "
+            .. "%.1f per mana, the best on offer",
+            table.concat(parts, ", "), K1(r.saved), r.cost or 0, r.value or 0)
+    elseif r.rule == 8 then
+        return string.format("%s missing at %d/s: they cross the danger line%s in %.1fs, "
+            .. "and this is the cheapest cast that holds it (%d mana)",
+            K1(r.deficit), (r.rate or 0) + 0.5,
+            r.below and string.format(" (%d%% of health)", (r.below or 0) * 100 + 0.5) or "",
+            r.freeIn or 0, r.cost or 0)
+    elseif r.rule == 9 then
+        if not r.target then
+            return string.format("waiting: none of the %d is hurt and nothing is expected",
+                r.watched or 0)
+        end
+        if r.later then
+            return string.format("waiting: the best cast buys %.1f per mana now and %.1f "
+                .. "after one global cooldown, and nobody falls that far",
+                r.value or 0, r.later or 0)
+        end
+        if r.value then
+            return string.format("waiting: the best cast buys %.1f per mana, under the %.1f "
+                .. "floor -- the mana is worth more later", r.value, r.floor or 0)
+        end
+        return string.format("waiting: %s missing, nothing worth casting into it", K1(r.deficit))
+    end
+    return nil
 end
 
 return SV

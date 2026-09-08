@@ -189,3 +189,80 @@ inconclusive for the same underlying reason:
 So the mechanism is built, tested and safe, and `prior` is nil unless passed. It gets
 turned on when there is evidence it helps, which needs §7 of the plan — the `-- VERIFY`
 rows in `Data/SpellData.lua` — done first.
+
+
+## 9. Deformed foresight, and the three things a forecast may know (v0.13.2)
+
+§8's prior has a flaw the author named at once:
+
+> "the problem with prior records is that they can be totally irrelevant. So I would like
+> to use the current fight, but with some deformation, so it does not know exactly numbers
+> and patterns and does not trust it, but has a small correction"
+
+A memory of *other* fights can be about a different boss with a different group. A blurred
+memory of *this* fight cannot be irrelevant — it is this fight. The price is that reading
+it, however blurred, **is foresight**: the strict causality invariant of
+`docs/SPEC-v0.12.md` §2 does not hold for a plan built with it. That is stated, not hidden.
+`plan.foresees` is true, `tools/strategies.lua` prints **"NO - sees this fight"** next to it,
+and it is never the default.
+
+What *is* defended is that the foresight is genuinely degraded, and every clause is
+asserted in `tools/solvercheck.lua` rather than claimed:
+
+| deformation | measured |
+|---|---|
+| time bucketed at 4s and smeared into its neighbours | a single-second burst lights the bucket 6s early |
+| magnitude perturbed by a deterministic hash, then quantised to 6 levels | the peak reads 4900 against a true 8200 — **40% off** |
+| nothing beyond `sight` (10s) is visible | the rate at the pull for a burst at 40s is 0 |
+| what survives is trusted at 0.5 and loses to observation | observation is taken whenever it is higher |
+
+It is seeded on the fight's own id, so a replay reproduces exactly, and a different seed
+deforms differently. And it does the thing it is for: on a clean burst at 40s the blind
+solver first answers at **34.5s** and the foresighted one at **30.5s** — into the burst
+rather than after it.
+
+### 9.1 Three forecasts, chosen by the reader
+
+The author asked for all three, side by side, rather than one on trust:
+
+- **`solver-blind`** — the present only. Causal.
+- **`solver-prior`** — a prior per zone and role from *other* fights (§8). Causal, and
+  leave-one-out is enforced in `SP.MakeStrategy`, not just available.
+- **`solver-sight`** — a blurred, half-trusted view of *this* fight. **Not causal.**
+
+`SP.STRATEGY_SET` holds these plus the two rule configurations and two solver dials;
+`SP.MakeStrategy(entry, binds, kit, ctx)` builds any of them, and `tools/strategies.lua`
+runs the lot over a corpus and ranks them on the same tuple.
+
+**On the author's five recordings, neither kind of intuition helps:**
+
+```
+Rules: balanced                  deaths 0   floor 0.0s   mana 21900   98 casts   causal
+Solver: no intuition             deaths 0   floor 0.0s   mana 12372   54 casts   causal
+Solver: intuition from old logs  deaths 0   floor 0.0s   mana 12812   56 casts   causal
+Solver: blurred foresight        deaths 0   floor 1.4s   mana 12769   56 casts   NOT causal
+```
+
+The blind solver wins. Both forecasts spend 3-4% more and the foresighted one gives up
+1.4s under the danger line, having anticipated damage that then arrived somewhere else.
+That is a real result on a small, mostly-solo corpus and not a verdict on the idea; the
+raid corpus cannot settle it while the level 70 heal values are 1.6-1.8x low (§7 of the
+plan). Both stay selectable and neither is default.
+
+## 10. The explainer (v0.13.2)
+
+A threshold rule can only ever say which threshold it crossed. The solver decided on a
+number, so its sentence names it — same `SP.ReasonText` path the replay and card already
+use, delegating rules 7-9 to `SV.ReasonText`:
+
+```
+1.2k missing, 350/s expected -> closes 3.4k health-seconds of the gap for 220 mana:
+  15.5 per mana, the best on offer
+6.6k missing at 900/s: they cross the danger line (34% of health) in 2.5s, and this is
+  the cheapest cast that holds it (220 mana)
+waiting: the best cast buys 12.1 per mana now and 18.4 after one global cooldown, and
+  nobody falls that far
+```
+
+`solvercheck` asserts every solver decision renders a sentence carrying a number, and that
+none of them contains a bare pipe.
