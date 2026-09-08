@@ -2444,3 +2444,68 @@ numbers.
 every sentence has a number in it.
 
 replaycheck 76 → 80, replayui 79 → 80. All ten suites green.
+
+## 2026-09-08 — v0.13.0: a spell is a series of deposits
+
+`docs/SPEC-v0.13.md`. The author, after seeing what the logs said:
+
+> "you can consider each spell as a serial of heals ... this way you can make incoming
+> damage estimate and calculate what is the best setup of casts to cover incoming damage
+> as close as possible (minimal hp gap and minimal overhead) with the lowest mana
+> investment ... it should be easy to find the solution instead of static trashhold rules"
+
+That is the whole design. `Engine/SimSolver.lua` builds every spell as `{dt, amount}`
+deposits out of `SpellKit` — which is to say out of **the user's own stats**, so the same
+code schedules differently for a level 64 druid in Hellfire and a level 70 in Sunwell,
+with no thresholds to re-tune. Against them stands the demand: health missing now plus
+what the forecast says will go missing.
+
+**The forecast may read only what a human can see** (`docs/SPEC-v0.12.md` §2). Scheduling
+against the damage that actually arrives would make the coach clairvoyant, and
+`tools/solvercheck.lua` holds the same line `replaycheck` does: a burst at 40s may not
+change a cast made before it.
+
+Every `(spell, target)` is scored by projecting the target twice and taking
+
+```
+saved = gap(without) - gap(with)        value = saved / mana
+```
+
+One number carries all three asks. The health gap is literally the integral. Overheal
+needs no term: a deposit landing above full buys no reduction, so it scores itself down.
+Mana is the denominator. And the timing falls out — a deposit landing late reduces the gap
+less than the same one landing now, so a deep deficit pulls a direct heal and spread damage
+pulls a HoT, from the same code. The tests assert exactly that, and it holds:
+
+```
+a deep deficit with no incoming pulls a direct heal   -> Healing Touch r12
+a small deficit with damage coming pulls a HoT        -> Lifebloom
+```
+
+Safety stays first: anyone projected through the **measured** danger line takes the
+cheapest cast that clears it before efficiency gets a vote.
+
+**The control experiment** (`tools/solvercmp.lua`), five real recordings, same engine,
+same lexicographic tuple:
+
+```
+rules (5 thresholds)              deaths 0   floor 0.0s   mana 21900
+solver (minValue 15, horizon 18)  deaths 0   floor 0.0s   mana 12372     -43%
+```
+
+Two surprises from the sweep. **`minValue` is nearly inert** — anything under 10 changes
+nothing, because every candidate already clears ten health-seconds per mana; the dial only
+bites at 40, where it starts killing people and the tuple correctly rejects it. And
+**horizon is not monotonic**: 12s leaves 2.1s under the danger line, 18s leaves none, 24s
+leaves 1.4s. Too short and the dip is not seen coming; too long and a burst is smeared into
+an average.
+
+A bug worth writing down: `SM:Run` hands back a **pooled** result table, so scoring two
+plans and then comparing compares one plan with itself. The first version of the
+comparison reported five perfect ties.
+
+The threshold planner stays as the control. Nothing is switched over yet: the solver has
+no reasons in the replay, no search over its parameters, and the level 70 heal values it
+would need to be judged against the logs are still wrong.
+
+11 suites green (solvercheck 17 new).

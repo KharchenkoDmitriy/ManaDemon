@@ -218,6 +218,25 @@ enabled indicators are foresight: **aggro** and **an enemy cast with a named tar
   BOTH of SeenDamage's returns, so the wait sentence was printing the biggest single hit as a
   rate.)*
 
+## Phase 1.14 — the solver (v0.13)
+
+Spec: **`docs/SPEC-v0.13.md`**. A spell is a series of deposits; the cast to make is the
+one that removes the most missing-health-seconds per mana, against a forecast that may
+read only what a human can see.
+
+- [x] **v0.13.0** `Engine/SimSolver.lua`: deposits, the causal forecast, the gap integral,
+  the value comparison, waiting as a priced candidate, and the danger-line override.
+  `tools/solvercheck.lua` (17 assertions) and `tools/solvercmp.lua` (the control
+  experiment). *(2026-09-08; 43% less mana than the threshold rules for identical deaths
+  and floor seconds, on the author's five recordings.)*
+- [ ] **v0.13.1** the solver's reasons in the replay and on the card -- it knows the
+  number it decided on, so the sentence can name it.
+- [ ] **v0.13.2** `SP.Search` over `minValue`/`horizon`, the four strategy objectives
+  reading the solver's pool, and the Review tab able to pick which planner coached.
+- [ ] **v0.13.3** correct the `-- VERIFY` heal values in `Data/SpellData.lua` from the
+  Warcraft Logs corpus (`tools/wclcheckkit.lua` measures the error; Rejuvenation R13 and
+  Regrowth R10 are 1.6-1.8x out), then re-run the comparison on the level 70 imports.
+
 ## Phase 2 — other classes (after 1 is green)
 
 Generic parts already work for any mana class: the OOM clock, widget, datatexts,
