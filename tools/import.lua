@@ -121,6 +121,20 @@ if profile then
     elseif profile.form then
         function MD:InTreeForm() return false end
     end
+    -- v0.13: a profile lifted out of a Warcraft Logs report. The stub's
+    -- IsSpellKnown answers for the AUTHOR's spellbook, so a level 70 druid's
+    -- Rejuvenation R13 and Regrowth R10 fell out of the kit entirely and the
+    -- engine could not price half their casts. Ranks are trainer
+    -- prerequisites, so level decides the book.
+    if profile.fromLog then
+        local lvl = profile.level or 70
+        _G.IsSpellKnown = function(id)
+            local sd = MD.SpellData.spells[id]
+            return sd ~= nil and (sd.level or 0) <= lvl
+        end
+        _G.IsPlayerSpell = _G.IsSpellKnown
+        MD.SpellData:BuildKnown()
+    end
     MD.Regen:Refresh()
     kitLine = string.format("kit:   the character's (profile of %s): level %d %s, +%d healing, %.1f%% crit, " ..
         "%d spirit, %d int, %s", os.date("%Y-%m-%d %H:%M", profile.at or 0), profile.level or 0,

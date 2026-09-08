@@ -2,3 +2,10 @@ dist/
 .claude/worktrees/
 .logs/
 tools/.lua/
+
+# Credentials — never commit. .logs/ is already ignored; these are belt and braces
+# so a secret cannot be added even if it is written outside .logs/.
+.logs/wcl.json
+*.key
+*.secret
+wcl.json
