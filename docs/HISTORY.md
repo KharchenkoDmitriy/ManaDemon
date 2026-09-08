@@ -2509,3 +2509,43 @@ no reasons in the replay, no search over its parameters, and the level 70 heal v
 would need to be judged against the logs are still wrong.
 
 11 suites green (solvercheck 17 new).
+
+## 2026-09-08 — v0.13.1: healer intuition
+
+`docs/SPEC-v0.13.md` §8. The solver's forecast was blind exactly where a healer is not: at
+the pull, nothing has been seen, so nothing is expected, so it waits — while anyone who has
+run the place is already putting a Lifebloom on the tank.
+
+`Engine/Intuition.lua` learns that from recordings, keyed by what is knowable before the
+first hit: zone and role, an opening rate (first 10s) and a sustained rate, per head.
+
+**The invariant is the whole feature.** `IN:Build(recs, excludeID)` takes the exclusion as
+a required argument rather than an option, because a fight that teaches itself is
+clairvoyance with extra steps. `solvercheck` asserts a fight held out of a corpus of one
+leaves *no* prior; that one fight is an anecdote; and that the prior does not change any
+cast made before a burst it never saw.
+
+It learns the right thing. Over ten ranked Nightbane logs:
+
+```
+TANK    1463 / 668 per second (opening / sustained)
+DAMAGER    6 /  85
+HEALER     0 / 149
+```
+
+The tank eats 1463/s for ten seconds; the damagers take nothing at the pull and 85/s later,
+which is the AoE phases. And the behaviour it exists for holds: **with no prior the solver
+waits at the pull, with one it pre-casts Lifebloom on the tank before the first hit lands.**
+
+**It ships off, because I could not show it helps.** On the author's five recordings,
+leave-one-out costs +3.6% mana for nothing — those fights are effectively solo, so there is
+no tank in the corpus to learn from and the prior only speculates on the healer. On the
+ten-raid corpus the prior is right but both planners kill 29-50 people in fights where
+nobody died, because the level 70 heal values are 1.6-1.8x low. That comparison measures
+the broken kit, not the feature.
+
+So: built, tested, safe, `prior` nil unless passed. Turning it on waits on v0.13.3.
+
+Corpus: eight more ranked Nightbane fights imported (ten total, 3-13% foreign healing).
+
+11 suites green (solvercheck 17 -> 26).

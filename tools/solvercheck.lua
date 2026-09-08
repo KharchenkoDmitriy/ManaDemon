@@ -182,5 +182,103 @@ do
         diverged and string.format("diverged at %.1fs", diverged) or "identical until the burst")
 end
 
+--------------------------------------------------------------------------------
+-- 5. Healer intuition: a prior from OTHER fights, never from this one
+--------------------------------------------------------------------------------
+do
+    local IN = MD.Intuition
+    -- three fake recordings in one zone: the tank eats 400/s from the pull
+    local function fakeRec(id, tankDps)
+        local ev = { t = {}, kind = {}, tgt = {}, amt = {}, x = {} }
+        local n = 0
+        for at = 1, 30 do
+            n = n + 1
+            ev.t[n], ev.kind[n], ev.tgt[n], ev.amt[n], ev.x[n] = at, K.DMG, 1, tankDps, 0
+        end
+        return { id = id, zone = "Test Keep", dur = 30, n = n, ev = ev,
+                 roster = { { name = "T", role = "TANK" }, { name = "H", role = "HEALER" } } }
+    end
+    local recs = { fakeRec(1, 400), fakeRec(2, 400), fakeRec(3, 400) }
+
+    local prior = IN:Build(recs, nil)
+    local r = IN:Rate(prior, "Test Keep", "TANK", 0)
+    check("the prior learns the tank takes damage from the pull", r > 300,
+        string.format("%.0f per second", r))
+    check("it says nothing about a role nobody recorded",
+        IN:Rate(prior, "Test Keep", "DAMAGER", 0) == 0)
+
+    -- THE invariant: a fight may not teach itself
+    local held = IN:Build(recs, 2)
+    check("holding a fight out drops it from the prior",
+        held.fights == 2 and held.skipped == 1,
+        string.format("%d used, %d held", held.fights, held.skipped))
+    local only = IN:Build({ recs[2] }, 2)
+    check("a fight held out of a corpus of one leaves NO prior",
+        IN:Rate(only, "Test Keep", "TANK", 0) == 0,
+        string.format("%.0f", IN:Rate(only, "Test Keep", "TANK", 0)))
+
+    -- one fight is an anecdote
+    local single = IN:Build({ recs[1] }, nil)
+    check("one fight is not enough to be a prior",
+        IN:Rate(single, "Test Keep", "TANK", 0) == 0)
+
+    -- the prior fades as the fight provides real evidence
+    local far = IN:Rate(prior, "Test Keep", "TANK", 60)
+    check("the prior still answers later in the fight", far > 0, string.format("%.0f", far))
+
+    -- and it must not make the solver clairvoyant: same scenario, same answer,
+    -- whether or not a burst it never saw is coming
+    local function scen(burst)
+        local ev = { t = {}, kind = {}, tgt = {}, amt = {}, x = {} }
+        local n = 0
+        local function add(at, amt)
+            n = n + 1
+            ev.t[n], ev.kind[n], ev.tgt[n], ev.amt[n], ev.x[n] = at, K.DMG, 1, amt, 0
+        end
+        for at = 2, 38, 4 do add(at, 300) end
+        if burst then for at = 40, 48 do add(at, 1200) end end
+        return { dur = 60, pool = 9000, initial = { mana = 9000, apiBase = 10, apiCasting = 4 },
+                 kit = kit, floor = 0.30, ev = ev,
+                 targets = { { name = "T", role = "TANK", maxHP = 10000, hp0 = 10000, tracked = true } } }
+    end
+    local function castsOf(sc)
+        local out = {}
+        SP.RunPlan(sc, SV.NewPlan(binds, { minValue = 0.5, horizon = 12,
+            prior = prior, zone = "Test Keep" }, kit),
+            { critMode = "ev", onCast = function(_, at, id)
+                out[#out + 1] = string.format("%.2f:%d", at, id) end })
+        return out
+    end
+    local quiet, loud = castsOf(scen(false)), castsOf(scen(true))
+    local diverged
+    for j = 1, math.min(#quiet, #loud) do
+        if quiet[j] ~= loud[j] then
+            diverged = diverged or tonumber(quiet[j]:match("^([%d%.]+)"))
+        end
+    end
+    check("a prior does not make the solver clairvoyant",
+        diverged == nil or diverged >= 39.9,
+        diverged and string.format("diverged at %.1fs", diverged) or "identical until the burst")
+
+    -- the point of the whole thing: it acts at the pull, before any hit lands
+    local blind = SV.NewPlan(binds, { minValue = 0.5, horizon = 12 }, kit)
+    local wise = SV.NewPlan(binds, { minValue = 0.5, horizon = 12,
+                                     prior = prior, zone = "Test Keep" }, kit)
+    local S0 = { nT = 2, tracked = { true, true }, dead = {}, hp = { 10000, 10000 },
+                 maxHP = { 10000, 10000 }, hots = { {}, {} }, dmg = {},
+                 role = { "TANK", "HEALER" }, threat = {}, incoming = {}, danger = {} }
+    for i = 1, 2 do
+        local ring = { t = {}, a = {}, total = 0, hits = 0, firstAt = nil, biggest = 0 }
+        for j = 1, 64 do ring.t[j], ring.a[j] = -100, 0 end
+        S0.dmg[i] = ring
+    end
+    check("with no prior the solver waits at the pull",
+        blind:Decide(S0, 0, 99999, "caster") == nil)
+    local id, tgt = wise:Decide(S0, 0, 99999, "caster")
+    check("with a prior it pre-heals the tank before the first hit",
+        id ~= nil and tgt == 1,
+        id and ((MD.SpellData.spells[id] or {}).family or tostring(id)) or "still waited")
+end
+
 print(string.format("\n%d ok, %d failed", ok, #fails))
 if #fails > 0 then for _, m in ipairs(fails) do print("  FAIL " .. m) end; os.exit(1) end

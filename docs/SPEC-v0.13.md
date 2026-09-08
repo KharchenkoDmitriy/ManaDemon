@@ -132,3 +132,60 @@ and the forecast smears a burst into an average and under-reacts to it.
   burst at 40 s may not change a cast made before it.
 - The comparison, printed and not asserted: solver against rules on every real recording,
   same lexicographic score. The solver has to win or tie to replace anything.
+
+
+## 8. Healer intuition (v0.13.1)
+
+The forecast in §3 is honest and blind at the moment it matters most. At the pull nothing
+has been seen, so the rate is zero, so the demand is zero, so the plan waits — while any
+healer who has run the place before is already putting a Lifebloom on the tank, because
+**the tank is about to get hit**.
+
+That is not clairvoyance. It is memory of *other* pulls. The author:
+
+> "it should not know the exact future but at least know that some damage is going to be
+> in (like the fight start - tank will probably get damage, or aoe is coming) ... as we
+> look logs retrospectively we could make some intuition simulation, that add a bit of
+> performance for the solver without making it future aware"
+
+`Engine/Intuition.lua` learns a prior from recordings, keyed by the two things that are
+knowable before the first hit lands: **the zone you are standing in and the role of the
+person**. Each role gets an *opening* rate (the first 10s) and a *sustained* rate, per
+head, so a raid of eight damagers does not read as eight times the danger one is in.
+
+**The rule that makes it not cheating: a fight is never in its own prior.**
+`IN:Build(recs, excludeID)` takes the exclusion as a required argument, not an option, and
+`solvercheck` asserts that a fight held out of a corpus of one leaves *no* prior at all.
+Learn from the fight you are replaying and you have re-invented seeing the future with
+extra steps. One fight is an anecdote (`MIN_FIGHTS = 2`), and the prior's weight decays to
+zero by 15s, so observation beats reputation the moment there is any observation.
+
+### 8.1 What it learned, and what that is worth
+
+Over ten ranked Nightbane logs the prior is exactly the thing the author described:
+
+```
+TANK    1463 / 668 per second (opening / sustained)
+DAMAGER    6 /  85
+HEALER     0 / 149
+```
+
+The tank eats 1463 a second for the first ten seconds; the damagers take almost nothing at
+the pull and 85/s later, which is the AoE phases. `solvercheck` confirms the behaviour it
+is for: **with no prior the solver waits at the pull; with one it pre-casts Lifebloom on
+the tank before the first hit lands.**
+
+**Whether it is worth anything is not yet known, and it ships off.** Two measurements, both
+inconclusive for the same underlying reason:
+
+- On the author's five recordings, leave-one-out costs **+3.6% mana** for no safety gain.
+  Those fights are effectively solo — the corpus has no tank taking damage to learn from,
+  so all the prior does is speculate on the healer themselves.
+- On the ten-raid corpus the prior is right, but *both* planners kill 29-50 people in
+  fights where nobody died, because the level 70 heal values are 1.6-1.8x low
+  (`tools/wclcheckkit.lua`). A comparison run on a model that broken measures the model,
+  not the feature.
+
+So the mechanism is built, tested and safe, and `prior` is nil unless passed. It gets
+turned on when there is evidence it helps, which needs §7 of the plan — the `-- VERIFY`
+rows in `Data/SpellData.lua` — done first.

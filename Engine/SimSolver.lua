@@ -116,10 +116,24 @@ end
 -- 2. The forecast -- present tense only
 --------------------------------------------------------------------------------
 
-function SV.Rate(S, i, t)
+-- What this target is expected to be taking, per second. Observation first; the
+-- prior only ever RAISES the floor, and only until observation has something to
+-- say. A healer who has run the place before does not wait for the first hit to
+-- believe the tank is about to be hit -- but once the hits are landing, what is
+-- actually happening beats what usually happens.
+function SV.Rate(S, i, t, plan)
     SM = SM or MD.SimModel
     local seen = SM.SeenDamage(S, i, t)
-    return math.max(SM.RecentDamage(S, i, t, 5) / 5, seen)
+    local observed = math.max(SM.RecentDamage(S, i, t, 5) / 5, seen)
+    local prior = plan and plan.prior
+    if not prior then return observed end
+    local guess = MD.Intuition:Rate(prior, plan.zone, S.role and S.role[i], t)
+    if guess <= 0 then return observed end
+    -- Confidence in the guess decays as the fight gives us real evidence: at the
+    -- pull it is all we have, and by the time the trailing window is full it is
+    -- worth nothing. This is what keeps a prior from overriding the fight.
+    local w = 1 - math.min(1, t / (plan.priorFades or 15))
+    return math.max(observed, guess * w)
 end
 
 --------------------------------------------------------------------------------
@@ -172,6 +186,10 @@ function SV.NewPlan(binds, params, kit)
         binds = binds, kit = kit,
         minValue = params.minValue or 0.5,   -- health-seconds per mana to bother
         horizon = params.horizon or 12,
+        -- v0.13.1: the prior, built from OTHER recordings (Engine/Intuition.lua).
+        -- Absent, the solver is exactly as blind at the pull as before.
+        prior = params.prior, zone = params.zone,
+        priorFades = params.priorFades or 15,
         reason = nil,
     }, Solver)
 end
@@ -185,7 +203,8 @@ function Solver:BindCount()
 end
 
 function Solver:Params()
-    return { minValue = self.minValue, horizon = self.horizon }
+    return { minValue = self.minValue, horizon = self.horizon,
+             priorFades = self.priorFades }
 end
 
 -- Every (spell, target) the healer can afford, scored. `atT` lets the caller ask
@@ -199,7 +218,7 @@ function Solver:Best(S, t, mana, form, atT)
         if S.tracked[i] and not S.dead[i] and (S.maxHP[i] or 0) > 0 then
             local hp = S.hp[i]
             local maxHP = S.maxHP[i]
-            local rate = SV.Rate(S, i, t)
+            local rate = SV.Rate(S, i, t, self)
             local deficit = maxHP - hp
             -- nothing missing and nothing coming: no cast can buy anything
             if deficit > 0 or rate > 0 then
@@ -259,7 +278,7 @@ function Solver:AtRisk(S, t, i)
     if maxHP <= 0 or S.dead[i] then return nil end
     local line = (S.danger and S.danger[i] or 0) * maxHP
     if line <= 0 then return nil end
-    local rate = SV.Rate(S, i, t)
+    local rate = SV.Rate(S, i, t, self)
     local inbound = S.incoming and S.incoming[i] or nil
     if rate <= 0 and not inbound then return nil end
     local flight, fn = SV.InFlight(S, i, t, flightBuf)
@@ -301,7 +320,7 @@ function Solver:Decide(S, t, mana, form)
                         local st = fi and S.hots[i] and S.hots[i][fi]
                         local dep, dn = SV.Deposits(e, st, depBuf)
                         local flight, fn = SV.InFlight(S, i, t, flightBuf)
-                        local rate = SV.Rate(S, i, t)
+                        local rate = SV.Rate(S, i, t, self)
                         local inbound = S.incoming and S.incoming[i] or nil
                         -- the lowest point with this cast in flight
                         local hp, low = S.hp[i], S.hp[i]
@@ -333,7 +352,7 @@ function Solver:Decide(S, t, mana, form)
                 end
                 if pick then
                     self.reason = { rule = 8, target = i, deficit = (S.maxHP[i] or 0) - S.hp[i],
-                                    rate = SV.Rate(S, i, t), below = (S.danger and S.danger[i]) or nil,
+                                    rate = SV.Rate(S, i, t, self), below = (S.danger and S.danger[i]) or nil,
                                     cost = pickCost, freeIn = when }
                     return pick, i, 8
                 end

@@ -229,11 +229,16 @@ read only what a human can see.
   `tools/solvercheck.lua` (17 assertions) and `tools/solvercmp.lua` (the control
   experiment). *(2026-09-08; 43% less mana than the threshold rules for identical deaths
   and floor seconds, on the author's five recordings.)*
-- [ ] **v0.13.1** the solver's reasons in the replay and on the card -- it knows the
+- [x] **v0.13.1** healer intuition: a prior on incoming damage per zone and role, learned
+  from OTHER recordings and never from the fight being planned (leave-one-out enforced in
+  the signature and asserted in the harness). *(2026-09-08; it learns the right thing —
+  TANK 1463/s at the pull over ten ranked Nightbane logs — and pre-casts before the first
+  hit, but ships OFF: it has not been shown to help, and cannot be until v0.13.3.)*
+- [ ] **v0.13.2** the solver's reasons in the replay and on the card -- it knows the
   number it decided on, so the sentence can name it.
-- [ ] **v0.13.2** `SP.Search` over `minValue`/`horizon`, the four strategy objectives
+- [ ] **v0.13.4** `SP.Search` over `minValue`/`horizon`, the four strategy objectives
   reading the solver's pool, and the Review tab able to pick which planner coached.
-- [ ] **v0.13.3** correct the `-- VERIFY` heal values in `Data/SpellData.lua` from the
+- [ ] **v0.13.3** (blocks everything above) correct the `-- VERIFY` heal values in `Data/SpellData.lua` from the
   Warcraft Logs corpus (`tools/wclcheckkit.lua` measures the error; Rejuvenation R13 and
   Regrowth R10 are 1.6-1.8x out), then re-run the comparison on the level 70 imports.
 

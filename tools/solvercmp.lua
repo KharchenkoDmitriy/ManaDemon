@@ -39,8 +39,8 @@ MD.cdb = realDB.char[charKey]
 MD.cdb.profile = pre[charKey] and pre[charKey].profile
 MD.cdb.mp5 = pre[charKey] and pre[charKey].mp5
 
-local p = MD.cdb.profile
-if p then
+local function ApplyProfile(p)
+    if not p then return end
     S.level = p.level or S.level
     if (p.intellect or 0) > 0 then S.stats[4] = p.intellect end
     if (p.spirit or 0) > 0 then S.stats[5] = p.spirit end
@@ -62,11 +62,26 @@ if p then
             return sd ~= nil and (sd.level or 0) <= lvl
         end
         _G.IsPlayerSpell = _G.IsSpellKnown
-        MD.SpellData:BuildKnown()
     end
+    MD.SpellData:BuildKnown()
     MD.Regen:Refresh()
 end
 
+-- Every recording in the file, with the profile it belongs to. A multi-character
+-- file (the Warcraft Logs corpus) is one pool to learn from and many kits to
+-- plan with: the prior is shared, the spell values are each druid's own.
+local pool = {}
+for key, c in pairs(realDB.char or {}) do
+    for _, rec in ipairs(c.recordings or {}) do
+        pool[#pool + 1] = { rec = rec, profile = pre[key] and pre[key].profile, who = key }
+    end
+end
+table.sort(pool, function(a, b) return (a.rec.id or 0) < (b.rec.id or 0) end)
+local allRecs = {}
+for i, e in ipairs(pool) do allRecs[i] = e.rec end
+
+local p = MD.cdb.profile
+ApplyProfile(p)
 local kit = MD.RankMath:SpellKit({ live = true })
 local binds = SP.MaxRankBinds()
 print(string.format("char: %s   +%d healing, level %d\n", charKey,
@@ -75,47 +90,48 @@ print(string.format("char: %s   +%d healing, level %d\n", charKey,
 local function tup(t) return string.format("deaths %d  floor %5.1fs  mana %6.0f  overheal %4.0f",
     t[1], t[2], t[3], t[6] or 0) end
 
--- The rules baseline, once.
-local baseMana, baseFloor, baseDeaths = 0, 0, 0
-for _, rec in ipairs(MD.cdb.recordings or {}) do
-    local sc = SM.ScenarioFromRecording(rec, kit)
-    if sc then
-        local rules = SP.NewPlan(binds, { swiftmendBelow = 0.30, directBelow = 0.45,
-            rollStacks = 3, hotBelow = 0.80, filler = false }, kit)
-        local r = SP.RunPlan(sc, rules, { critMode = "ev" })
-        local a = SP.Score(r, rules, 0)
-        baseDeaths, baseFloor, baseMana = baseDeaths + a[1], baseFloor + a[2], baseMana + a[3]
-    end
-end
-print(string.format("rules (5 thresholds)        deaths %d  floor %5.1fs  mana %6.0f",
-    baseDeaths, baseFloor, baseMana))
-print("")
-print("the solver's frontier -- one dial (minValue) and one horizon:")
-print(string.format("%9s %8s  %s", "minValue", "horizon", "deaths / floor / mana over all recordings"))
+local IN = MD.Intuition
+print(string.format("corpus: %d recording(s) across %d character(s)", #pool, (function()
+    local n = 0; for _ in pairs(realDB.char or {}) do n = n + 1 end; return n end)()))
+print("intuition over the whole corpus: " .. IN:Describe(IN:Build(allRecs, nil)) .. "\n")
 
-local best
-for _, hz in ipairs({ 12, 18, 24 }) do
-    for _, mv in ipairs({ 0.5, 5, 10, 15, 20, 25, 30, 40 }) do
-        local d, f, m = 0, 0, 0
-        for _, rec in ipairs(MD.cdb.recordings or {}) do
-            local sc = SM.ScenarioFromRecording(rec, kit)
-            if sc then
-                local sv = SV.NewPlan(binds, { minValue = mv, horizon = hz }, kit)
-                local r = SP.RunPlan(sc, sv, { critMode = "ev" })
-                local b = SP.Score(r, sv, 0)
-                d, f, m = d + b[1], f + b[2], m + b[3]
-            end
-        end
-        local mark = ""
-        if d <= baseDeaths and f <= baseFloor and m < baseMana then mark = "  <= beats the rules outright" end
-        print(string.format("%9.2f %8d  deaths %d  floor %5.1fs  mana %6.0f%s", mv, hz, d, f, m, mark))
-        if (not best) or (d < best.d) or (d == best.d and f < best.f)
-           or (d == best.d and f == best.f and m < best.m) then
-            best = { d = d, f = f, m = m, mv = mv, hz = hz }
+local function total(mk)
+    local d, f, m = 0, 0, 0
+    for _, e in ipairs(pool) do
+        ApplyProfile(e.profile)
+        local kit2 = MD.RankMath:SpellKit({ live = true })
+        local sc = SM.ScenarioFromRecording(e.rec, kit2)
+        if sc then
+            local plan = mk(e.rec, kit2)
+            local r = SP.RunPlan(sc, plan, { critMode = "ev" })
+            local a = SP.Score(r, plan, 0)
+            d, f, m = d + a[1], f + a[2], m + a[3]
         end
     end
+    return d, f, m
 end
-print(string.format("\nbest by the lexicographic tuple: minValue %.2f horizon %d -> deaths %d, floor %.1fs, mana %.0f",
-    best.mv, best.hz, best.d, best.f, best.m))
-print(string.format("rules for comparison:                                deaths %d, floor %.1fs, mana %.0f",
-    baseDeaths, baseFloor, baseMana))
+
+local function line(label, d, f, m)
+    print(string.format("%-44s deaths %d  floor %6.1fs  mana %7.0f", label, d, f, m))
+end
+
+local rd, rf, rm = total(function(_, k2)
+    return SP.NewPlan(SP.MaxRankBinds(), { swiftmendBelow = 0.30, directBelow = 0.45,
+        rollStacks = 3, hotBelow = 0.80, filler = false }, k2)
+end)
+line("rules (5 thresholds)", rd, rf, rm)
+
+local BEST = { minValue = 15, horizon = 18 }
+local sd, sf, sm = total(function(_, k2)
+    return SV.NewPlan(SP.MaxRankBinds(), BEST, k2)
+end)
+line("solver, no prior", sd, sf, sm)
+
+local id_, if_, im_ = total(function(rec, k2)
+    return SV.NewPlan(SP.MaxRankBinds(), { minValue = BEST.minValue, horizon = BEST.horizon,
+        prior = IN:Build(allRecs, rec.id), zone = rec.zone }, k2)
+end)
+line("solver + intuition (leave-one-out)", id_, if_, im_)
+
+print(string.format("\nintuition changed mana by %+.0f (%+.1f%%) and floor by %+.1fs",
+    im_ - sm, sm > 0 and 100 * (im_ - sm) / sm or 0, if_ - sf))
