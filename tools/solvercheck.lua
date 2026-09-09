@@ -196,14 +196,20 @@ do
             ev.t[n], ev.kind[n], ev.tgt[n], ev.amt[n], ev.x[n] = at, K.DMG, 1, tankDps, 0
         end
         return { id = id, zone = "Test Keep", dur = 30, n = n, ev = ev,
-                 roster = { { name = "T", role = "TANK" }, { name = "H", role = "HEALER" } } }
+                 roster = { { name = "T", role = "TANK", maxHP = 4000 },
+                            { name = "H", role = "HEALER", maxHP = 4000 } } }
     end
     local recs = { fakeRec(1, 400), fakeRec(2, 400), fakeRec(3, 400) }
 
     local prior = IN:Build(recs, nil)
+    -- the prior speaks in FRACTIONS of max health: 400/s on a 4000hp tank is 10%
     local r = IN:Rate(prior, "Test Keep", "TANK", 0)
-    check("the prior learns the tank takes damage from the pull", r > 300,
-        string.format("%.0f per second", r))
+    check("the prior learns the tank takes damage from the pull",
+        r > 0.05 and r < 0.2, string.format("%.1f%% of health per second", r * 100))
+    check("the prior is a fraction, so it travels to another character",
+        math.abs(r * 12000 - 1200) < 200,
+        string.format("%.0f/s on a 12k tank vs %.0f/s on the 4k one it learned from",
+            r * 12000, r * 4000))
     check("it says nothing about a role nobody recorded",
         IN:Rate(prior, "Test Keep", "DAMAGER", 0) == 0)
 
@@ -224,7 +230,8 @@ do
 
     -- the prior fades as the fight provides real evidence
     local far = IN:Rate(prior, "Test Keep", "TANK", 60)
-    check("the prior still answers later in the fight", far > 0, string.format("%.0f", far))
+    check("the prior still answers later in the fight", far > 0,
+        string.format("%.1f%%", far * 100))
 
     -- and it must not make the solver clairvoyant: same scenario, same answer,
     -- whether or not a burst it never saw is coming
@@ -265,7 +272,7 @@ do
     local wise = SV.NewPlan(binds, { minValue = 0.5, horizon = 12,
                                      prior = prior, zone = "Test Keep" }, kit)
     local S0 = { nT = 2, tracked = { true, true }, dead = {}, hp = { 10000, 10000 },
-                 maxHP = { 10000, 10000 }, hots = { {}, {} }, dmg = {},
+                 maxHP = { 10000, 10000 }, hots = { {}, {} }, dmg = {}, danger = {},
                  role = { "TANK", "HEALER" }, threat = {}, incoming = {}, danger = {} }
     for i = 1, 2 do
         local ring = { t = {}, a = {}, total = 0, hits = 0, firstAt = nil, biggest = 0 }
@@ -423,6 +430,67 @@ do
     check("the foresighted strategy is flagged as not causal", plan.foresees == true)
     local plain = SP.MakeStrategy(SP.Strategy("solver-blind"), binds, kit, { scenario = sc, seed = 1 })
     check("the others are not", plain.foresees == false)
+end
+
+--------------------------------------------------------------------------------
+-- 9. The shipped prior: somebody else's experience, in fractions of health
+--------------------------------------------------------------------------------
+do
+    local IN = MD.Intuition
+    local t = MD.IntuitionTBC
+    check("a prior ships with the addon", t ~= nil and (t.fights or 0) >= 10,
+        t and string.format("%d fights, %d encounters", t.fights or 0, t.encounters or 0) or "missing")
+    check("it was merged from many encounters, not one raid",
+        (t.encounters or 0) >= 8, tostring(t.encounters))
+    check("it is blurred, not exact", (t.blurred or 0) > 0,
+        string.format("quantised to %.1f%% of health per second", (t.blurred or 0) * 100))
+    check("a tank opens harder than the fight sustains",
+        t.all.TANK.open > t.all.TANK.rest,
+        string.format("%.1f%% then %.1f%%", t.all.TANK.open * 100, t.all.TANK.rest * 100))
+    check("nobody but the tank is expected to take damage at the pull",
+        t.all.DAMAGER.open == 0 and t.all.HEALER.open == 0)
+    check("it carries how much it varies, so it can be doubted",
+        (t.all.TANK.spread or 0) > 1, string.format("%.1fx between encounters",
+            t.all.TANK.spread or 0))
+
+    local prior = IN:Load(t)
+    check("the shipped prior loads into the same shape Build makes",
+        IN:Rate(prior, nil, "TANK", 0) > 0.02,
+        string.format("%.1f%% of health per second", IN:Rate(prior, nil, "TANK", 0) * 100))
+
+    -- it lands on a character it never saw: a 4k tank and a 13k tank
+    local frac = IN:Rate(prior, nil, "TANK", 0)
+    check("the same prior scales to any character",
+        math.abs(frac * 4000 - 340) < 120 and math.abs(frac * 13000 - 1170) < 400,
+        string.format("%.0f/s on a 4k tank, %.0f/s on a 13k one", frac * 4000, frac * 13000))
+
+    -- and it does the job: pre-heal the TANK at the pull, with no damage yet
+    local function pullState()
+        local S = { nT = 2, tracked = { true, true }, dead = {}, hp = { 12000, 8000 },
+                    maxHP = { 12000, 8000 }, hots = { {}, {} }, dmg = {}, danger = {},
+                    role = { "TANK", "HEALER" }, threat = {}, incoming = {} }
+        for i = 1, 2 do
+            local ring = { t = {}, a = {}, total = 0, hits = 0, firstAt = nil, biggest = 0 }
+            for j = 1, 64 do ring.t[j], ring.a[j] = -100, 0 end
+            S.dmg[i] = ring
+        end
+        return S
+    end
+    local sc = { dur = 30, pool = 9000, initial = { mana = 9000, apiBase = 10, apiCasting = 4 },
+                 kit = kit, floor = 0.30, ev = { t = {}, kind = {}, tgt = {}, amt = {}, x = {} },
+                 targets = { { name = "T", role = "TANK", maxHP = 12000, hp0 = 12000, tracked = true } } }
+    local blind = SP.MakeStrategy(SP.Strategy("solver-blind"), binds, kit, { scenario = sc })
+    local wise = SP.MakeStrategy(SP.Strategy("solver-corpus"), binds, kit, { scenario = sc })
+    check("the corpus strategy carries the shipped prior", wise.prior ~= nil)
+    check("it is still causal -- it never reads this fight", wise.foresees == false)
+    check("with the shipped prior the solver opens on the tank",
+        blind:Decide(pullState(), 0, 99999, "caster") == nil
+        and select(2, wise:Decide(pullState(), 0, 99999, "caster")) == 1,
+        (function()
+            local id, tgt = wise:Decide(pullState(), 0, 99999, "caster")
+            return id and string.format("target %s, %s", tostring(tgt),
+                (MD.SpellData.spells[id] or {}).family or id) or "waited"
+        end)())
 end
 
 print(string.format("\n%d ok, %d failed", ok, #fails))

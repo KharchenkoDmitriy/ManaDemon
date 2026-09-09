@@ -85,7 +85,8 @@ for _, entry in ipairs(SP.STRATEGY_SET) do
         if sc then
             local plan = SP.MakeStrategy(entry, SP.MaxRankBinds(), kit,
                 { scenario = sc, seed = e.rec.id or 1,
-                  recs = allRecs, excludeID = e.rec.id, zone = e.rec.zone })
+                  recs = allRecs, excludeID = e.rec.id, zone = e.rec.zone,
+                  encounter = e.rec.encounter })
             if plan and plan.foresees then sees = true end
             local r = SP.RunPlan(sc, plan, { critMode = "ev",
                 onCast = function() casts = casts + 1 end })

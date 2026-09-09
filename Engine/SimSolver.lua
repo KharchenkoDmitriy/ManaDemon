@@ -135,7 +135,9 @@ function SV.Rate(S, i, t, plan)
     end
     local prior = plan and plan.prior
     if not prior then return observed end
+    -- the prior speaks in fractions of max health, so it lands on any character
     guess = MD.Intuition:Rate(prior, plan.zone, S.role and S.role[i], t)
+             * (S.maxHP[i] or 0)
     if guess <= 0 then return observed end
     -- Confidence in the guess decays as the fight gives us real evidence: at the
     -- pull it is all we have, and by the time the trailing window is full it is

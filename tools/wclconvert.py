@@ -423,6 +423,10 @@ def convert(blob, healer):
         "v": 1,
         "id": int((blob["reportStart"] + t0) / 1000),
         "zone": "%s (WCL %s #%d)" % (fight["name"], blob["code"], fight["id"]),
+        # the encounter on its own: `zone` carries the report code so a record can
+        # be identified, which makes it useless as a key for grouping fights of
+        # the same boss together. Engine/Intuition.lua keys on this.
+        "encounter": fight["name"],
         "t0": 0, "dur": round(dur, 2), "pool": pool,
         "roster": roster,
         "tracked": [idx[a] for a in order],

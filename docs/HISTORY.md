@@ -2605,3 +2605,51 @@ mostly-solo corpus is not a verdict on the idea, and the raid corpus cannot sett
 the level 70 heal values are 1.6-1.8x low. Both stay selectable; neither is default.
 
 11 suites green (solvercheck 26 -> 46).
+
+## 2026-09-09 — v0.13.3: four forecasts, and a prior from other people's raids
+
+The author asked for a fourth solver variant: intuition merged from "lots of external logs
+... 10+ logs of different raid, transform into our format, merge all and blur - so its like
+intuition from different experience collected over time".
+
+Twelve more fights fetched, one per encounter, across Karazhan, Gruul/Magtheridon, SSC/TK
+and BT/Hyjal; with the ten Nightbane parses that is **22 fights across 13 encounters**.
+`tools/buildintuition.lua` folds them into one blurred profile and writes
+`Data/Intuition_TBC.lua`.
+
+**The change that makes any of it work: rates are fractions of max health, not damage.**
+The corpus is level 70 raids and the author is level 64 in Hellfire. A prior in raw damage
+would tell a 4k-health warrior taking 400 a second that they are fine, because the Sunwell
+tank it learned from has 13k. In fractions the same prior reads 360/s on a 4k tank and
+1170/s on a 13k one, which is asserted.
+
+What 22 fights say, blurred to the nearest half percent:
+
+```
+TANK      9.0% of health per second opening, 5.5% sustained   (spread 5.1x)
+HEALER    0.0% opening, 1.5% sustained                        (spread 23.5x)
+DAMAGER   0.0% opening, 1.5% sustained                        (spread 5.0x)
+```
+
+A fair summary of raiding: the tank is the one being hit, hardest at the pull, and nobody
+else takes anything until the fight develops. The spread rides along so the prior can be
+doubted.
+
+The four now selectable: `solver-blind`, `solver-prior` (your own records, leave-one-out),
+`solver-corpus` (the shipped one), `solver-sight` (blurred foresight of this fight, the
+only one that is not causal).
+
+**On the author's recordings the corpus prior changes nothing at all**, and that is right
+rather than broken: their fights are effectively solo, the damage lands on the *healer*,
+and a corpus of raids has learned that healers take nothing at the pull. A prior built from
+raiding does not transfer to solo play because the roles do not mean the same thing. The
+mechanism is asserted on its own instead — given a party with a real tank, the blind solver
+waits at the pull and the corpus-primed one opens on it.
+
+Two bugs worth recording. `SP.MakeStrategy` set the corpus prior and then the next branch
+overwrote it with the own-logs one, so the two variants scored identically to the digit --
+which is what gave it away. And `tools/run.sh` passes the checkout root as `arg[1]`; the
+other tools get away with reading from `arg[1]` only because their parsers happen to reject
+a path, and a new tool that did not immediately tried to `dofile` a directory.
+
+11 suites green (solvercheck 47 -> 58).

@@ -595,6 +595,9 @@ SP.STRATEGY_SET = {
     { key = "solver-prior", label = "Solver: intuition from old logs", kind = "solver",
       why = "a prior per zone and role, learned from OTHER fights, never this one",
       params = { minValue = 15, horizon = 18, prior = true } },
+    { key = "solver-corpus", label = "Solver: intuition from many raids", kind = "solver",
+      why = "one blurred prior merged from 22 logged fights across 13 encounters",
+      params = { minValue = 15, horizon = 18, corpus = true } },
     { key = "solver-sight", label = "Solver: blurred foresight", kind = "solver",
       why = "a smeared, quantised, half-trusted view of THIS fight -- not causal",
       params = { minValue = 15, horizon = 18, foresight = true } },
@@ -624,7 +627,13 @@ function SP.MakeStrategy(entry, binds, kit, ctx)
                 and MD.Foresight.Build(ctx.scenario, { seed = (ctx and ctx.seed) or 1 })
                 or nil
         end
-        if params.prior then
+        if params.corpus then
+            -- the shipped prior: somebody else's experience, blurred, in
+            -- fractions of health so it lands on any character
+            params.prior = MD.Intuition:Load(MD.IntuitionTBC)
+            params.zone = ctx and ctx.encounter or nil
+            params.corpus = nil
+        elseif params.prior then
             -- LEAVE ONE OUT: the fight being planned is never in its own prior.
             params.prior = (ctx and ctx.recs and MD.Intuition)
                 and MD.Intuition:Build(ctx.recs, ctx.excludeID) or nil
